@@ -104,8 +104,15 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
 
 ## 5. 当前任务
 
-**前端重构**。背景、根因、硬边界、两步走流程（先出方案图 → 选一个 → 再落地）
-全在 **`docs/REFACTOR-BRIEF.md`**，开工前先读它。
+**前端重构 + 极简版接线**。原型（`docs/player-ui/`）已落进生产 `ui/`，接线完成并部署。
+
+- 交接与结论：`docs/player-ui/WIRING-DONE.md`（宿主主题变量、旧列表 searchKey 形状、部署回路）
+- 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
+- 无头验收：`node tools/verify-ui.mjs`
+- 待办：独立窗/小卡音频不中断（需先核实宿主能力）；本地文件导入需真机点一次确认。
+
+> 注：早期 `docs/REFACTOR-BRIEF.md` 里的「PV / 唱盘 / 主题面板」等要求已被 2026-10-08 的
+> `CONTRACT.md` 取代，以极简版为准。
 
 ## 6. 视觉规范
 

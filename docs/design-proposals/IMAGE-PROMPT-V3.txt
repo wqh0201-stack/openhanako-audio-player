@@ -1,0 +1,25 @@
+Generation method: built-in GPT image generation (image_gen), not CLI.
+Output: hana-player-tall-window-v3.png
+Reference: approved compact concept hana-player-compact-v2.png.
+Purpose: tall-card and detached-window aesthetic proposal. Actual size behavior remains untested; generated aspect ratios are approximate.
+
+Use case: ui-mockup. Create a polished design board showing TWO new responsive versions of the Hana music player, extending exactly the aesthetic of the attached approved compact-player concept. Reference role: approved design language, typography, scenic album art dissolved into warm paper, fine distant-blue controls. Do not repeat the two compact states. Design the OTHER TWO formats: tall narrow card and wide detached window.
+
+One landscape high-resolution board, approximately 2048x1536, neutral pale warm background, discreet small heading "HANA / 同一种沉浸，不同的空间". LEFT a fully visible tall narrow player with strict aspect ratio 465:930 (width about 440, height 880 visual units). RIGHT a fully visible landscape detached player with strict aspect ratio 1040:740 (width about 1000, height 712 units), vertically centered alongside the tall one. Small labels outside "长卡片" and "独立窗口". Maximize real UI area. No extra panels or presentation paragraphs. Orthographic crisp flat UI. No device frames. Square app outer corners, no external outline/shadow. Small 5px internal corner radii only.
+
+Shared aesthetic: warm paper #F8F4ED, cream surface #FFFDF7, ink #2A2622, secondary #6B6158, restrained distant blue #537D96 for current/active controls. Beautiful cinematic desaturated photographic landscape cover: golden grasses in lower foreground, cool distant mountain ridges, cloud sea, soft dawn sky. The cover fills the stage and dissolves smoothly into a translucent warm paper veil under the lyrics, exactly like the reference. NO vinyl record, NO standalone album-cover square, NO orange controls, NO glass tiles. Image-based atmosphere without sacrificing text contrast. System Chinese sans-serif interface; restrained beautiful Songti serif current lyric. Outline SVG-style icons only, no emoji. Layout should feel quietly artistic but fully functional. Preserve upper-right 100x40 CSS-unit empty host control safe area on both app frames.
+
+Tall card:
+- Compact upper-left song title "风经过的地方", artist "林间来信", small outline heart. No redundant player header above song name.
+- Below heading short mode row "标准  PV  歌词", lyrics active blue underline; discreet settings outline icon on same row.
+- Main stage fills available middle height with integrated landscape. Foreground grasses most evident lower left; warm translucent veil ensures lyrics are legible. Five or six lyric lines centered and comfortably spaced, current line around mid-height, not at bottom. Current lyric "把夜色轻轻折进唱片里" can wrap gracefully into two balanced lines if needed, strong dark ink. Other lines "当最后一班车驶过长街", "风从很远的山间寄来信", "窗边的灯，还留在原地", "我们沿着微光继续前行". Current line is crisp, neighbors muted but readable; avoid large dead gaps.
+- Permanent compact bottom playback strip seamlessly merged into stronger paper veil: seek slider "1:03" to "4:44"; repeat, previous, round blue pause, next, volume. A clearly labelled list button "队列 48" stays accessible; can have its own compact aligned slot if required. NO visible song rows or queue filters on this listening page. Queue is a separate page behind that button.
+
+Wide detached player:
+- Same song title and artist positioned in upper part of the RIGHT half, followed by mode row "标准  PV  歌词", lyrics active.
+- Use scenic photographic composition across the whole background with strongest unobscured scenery on LEFT 45%; blend softly through center into warm paper on RIGHT 55%, where five lyric lines form the main reading column. No hard vertical divider. This uses width for scenery/lyrics, NOT a permanently visible playlist.
+- Current line "把夜色轻轻折进唱片里" larger, refined and fully legible; preceding/following lines in quiet ink with clear spacing. Discreet heart and more icons near song metadata, settings icon below the top-right safe zone.
+- Bottom full-width playback bar, about 80 CSS units tall, same subtle warm-paper veil: left song title/artist, central repeat/previous/blue pause/next, right volume and "队列 48" list button. Fine progress slider runs above controls with "1:03" and "4:44". NO permanent list panel, no browser chrome, no traffic light buttons drawn inside app, no library sidebar.
+- Queue button represents an on-demand independent content panel; it is closed in this image so listening scene remains coherent. Keep essential controls obvious, no ornaments.
+
+Match the approved reference in warmth, tasteful restrained Chinese lyric typography, photographic immersion, and consistent icon geometry. Realistic usable music player, not a streaming service marketing page. Make tall and wide proportions correct; every player fully visible, every bottom control visible. The two layouts should feel like the same product adapting, not two unrelated concepts.

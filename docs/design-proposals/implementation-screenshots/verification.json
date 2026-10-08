@@ -1,0 +1,121 @@
+{
+  "shots": [
+    {
+      "name": "long-card-light",
+      "width": 465,
+      "height": 930,
+      "theme": "light",
+      "mode": "card fixture route",
+      "bodyClass": "view-full lyrics-mode",
+      "root": {
+        "w": 465,
+        "h": 930,
+        "classes": "player-container"
+      },
+      "headerVisible": true
+    },
+    {
+      "name": "tall-card-light",
+      "width": 585,
+      "height": 1172,
+      "theme": "light",
+      "mode": "card fixture route",
+      "bodyClass": "lyrics-mode view-full",
+      "root": {
+        "w": 585,
+        "h": 1172,
+        "classes": "player-container"
+      },
+      "headerVisible": true
+    },
+    {
+      "name": "wide-window-light",
+      "width": 1040,
+      "height": 780,
+      "theme": "light",
+      "mode": "detached fixture route",
+      "bodyClass": "lyrics-mode view-full",
+      "root": {
+        "w": 1040,
+        "h": 780,
+        "classes": "player-container is-detached queue-drawer-open"
+      },
+      "headerVisible": true
+    },
+    {
+      "name": "wide-window-dark",
+      "width": 1040,
+      "height": 780,
+      "theme": "dark",
+      "mode": "detached fixture route",
+      "bodyClass": "lyrics-mode view-full",
+      "root": {
+        "w": 1040,
+        "h": 780,
+        "classes": "player-container is-detached queue-drawer-open"
+      },
+      "headerVisible": true
+    },
+    {
+      "name": "short-card",
+      "width": 531,
+      "height": 451,
+      "theme": "light",
+      "mode": "card fixture route",
+      "bodyClass": "lyrics-mode view-full",
+      "root": {
+        "w": 531,
+        "h": 451,
+        "classes": "player-container is-short queue-page-open"
+      },
+      "headerVisible": true
+    },
+    {
+      "name": "large-type-no-lyrics",
+      "width": 560,
+      "height": 616,
+      "theme": "light",
+      "mode": "card fixture route",
+      "bodyClass": "view-full",
+      "root": {
+        "w": 560,
+        "h": 616,
+        "classes": "player-container"
+      },
+      "headerVisible": true
+    }
+  ],
+  "dynamic": {
+    "audioPaused": false,
+    "audioDuration": 5,
+    "audioTime": 0.794545,
+    "lyricLineCount": 100,
+    "activeLyrics": 1,
+    "tracks": 40,
+    "queueStart": 0,
+    "queueBottom": 1907,
+    "queueAtBottom": true,
+    "lyricTicks": 27,
+    "lyricOwnScroll": true,
+    "queueScrollTop": 1907,
+    "rootClasses": "player-container",
+    "controlPresent": true
+  },
+  "runtimeErrors": [],
+  "shortCard": {
+    "height": 451,
+    "tracks": 40,
+    "cycles": 20,
+    "queuePageOpen": true,
+    "audioPaused": false,
+    "audioTimeBefore": 0,
+    "audioTimeAfter": 0.128086,
+    "audioContinues": true,
+    "controlsPresent": true
+  },
+  "lyricRace": {
+    "currentTrack": "Fixture Track 02 — Long Title Demo",
+    "lyricsShowNewTrack": true,
+    "lyricsShowStaleTrack": false
+  }
+}

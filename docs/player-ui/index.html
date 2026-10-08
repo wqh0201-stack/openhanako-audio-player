@@ -3,11 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hana Player</title>
+<title>Hana 极简播放器 · UI 原型</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body data-shell="card">
-<audio id="audio" preload="metadata"></audio>
+<body>
+
+<!-- DEV-TOOLBAR:BEGIN 预览专用开发工具条，生产接线时连同 app.js 里的同名段落整段删除 -->
+<div class="devbar" id="devbar">
+  <span class="devbar-tag">开发工具条 · 生产接线时删除</span>
+  <div class="devbar-group" id="devSizes" role="group" aria-label="预览尺寸"></div>
+  <div class="devbar-group" id="devThemes" role="group" aria-label="预览主题"></div>
+</div>
+<!-- DEV-TOOLBAR:END -->
 
 <div class="frame" id="frame">
   <div class="player" id="player" data-layout="long" data-page="play" data-drawer="0" data-lyrics="1">
@@ -71,10 +78,6 @@
         <!-- 导入面板 -->
         <div class="pop pop-import" id="importPop" hidden>
           <p class="pop-title">添加曲目</p>
-          <div class="pop-link">
-            <input class="pop-input" id="linkInput" type="url" inputmode="url" placeholder="粘贴歌曲 / 歌单链接" aria-label="在线链接">
-            <button class="pop-go" id="linkAddBtn" type="button" aria-label="添加链接">添加</button>
-          </div>
           <button class="pop-item" data-import="file" type="button">
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-file"></use></svg>
             <span>本地文件</span>
@@ -83,7 +86,11 @@
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-folder"></use></svg>
             <span>本地文件夹</span>
           </button>
-          <p class="pop-note" id="importNote"></p>
+          <button class="pop-item" data-import="link" type="button">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-link"></use></svg>
+            <span>在线链接</span>
+          </button>
+          <p class="pop-note">原型演示，不会读取真实文件</p>
         </div>
       </section>
     </section>
@@ -197,14 +204,6 @@
   <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5.6v11.2M7.6 12.6 12 17l4.4-4.4"/></symbol>
 </defs></svg>
 
-<script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131539";</script>
-<script type="module">
-  import { hana } from "./sdk.js";
-  window.hana = hana;
-  window.__hana = hana;
-  try { hana.ready(); } catch (e) { console.warn("[hana] ready failed", e); }
-  window.dispatchEvent(new Event("hana-sdk-ready"));
-</script>
+<script src="app.js"></script>
 </body>
 </html>

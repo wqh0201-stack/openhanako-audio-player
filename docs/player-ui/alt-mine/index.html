@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hana 极简播放器 · UI 原型</title>
+<script>
+  /* 预览截图/自检模式：无外壳、无滚动（生产接线时删除） */
+  if (/[?&](w|h)=/.test(location.search)) document.documentElement.classList.add('harness');
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== 预览工具条（生产接线时整段删除） ===== -->
+<header class="devbar" id="devbar">
+  <div class="devbar-title">Hana 极简播放器 · UI 原型</div>
+  <div class="devbar-group" role="group" aria-label="容器尺寸">
+    <span class="devbar-label">尺寸</span>
+    <button type="button" class="dev-btn" data-size="465x930" aria-pressed="true">465×930</button>
+    <button type="button" class="dev-btn" data-size="585x1172" aria-pressed="false">585×1172</button>
+    <button type="button" class="dev-btn" data-size="531x451" aria-pressed="false">531×451</button>
+    <button type="button" class="dev-btn" data-size="560x616" aria-pressed="false">560×616</button>
+    <button type="button" class="dev-btn" data-size="1040x740" aria-pressed="false">1040×740</button>
+  </div>
+  <div class="devbar-group" role="group" aria-label="主题">
+    <span class="devbar-label">主题</span>
+    <button type="button" class="dev-btn" data-theme="light" aria-pressed="true">浅</button>
+    <button type="button" class="dev-btn" data-theme="dark" aria-pressed="false">深</button>
+  </div>
+  <div class="devbar-note">预览专用 · 可拖动容器右下角改变尺寸 · 接线时整段删除</div>
+</header>
+
+<div class="shell">
+  <!-- 模拟宿主容器：直角、无外描边、无外阴影 -->
+  <div class="frame" id="frame">
+    <div class="player" id="player" data-theme="light" data-layout="tall" data-page="play"
+         data-lyrics="on" data-playing="off" data-drawer="closed">
+
+      <section class="stage" id="stage" aria-label="舞台">
+        <div class="cover-wrap" id="coverWrap">
+          <div class="cover-fallback" aria-hidden="true"><svg class="ic"><use href="#i-note"/></svg></div>
+          <img class="cover-img" id="coverImg" src="assets/demo-cover.png" alt="专辑封面：清晨远山、云海与金色草坡">
+        </div>
+
+        <div class="lyric-wrap" id="lyricWrap">
+          <div class="lyric-scrim" id="lyricScrim" aria-hidden="true"></div>
+          <div class="lyric-scroll" id="lyricScroll">
+            <div class="lyric-inner" id="lyricInner"></div>
+          </div>
+          <button type="button" class="back-to-lyric" id="backToLyric" hidden>
+            <svg class="ic" style="width:15px;height:15px"><use href="#i-chev-up"/></svg>
+            <span>回到当前歌词</span>
+          </button>
+        </div>
+
+        <div class="info-scrim" id="infoScrim" aria-hidden="true"></div>
+        <div class="track-info" id="trackInfo">
+          <h1 class="track-title" id="trackTitle">风经过的地方</h1>
+          <p class="track-artist" id="trackArtist">林间来信</p>
+        </div>
+
+        <div class="stage-mask" id="stageMask" hidden></div>
+      </section>
+
+      <section class="queue" id="queue" aria-label="播放队列">
+        <div class="queue-head">
+          <div class="queue-back-row">
+            <button type="button" class="text-btn back-btn" id="backBtn" title="返回播放" aria-label="返回播放">
+              <svg class="ic"><use href="#i-chev-left"/></svg><span>返回播放</span>
+            </button>
+          </div>
+          <div class="queue-title-row">
+            <h2 class="queue-title">播放队列</h2>
+            <span class="queue-count" id="queueCount">12 首</span>
+            <div class="queue-head-actions">
+              <button type="button" class="icon-btn" id="importBtn" title="导入曲目" aria-label="导入曲目"
+                      aria-haspopup="menu" aria-expanded="false"><svg class="ic"><use href="#i-plus"/></svg></button>
+              <button type="button" class="icon-btn drawer-close-btn" id="drawerCloseBtn" title="关闭队列"
+                      aria-label="关闭队列"><svg class="ic"><use href="#i-close"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <ul class="queue-list" id="queueList"></ul>
+      </section>
+
+      <footer class="controls" id="controls" aria-label="播放控制">
+        <div class="progress-row">
+          <div class="controls-info" id="controlsInfo">
+            <div class="controls-info-title" id="ciTitle">风经过的地方</div>
+            <div class="controls-info-artist" id="ciArtist">林间来信</div>
+          </div>
+          <div class="progress-block">
+            <span class="time" id="posTime">0:00</span>
+            <div class="bar" id="progressBar" role="slider" tabindex="0" aria-label="播放进度"
+                 aria-valuemin="0" aria-valuemax="284" aria-valuenow="0" aria-valuetext="0 秒">
+              <div class="bar-track">
+                <div class="bar-fill" id="progressFill"></div>
+                <div class="bar-knob" id="progressKnob"></div>
+              </div>
+            </div>
+            <span class="time is-total" id="durTime">4:44</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <div class="btn-group btn-group-left">
+            <button type="button" class="icon-btn" id="modeBtn" title="播放模式：列表循环（点击切换）"
+                    aria-label="播放模式：列表循环（点击切换）"><svg class="ic"><use href="#i-loop"/></svg></button>
+            <button type="button" class="icon-btn" id="lyricsBtn" title="隐藏歌词" aria-label="隐藏歌词"
+                    aria-pressed="true"><svg class="ic"><use href="#i-lyrics"/></svg></button>
+          </div>
+          <div class="btn-group btn-group-center">
+            <button type="button" class="icon-btn" id="prevBtn" title="上一首" aria-label="上一首">
+              <svg class="ic"><use href="#i-prev"/></svg></button>
+            <button type="button" class="play-btn" id="playBtn" title="播放" aria-label="播放">
+              <svg class="ic ic-solid"><use href="#i-play-solid" id="playIcon"/></svg></button>
+            <button type="button" class="icon-btn" id="nextBtn" title="下一首" aria-label="下一首">
+              <svg class="ic"><use href="#i-next"/></svg></button>
+          </div>
+          <div class="btn-group btn-group-right">
+            <button type="button" class="icon-btn" id="muteBtn" title="静音" aria-label="静音">
+              <svg class="ic"><use href="#i-vol" id="volIcon"/></svg></button>
+            <div class="vol">
+              <div class="bar" id="volBar" role="slider" tabindex="0" aria-label="音量"
+                   aria-valuemin="0" aria-valuemax="100" aria-valuenow="72" aria-valuetext="72%">
+                <div class="bar-track bar-track-sm">
+                  <div class="bar-fill" id="volFill"></div>
+                  <div class="bar-knob bar-knob-sm" id="volKnob"></div>
+                </div>
+              </div>
+            </div>
+            <span class="btn-divider" id="btnDivider" aria-hidden="true"></span>
+            <button type="button" class="text-btn queue-toggle" id="queueBtn" title="打开播放队列"
+                    aria-label="打开播放队列" aria-expanded="false">
+              <svg class="ic" style="width:17px;height:17px"><use href="#i-queue"/></svg>
+              <span id="queueBtnLabel">队列 12</span>
+            </button>
+          </div>
+        </div>
+      </footer>
+
+    </div><!-- /.player -->
+
+    <!-- 浮层与提示 -->
+    <div class="pop" id="importPop" role="menu" aria-label="导入曲目" hidden>
+      <button type="button" class="pop-item" data-import="file" role="menuitem">
+        <svg class="ic"><use href="#i-file"/></svg>
+        <span class="pop-item-text"><span class="pop-item-title">本地文件</span>
+          <span class="pop-item-hint">选择一个或多个音频文件</span></span>
+      </button>
+      <button type="button" class="pop-item" data-import="folder" role="menuitem">
+        <svg class="ic"><use href="#i-folder"/></svg>
+        <span class="pop-item-text"><span class="pop-item-title">本地文件夹</span>
+          <span class="pop-item-hint">把整个文件夹加入队列</span></span>
+      </button>
+      <button type="button" class="pop-item" data-import="link" role="menuitem">
+        <svg class="ic"><use href="#i-link"/></svg>
+        <span class="pop-item-text"><span class="pop-item-title">在线链接</span>
+          <span class="pop-item-hint">单曲或歌单链接</span></span>
+      </button>
+    </div>
+
+    <div class="pop" id="rowMenu" role="menu" aria-label="曲目操作" hidden>
+      <button type="button" class="pop-item" data-row-action="remove" role="menuitem">
+        <svg class="ic"><use href="#i-trash"/></svg>
+        <span class="pop-item-text"><span class="pop-item-title">从队列移除</span></span>
+      </button>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </div><!-- /.frame -->
+</div>
+
+<!-- 图标：全部 SVG 线描，无 emoji -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-play-solid" viewBox="0 0 24 24"><path d="M8.6 5.6v12.8L18.9 12z"/></symbol>
+  <symbol id="i-pause-solid" viewBox="0 0 24 24">
+    <rect x="8.1" y="5.6" width="2.9" height="12.8" rx="1.3"/>
+    <rect x="13" y="5.6" width="2.9" height="12.8" rx="1.3"/>
+  </symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M7 6.2v11.6"/><path d="M19 6.6L10 12l9 5.4z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M17 6.2v11.6"/><path d="M5 6.6l9 5.4-9 5.4z"/></symbol>
+  <symbol id="i-loop" viewBox="0 0 24 24">
+    <path d="M17.5 3.6l3 3-3 3"/><path d="M20.5 6.6H7.8A3.8 3.8 0 0 0 4 10.4v1.2"/>
+    <path d="M6.5 20.4l-3-3 3-3"/><path d="M3.5 17.4h12.7a3.8 3.8 0 0 0 3.8-3.8v-1.2"/>
+  </symbol>
+  <symbol id="i-loop-one" viewBox="0 0 24 24">
+    <path d="M17.5 3.6l3 3-3 3"/><path d="M20.5 6.6H7.8A3.8 3.8 0 0 0 4 10.4v1.2"/>
+    <path d="M6.5 20.4l-3-3 3-3"/><path d="M3.5 17.4h12.7a3.8 3.8 0 0 0 3.8-3.8v-1.2"/>
+    <path d="M11.3 10.3l1.5-.8v5.6"/>
+  </symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24">
+    <path d="M4 6.4h2.6c1.3 0 2.5.7 3.2 1.8l2.2 3.6c.7 1.1 1.9 1.8 3.2 1.8H20"/>
+    <path d="M4 17.6h2.6c1.3 0 2.5-.7 3.2-1.8l2.2-3.6c.7-1.1 1.9-1.8 3.2-1.8H20"/>
+    <path d="M17.4 3.9l2.6 2.5-2.6 2.5"/><path d="M17.4 15.1l2.6 2.5-2.6 2.5"/>
+  </symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24">
+    <path d="M4.5 9.2h3l4-3.4v12.4l-4-3.4h-3z"/><path d="M15 9.4a3.8 3.8 0 0 1 0 5.2"/>
+    <path d="M17.6 7a7.2 7.2 0 0 1 0 10"/>
+  </symbol>
+  <symbol id="i-vol-mute" viewBox="0 0 24 24">
+    <path d="M4.5 9.2h3l4-3.4v12.4l-4-3.4h-3z"/><path d="M15.2 9.6l4.6 4.8"/><path d="M19.8 9.6l-4.6 4.8"/>
+  </symbol>
+  <symbol id="i-lyrics" viewBox="0 0 24 24">
+    <path d="M4.5 6.8h15"/><path d="M4.5 11.4h9.5"/><path d="M4.5 16h12"/><path d="M4.5 20h6.5"/>
+  </symbol>
+  <symbol id="i-queue" viewBox="0 0 24 24">
+    <path d="M8.6 7.2h11"/><path d="M8.6 12h11"/><path d="M8.6 16.8h11"/>
+    <path d="M4.6 7.2h.01"/><path d="M4.6 12h.01"/><path d="M4.6 16.8h.01"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.4v13.2"/><path d="M5.4 12h13.2"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24">
+    <circle cx="5.6" cy="12" r="1.25"/><circle cx="12" cy="12" r="1.25"/><circle cx="18.4" cy="12" r="1.25"/>
+  </symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.6 6.6l10.8 10.8"/><path d="M17.4 6.6L6.6 17.4"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.6 6.2L8.6 12l6 5.8"/></symbol>
+  <symbol id="i-chev-up" viewBox="0 0 24 24"><path d="M6.2 14.6L12 8.6l5.8 6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24">
+    <path d="M6.5 4.6h7.2l3.8 3.8v11H6.5z"/><path d="M13.5 4.6v4h4"/><path d="M9 12.6h6"/><path d="M9 16h4"/>
+  </symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24">
+    <path d="M4.2 7.4h4.9l1.8 2.4h8.9v9.2H4.2z"/><path d="M4.2 7.4V5.6h5.3l1.3 1.8"/>
+  </symbol>
+  <symbol id="i-link" viewBox="0 0 24 24">
+    <path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l2.6-2.6a3.6 3.6 0 0 0-5.1-5.1l-1 1"/>
+    <path d="M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-2.6 2.6a3.6 3.6 0 0 0 5.1 5.1l1-1"/>
+  </symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24">
+    <path d="M5.4 7.4h13.2"/><path d="M9.2 7.4V5.4h5.6v2"/><path d="M7 7.4l1 12h8l1-12"/>
+  </symbol>
+  <symbol id="i-note" viewBox="0 0 24 24">
+    <path d="M9.4 17.2V7.6l7.2-1.6v9.2"/><circle cx="7.4" cy="17.2" r="2.1"/><circle cx="14.6" cy="15.2" r="2.1"/>
+  </symbol>
+</svg>
+
+<script src="app.js"></script>
+</body>
+</html>

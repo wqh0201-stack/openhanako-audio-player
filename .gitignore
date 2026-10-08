@@ -2,6 +2,9 @@
 *.bak-*
 *.bak
 
+# 本地回退包（大二进制，不入库）
+.backups/
+
 # 构建产物 / 发布包（由 pv/release.mjs 生成）
 dist/
 
