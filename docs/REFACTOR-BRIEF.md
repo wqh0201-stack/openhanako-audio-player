@@ -85,6 +85,18 @@
   - 权威：`~/.hanako/recipes/hana-folio/references/house-style.md`（卡片面）
     + 宿主 `hana.theme`（运行时主题）；组件实现参考 `hana-card-style`。
 
+- **决策（已定）：A — 直接收编成「跟随宿主」，删掉自带配色面板。**
+  具体要删干净的东西：
+  - **UI**：顶栏 `#paletteBtn` + 配色面板（`#themePanel` / `#themeGrid`）。
+  - **预设系统**：`PRESETS`、`hana_audio_theme_preset`、`hana_audio_theme_custom`，
+    以及 `applyPreset` / `renderPanel` / `ensurePanel` / `applyBackground` 那一套。
+  - **app 自己的主题变量与机制**：`:root` 里的 `--bg/--surface/--text/--accent/--card-bg…`、
+    `applyThemeToCSS` / `applyTheme` / `html[data-theme]`、`clearInlineTheme` 补丁。
+  - **改为消费宿主 `hana.theme` 注入的变量**（SDK 已自动注入样式表）。
+  - **保留「音频反应」这个功能**（用户喜欢的），但它的颜色从宿主强调色派生；
+    控制项（开关 / 强度）从配色面板挪到设置页。
+  - 旧的 `localStorage` 键留着不读即可（不必清理）。
+
 ## 5. 目标形态（重构后的验收标准）
 
 1. 一条**真正的 flex 高度链**：`header`(固定) / `now-playing`(可收缩) / `controls`(固定) / `nav-tabs`(固定) / `content`(吃剩余，有下限)。每个可滚区 `min-height:0`。

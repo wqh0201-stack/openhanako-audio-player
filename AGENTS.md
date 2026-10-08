@@ -120,3 +120,6 @@ SDK 默认已把宿主主题样式表注入页面（`ui/sdk.js` 的 `followHostT
   强调藕荷粉 `#C99AAF` / 文字 `#E1EAF0`·`#9FB1BC`（小截图取色，权威以 `hana.theme` 为准）。
 
 通用：小圆角约 5px；只 SVG 线描图标（禁 emoji）；字号 ≥ 11px；禁左竖线当区块装饰。
+
+**决策（已定）**：自带配色面板已砍，主题**只跟随宿主**（决策 A，删改清单见
+`docs/REFACTOR-BRIEF.md` §4.2）。
