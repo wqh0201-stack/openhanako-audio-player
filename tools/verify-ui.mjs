@@ -72,6 +72,16 @@ const server = http.createServer((req, res) => {
   const p = u.pathname;
   if (p === '/favicon.ico') { res.statusCode = 204; return res.end(); }
 
+  // 复刻宿主鉴权：/routes/ 下的请求必须带 surface session（header 或 query），否则 403。
+  // 少了这一层，前端忘了带票也会“假绿”——正是这次踩的坑。
+  if (p.startsWith(API + '/')) {
+    const hasHeader = (req.headers['x-hana-app-surface-session'] || '').trim();
+    const hasQuery = (u.searchParams.get('appSurfaceSession') || '').trim();
+    if (!hasHeader && !hasQuery) {
+      return json(res, 403, { error: 'forbidden', reason: 'missing_credential', connectionKind: 'local' });
+    }
+  }
+
   // 假后端
   if (p === API + '/widget/api/playlist') {
     if (req.method === 'POST') {
@@ -177,7 +187,7 @@ for (const [name, w, h, file] of CASES) {
   for (const theme of ['light', 'dark']) {
     const page = await newPage();
     await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
-    await page.goto(`${BASE}/${file}?assert=1&shot=1`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${BASE}/${file}?assert=1&shot=1&appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
     await page.evaluate((t) => window.__fixtureTheme(t), theme);
     await new Promise((r) => setTimeout(r, 700));
     const result = await page.evaluate(() => window.__playerSelfCheck());
@@ -191,7 +201,7 @@ for (const [name, w, h, file] of CASES) {
 {
   const page = await newPage();
   await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
-  await page.goto(`${BASE}/index.html`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
   await page.evaluate((t) => window.__fixtureTheme(t), 'light');
   await new Promise((r) => setTimeout(r, 800));
 

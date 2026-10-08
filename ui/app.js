@@ -11,6 +11,34 @@
   var SHOT = params.get('shot') === '1';
   if (SHOT) document.body.classList.add('is-shot');
 
+  /* ---------- 卡片鉴权 ----------
+   * App 卡片的 iframe URL 带 `appSurfaceSession`。后端路由（/api/apps/<id>/routes/...）
+   * 靠它鉴权 —— 宿主**不**给页面注入 cookie、也不替页面加头，必须自己带上。
+   * fetch 走 header（`X-Hana-App-Surface-Session`，与旧 UI 同路）；
+   * <audio>/封面这类改不了头的，走 query（宿主两种都认）。
+   * 票只在发请求时贴，存进 playlist.json 的永远是干净 URL。 */
+  var SURFACE_SESSION = params.get('appSurfaceSession') || '';
+  var SESSION_HEADER = 'X-Hana-App-Surface-Session';
+  function sameOrigin(url) {
+    try { return new URL(url, location.href).origin === location.origin; }
+    catch (e) { return url.charAt(0) === '/'; }
+  }
+  function withSession(url) {
+    if (!SURFACE_SESSION || !url) return url;
+    if (url.indexOf('appSurfaceSession=') >= 0) return url;
+    if (!sameOrigin(url)) return url;
+    return url + (url.indexOf('?') > -1 ? '&' : '?') + 'appSurfaceSession=' + encodeURIComponent(SURFACE_SESSION);
+  }
+  function apiFetch(url, init) {
+    init = init || {};
+    if (SURFACE_SESSION) {
+      var h = new Headers(init.headers || {});
+      if (!h.has(SESSION_HEADER)) h.set(SESSION_HEADER, SURFACE_SESSION);
+      init.headers = h;
+    }
+    return fetch(url, init);
+  }
+
   /* ---------- 后端 ----------
    * 页面由宿主从 /api/apps/<id>/ui/ 下发，路由挂在 /api/apps/<id>/routes/ 下：
    * 同源相对路径，plain fetch 即可（与旧 UI 一致，不需要 surface session）。 */
@@ -36,7 +64,7 @@
   };
 
   function apiJson(url, init) {
-    return fetch(url, init).then(function (r) {
+    return apiFetch(url, init).then(function (r) {
       return r.text().then(function (txt) {
         var body = null;
         try { body = txt ? JSON.parse(txt) : null; } catch (e) { body = null; }
@@ -54,7 +82,7 @@
   }
   function apiDeleteJson(url) { return apiJson(url, { method: 'DELETE' }); }
   function apiText(url) {
-    return fetch(url, { cache: 'no-store' }).then(function (r) {
+    return apiFetch(url, { cache: 'no-store' }).then(function (r) {
       return r.text().then(function (txt) { return { ok: r.ok, status: r.status, text: txt }; });
     });
   }
@@ -321,7 +349,7 @@
   }
   /* 封面：有 pic 就用在线封面，没有（或加载失败）就露兜底渐变 */
   function coverImage(url) {
-    return url ? 'url(' + JSON.stringify(url) + '), var(--cover-fallback)' : 'var(--cover-fallback)';
+    return url ? 'url(' + JSON.stringify(withSession(url)) + '), var(--cover-fallback)' : 'var(--cover-fallback)';
   }
   function applyCovers() {
     var t = currentTrack();
@@ -674,9 +702,10 @@
       pendingAutoplay = false;
       return;
     }
-    var same = audio.getAttribute('src') === t.url;
+    var srcUrl = withSession(t.url);
+    var same = audio.getAttribute('src') === srcUrl;
     if (!same) {
-      audio.src = t.url;
+      audio.src = srcUrl;
       try { audio.load(); } catch (e) {}
     }
     pendingSeek = seekTo > 0 ? seekTo : 0;
