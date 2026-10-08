@@ -73,6 +73,14 @@ node tools/bump-build.mjs
 
 回退：`.backups/install-before-fusion-*.tgz`（部署前的安装目录 ui/ + register-routes.js）。
 
+## 视觉对齐（2026-10-09 画师）
+
+生产 UI 又对了一次初始设计稿（`docs/design-proposals/hana-player-queue-v4.png` 长卡/独立窗、
+`hana-player-compact-v2.png` 矮卡），差距清单与改法见 `docs/player-ui/ALIGN-BRIEF.md`。
+要点：顶栏去盒、歌名直压封面；无封面走「纸面留白」双态（`.nocover`）；
+控制条摊平为设计稿节奏 + 实心字形；歌词字号阶梅 22/15/13；队列行 44px 缩略 + 分隔线；
+独立窗抽屉 `clamp(320px,34%,380px)`。`app.js` 只动呈现层（nocover 一行 + 队列键 aria 名实一致）。
+
 ## 未做 / 待确认
 
 - **独立窗口 ↔ 小卡音频不中断**：`<audio>` 活在视图里，视图被销毁即中断。契约说这要先核实
