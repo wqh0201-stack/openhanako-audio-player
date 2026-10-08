@@ -109,7 +109,14 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
 
 ## 6. 视觉规范
 
-Hana house-style（权威）：
-`~/.hanako/recipes/hana-folio/references/house-style.md`。
-浅色 = 纸 `#F8F4ED` / 卡面 `#FFFDF7` / 墨 `#2A2622` / **唯一强调色远山蓝 `#537D96`**；
-小圆角约 5px；只 SVG 线描图标；禁左竖线当区块装饰。
+**主题跟随宿主 Hana（`hana.theme`，快照 + 订阅），含夜间主题——别自己另起一套明暗。**
+SDK 默认已把宿主主题样式表注入页面（`ui/sdk.js` 的 `followHostTheme`），
+所以**别定义同名 `--bg/--text/--accent` 去盖宿主**。强调色只用在「当前 / 激活 / 强调」上。
+
+两套皮别混：
+- **卡片 / 文档**：Hana house-style —— 纸 `#F8F4ED` / 卡面 `#FFFDF7` / 墨 `#2A2622` /
+  唯一强调色远山蓝 `#537D96`（`~/.hanako/recipes/hana-folio/references/house-style.md`）。
+- **Hana App 界面（本 App 活在这里）**：深板岩 `#34424B` / 面 `#414D56` /
+  强调藕荷粉 `#C99AAF` / 文字 `#E1EAF0`·`#9FB1BC`（小截图取色，权威以 `hana.theme` 为准）。
+
+通用：小圆角约 5px；只 SVG 线描图标（禁 emoji）；字号 ≥ 11px；禁左竖线当区块装饰。
