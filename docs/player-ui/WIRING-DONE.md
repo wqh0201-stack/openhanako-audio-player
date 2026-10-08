@@ -81,6 +81,19 @@ node tools/bump-build.mjs
 控制条摊平为设计稿节奏 + 实心字形；歌词字号阶梅 22/15/13；队列行 44px 缩略 + 分隔线；
 独立窗抽屉 `clamp(320px,34%,380px)`。`app.js` 只动呈现层（nocover 一行 + 队列键 aria 名实一致）。
 
+## 卡片鉴权（必看，踩过一次）
+
+App 卡片 iframe 调自己的后端路由（`/api/apps/<id>/routes/...`）**必须带 surface session**：
+
+- iframe URL 的 query `appSurfaceSession` → 请求时回传 header `X-Hana-App-Surface-Session`（或 query 同名参数，宿主两种都认）。
+- **宿主不给页面注入 cookie，也不替页面加头** —— 不自己带就是全 403（`{"error":"forbidden","reason":"missing_credential"}`）。
+- `<audio src>` / 封面 `url(...)` 这类改不了头的，用 query 参数贴票；`fetch` 用 header。
+- **票只在发请求时贴，落进 `playlist.json` 的永远是干净 URL**。
+
+旧 UI 靠 `window.fetch` 补丁 + `src` setter 补丁自动贴票；重写前端时极易丢掉这一层，
+丢掉的表现就是「添加歌单 → 解析失败」（其实是 403）。`tools/verify-ui.mjs` 现在带了
+鉴权闸门（无票 403），就是为了守住这条。
+
 ## 未做 / 待确认
 
 - **独立窗口 ↔ 小卡音频不中断**：`<audio>` 活在视图里，视图被销毁即中断。契约说这要先核实
