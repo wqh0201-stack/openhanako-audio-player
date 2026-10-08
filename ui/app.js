@@ -325,7 +325,10 @@
   }
   function applyCovers() {
     var t = currentTrack();
-    $('cover').style.backgroundImage = coverImage(t && t.pic ? t.pic : '');
+    var pic = t && t.pic ? t.pic : '';
+    /* 呈现层标记：无封面时走「纸面留白」兜底（只切 CSS 变量，不动业务） */
+    player.classList.toggle('nocover', !pic);
+    $('cover').style.backgroundImage = coverImage(pic);
     var rows = queueList.querySelectorAll('.q-row');
     for (var i = 0; i < rows.length; i++) {
       var tr = state.tracks[i];
@@ -456,11 +459,16 @@
     drawerScrim.hidden = !(player.getAttribute('data-layout') === 'wide' && state.drawer);
 
     var qBtn = $('queueBtn');
-    var isLong = player.getAttribute('data-layout') === 'long';
+    var lay = player.getAttribute('data-layout');
+    var isLong = lay === 'long';
     qBtn.classList.toggle('is-static', isLong);
     qBtn.disabled = isLong;
-    qBtn.title = isLong ? '队列常驻显示' : (state.drawer || state.page === 'queue' ? '收起队列' : '展开队列');
-    qBtn.setAttribute('aria-label', isLong ? '播放队列（常驻显示）' : qBtn.title);
+    var qLabel = isLong ? '播放队列（常驻显示）'
+      : (lay === 'compact'
+        ? (state.page === 'queue' ? '回到播放' : '打开队列')
+        : (state.drawer ? '收起队列' : '展开队列'));
+    qBtn.title = qLabel;
+    qBtn.setAttribute('aria-label', qLabel);
   }
 
   /* ============================================================

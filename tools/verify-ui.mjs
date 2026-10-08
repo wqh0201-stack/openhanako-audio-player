@@ -19,6 +19,8 @@ const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Conten
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const uiDir = path.join(repo, 'ui');
 const outDir = process.env.OUT_DIR || '/tmp/hap-verify';
+const API = '/api/apps/hanako-audio-player/routes';
+const COVER_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover.png');
 fs.mkdirSync(outDir, { recursive: true });
 
 /* ---------- 假音频：1 秒静音 WAV ---------- */
@@ -40,6 +42,9 @@ function makeTracks(n) {
       ? { id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: `/api/apps/hanako-audio-player/routes/widget/api/music/go/${900000 + i}?server=netease`, mode: '在线', dur: 0, group: '在线音乐', pic: '' }
       : { id: `fixture-${String(i + 1).padStart(2, '0')}.wav`, name: `本地曲目 ${i + 1}`, url: WAV_URL, mode: '本地', dur: 0, group: '本地音乐' });
   }
+  // 前两首给封面图，用来验「有封面」的双态（浅色字 + 顶部渐变）
+  out[0].pic = `${API}/_fixture/cover.png`;
+  out[1].pic = `${API}/_fixture/cover.png`;
   // 复刻罐头的真实数据：只有搜索词、没有 url/id 的旧版在线曲目
   for (let k = 0; k < 3; k++) {
     out.push({ name: `搜索曲目 ${k + 1}`, url: '', mode: '在线', dur: 0, group: '鸣潮', searchKey: `关键词 ${k + 1}`, searchServer: 'netease' });
@@ -48,7 +53,6 @@ function makeTracks(n) {
 }
 const TRACKS = makeTracks(48);
 
-const API = '/api/apps/hanako-audio-player/routes';
 function lrcFor(name) {
   return Array.from({ length: 40 }, (_, i) => `[00:0${Math.floor(i / 10)}.${String((i % 10) * 10).padStart(2, '0')}]${name} 第 ${i + 1} 行歌词`).join('\n');
 }
@@ -87,6 +91,10 @@ const server = http.createServer((req, res) => {
   if (p === API + '/widget/api/music/song') {
     const id = u.searchParams.get('id') || '0';
     return json(res, 200, { ok: true, track: { id: `netease:${id}`, title: `在线单曲 ${id}`, author: '测试歌手', url: `${API}/widget/api/music/go/${id}?server=netease`, pic: '', lrc: '' }, host: 'mock' });
+  }
+  if (p === API + '/_fixture/cover.png') {
+    res.setHeader('content-type', 'image/png');
+    return fs.createReadStream(COVER_FILE).pipe(res);
   }
   if (p === API + '/widget/api/music/search') {
     const kw = u.searchParams.get('keyword') || '';
@@ -190,6 +198,20 @@ for (const [name, w, h, file] of CASES) {
   const w = {};
   w.queueRows = await page.$$eval('#queueList .q-row', (els) => els.length);
   w.firstTitle = await page.$eval('#trackTitle', (e) => e.textContent);
+  // 第一首有封面：先截一张「有封面」状态
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await new Promise((r) => setTimeout(r, 600));
+  w.coverState = await page.evaluate(() => ({
+    nocover: document.getElementById('player').classList.contains('nocover'),
+    titleColor: getComputedStyle(document.getElementById('trackTitle')).color
+  }));
+  await page.screenshot({ path: path.join(outDir, 'cover-465x930-light.png') });
+  // 宽窗 + 封面（设计稿主展示态）
+  await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+  await new Promise((r) => setTimeout(r, 500));
+  await page.screenshot({ path: path.join(outDir, 'cover-1040x780-light.png') });
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await new Promise((r) => setTimeout(r, 400));
 
   // 播放第 3 首（本地）
   await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[2].querySelector('.q-hit').click());

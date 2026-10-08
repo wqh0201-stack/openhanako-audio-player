@@ -19,10 +19,8 @@
         <div class="lyric-scrim" id="lyricScrim" aria-hidden="true"></div>
 
         <div class="scene-top" id="sceneTop">
-          <div class="info-card">
-            <h1 class="track-title" id="trackTitle">风经过的地方</h1>
-            <p class="track-artist" id="trackArtist">林间来信</p>
-          </div>
+          <h1 class="track-title" id="trackTitle">风经过的地方</h1>
+          <p class="track-artist" id="trackArtist">林间来信</p>
         </div>
 
         <div class="lyric-wrap" id="lyricWrap">
@@ -46,7 +44,7 @@
         </div>
 
         <header class="queue-head" id="queueHead">
-          <h2 class="queue-title">播放队列 <span class="queue-count" id="queueCount">12</span> 首</h2>
+          <h2 class="queue-title">播放队列 <span class="queue-count"><span id="queueCount">12</span> 首</span></h2>
           <div class="queue-head-actions">
             <button class="icon-btn" id="importBtn" type="button" aria-label="添加曲目" title="添加曲目" aria-expanded="false">
               <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
@@ -102,36 +100,34 @@
           <span class="time" id="durTime">4:44</span>
         </div>
 
+        <!-- 控制条第二行：设计稿节奏 ⟳ ⏮ (⏸) ⏭ 🔊 | ☰ 队列，整行均分间距。
+             「歌词」保留（tab 行砍掉后无处安放），做成与「队列」同一套文字按钮。 -->
         <div class="btn-row">
-          <div class="cell cell-left">
-            <button class="text-btn" id="lyricToggle" type="button" aria-pressed="true" title="歌词显示：开">
-              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-lyric"></use></svg>
-              <span>歌词</span>
-            </button>
+          <button class="text-btn" id="lyricToggle" type="button" aria-pressed="true" title="歌词显示：开">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-lyric"></use></svg>
+            <span>歌词</span>
+          </button>
+
+          <button class="icon-btn" id="modeBtn" type="button"></button>
+          <button class="icon-btn" id="prevBtn" type="button" aria-label="上一首" title="上一首">
+            <svg class="icon" aria-hidden="true"><use href="#i-prev"></use></svg>
+          </button>
+          <button class="play-btn" id="playBtn" type="button" aria-label="暂停" title="暂停"></button>
+          <button class="icon-btn" id="nextBtn" type="button" aria-label="下一首" title="下一首">
+            <svg class="icon" aria-hidden="true"><use href="#i-next"></use></svg>
+          </button>
+
+          <div class="vol-group">
+            <button class="icon-btn" id="muteBtn" type="button" aria-label="静音" title="静音"></button>
+            <input class="range range-vol" id="vol" type="range" min="0" max="100" step="1" value="72" aria-label="音量">
           </div>
 
-          <div class="cell cell-center transport">
-            <button class="icon-btn" id="modeBtn" type="button"></button>
-            <button class="icon-btn" id="prevBtn" type="button" aria-label="上一首" title="上一首">
-              <svg class="icon" aria-hidden="true"><use href="#i-prev"></use></svg>
-            </button>
-            <button class="play-btn" id="playBtn" type="button" aria-label="暂停" title="暂停"></button>
-            <button class="icon-btn" id="nextBtn" type="button" aria-label="下一首" title="下一首">
-              <svg class="icon" aria-hidden="true"><use href="#i-next"></use></svg>
-            </button>
-          </div>
+          <span class="ctl-divider" aria-hidden="true"></span>
 
-          <div class="cell cell-right">
-            <div class="vol-group">
-              <button class="icon-btn" id="muteBtn" type="button" aria-label="静音" title="静音"></button>
-              <input class="range range-vol" id="vol" type="range" min="0" max="100" step="1" value="72" aria-label="音量">
-            </div>
-            <span class="ctl-divider" aria-hidden="true"></span>
-            <button class="queue-btn" id="queueBtn" type="button">
-              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-list"></use></svg>
-              <span>队列 <span id="queueBtnCount">12</span></span>
-            </button>
-          </div>
+          <button class="queue-btn" id="queueBtn" type="button">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-list"></use></svg>
+            <span class="qb-label"><span class="qb-word">队列</span> <span id="queueBtnCount">12</span><span class="qb-now">正在播放</span></span>
+          </button>
         </div>
       </div>
     </footer>
@@ -180,10 +176,7 @@
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.6 6.6 17.4 17.4M17.4 6.6 6.6 17.4"/></symbol>
   <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M14.4 5.8 8 12l6.4 6.2"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><path d="M6.2 12h.01M12 12h.01M17.8 12h.01"/></symbol>
-  <symbol id="i-list" viewBox="0 0 24 24">
-    <path d="M4.4 7h11M4.4 12h11M4.4 17h7"/>
-    <path d="M17.4 14.8 21 17l-3.6 2.2Z"/>
-  </symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4.6 7h14.8M4.6 12h14.8M4.6 17h9"/></symbol>
   <symbol id="i-lyric" viewBox="0 0 24 24"><path d="M5 6.6h14M5 11h14M5 15.4h9M5 19.8h6"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.8 4.8h6.4l4 4v10.4H6.8zM13.2 4.8v4h4"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4.4 6.6h5.2l2 2.4h8v9.4H4.4z"/></symbol>
@@ -198,7 +191,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131539";</script>
+<script>window.__HANA_BUILD = "1003131540";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
