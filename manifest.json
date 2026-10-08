@@ -1,0 +1,63 @@
+{
+  "manifestVersion": 2,
+  "id": "hanako-audio-player",
+  "name": "音频播放器",
+  "version": "0.8.0",
+  "description": "音频播放器：本地音乐与在线音乐播放，含歌词横幅、配色主题、音频反应与背景动效。从 v1 插件迁移而来。",
+  "minAppVersion": "0.946.2",
+  "entry": "index.js",
+  "icon": "assets/icon.png",
+  "capabilities": [
+    "app/tools.expose-to-model",
+    "app/ui.clipboard-write",
+    "app/ui.open-external",
+    "app/resources.read",
+    "app/sessions.read"
+  ],
+  "network": {
+    "allowedHosts": [
+      "metingapi.nanorocky.top",
+      "api.amarea.cn",
+      "api.qijieya.cn",
+      "met.liiiu.cn",
+      "music.163.com",
+      "amll-ttml-db.stevexmh.net",
+      "*.music.126.net",
+      "u.y.qq.com"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "allowLocalhost": false,
+    "defaultTimeoutMs": 15000,
+    "maxResponseBytes": 5242880
+  },
+  "contributes": {
+    "cards": [
+      {
+        "id": "player",
+        "title": "音频播放器",
+        "description": "播放当前曲目、查看队列与歌词。",
+        "route": "/index.html",
+        "face": {
+          "image": "face-portrait.png"
+        },
+        "cardForm": "flush",
+        "titlebar": "solid",
+        "detached": {
+          "route": "/standalone.html"
+        },
+        "detachedDefaultSize": {
+          "width": 1040,
+          "height": 780
+        }
+      }
+    ],
+    "messageRenderers": [
+      {
+        "customType": "now-playing",
+        "cardId": "player"
+      }
+    ]
+  }
+}

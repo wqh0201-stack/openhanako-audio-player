@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="音频播放器">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2c36"/>
+      <stop offset="1" stop-color="#0f0f13"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0.5" cy="0.48" r="0.62">
+      <stop offset="0" stop-color="#d49a6a" stop-opacity="0.34"/>
+      <stop offset="0.55" stop-color="#d49a6a" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#d49a6a" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="play" x1="0" y1="0" x2="0.55" y2="1">
+      <stop offset="0" stop-color="#f6cfa9"/>
+      <stop offset="1" stop-color="#bc7a49"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="58" fill="url(#bg)"/>
+  <rect width="256" height="256" rx="58" fill="url(#glow)"/>
+
+  <!--
+    声波：两道，笔画 14px（在 256 网格里约 5.5%）。
+    这是实测出来的下限——再细到 32px 就会糊成一团，再粗就压过三角。
+    弧心与三角同高，绕到三角右侧，读作"声音朝右扩散"。
+  -->
+  <g fill="none" stroke="#d49a6a" stroke-linecap="round">
+    <path d="M176 96 a46 46 0 0 1 0 64" stroke-width="14" opacity="0.55"/>
+    <path d="M198 74 a76 76 0 0 1 0 108" stroke-width="14" opacity="0.26"/>
+  </g>
+
+  <!-- 播放三角：只此一个实心形状，圆角靠同色 stroke + round join -->
+  <path d="M92 78 L164 128 L92 178 Z"
+        fill="url(#play)"
+        stroke="url(#play)" stroke-width="14"
+        stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
