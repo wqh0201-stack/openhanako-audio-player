@@ -346,37 +346,45 @@ button:disabled { cursor: default; }
   pointer-events: none;
 }
 
-/* 背景层（最底）：同一张封面的模糊放大副本，铺满整个舞台到最右缘（网易式）。
- * 有封面就常驻（取色成功与否都显示）；无封面才退回纸面兜底。
- * 纯 CSS background —— 跨源封面也能用，不吃 CORS，取色失败也不影响背景观感。
- * 采样取色仍保留，但只用来定字色极性（data-ambient），不再拿它画背景。 */
+/* 背景层（最底）：一层「封面主色调」平色（网易式）。
+ * 主色由 JS 取封面占比最多的色写进 --ambient-color。
+ * 封面右缘淡出 → 融进这层色；歌词压在这层色上。
+ * 取色失败 / 无封面 → 退回主题纸面。 */
 .stage-ambient {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background-color: var(--hk-surface);
-  background-image: var(--cover-fallback);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background-color: var(--ambient-color, var(--hk-surface));
+  background-image: none;
   pointer-events: none;
 }
+/* 主色层与封面之间的柔和过渡：封面右缘向主色榛开（不硬缝） */
+.player.ambient-ok .stage-ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+      transparent 0,
+      color-mix(in srgb, var(--ambient-color) 55%, transparent) var(--content-x, 34%),
+      var(--ambient-color) calc(var(--content-x, 34%) + 14%));
+}
 
-/* 封面晕开层 = 主背景：同一张封面的模糊放大副本。
- * 模糊要够、放大把模糊边缘推出画面，做出连续的「氛围底」，不再是一块块色阶。
- * 不再叠把颜色洗白的厚纸色蒙层 —— 可读性靠歌词那侧的一层薄纱（见 .lyric-scrim）。 */
+/* 封面晖开层：取色失败/无封面时的兑底 —— 同一张封面的模糊放大副本。
+ * 取色成功（.ambient-ok）时收起，让主色层接管。 */
 .cover-haze {
   position: absolute;
   inset: -16%;
   z-index: 0;
+  background-color: var(--hk-surface);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  filter: blur(52px) saturate(1.22);
+  filter: blur(52px) saturate(1.18);
   transform: scale(1.28);
   pointer-events: none;
 }
-.player.nocover .cover-haze { display: none; }
+.player.nocover .cover-haze,
+.player.ambient-ok .cover-haze { display: none; }
 
 /* 封面本体贴着左边，按高度完整显示（contain：高度优先填满舞台，
  * 容器比画幅窄时退化成按宽适配）—— 永不裁头砍脚（R2）。
@@ -394,15 +402,18 @@ button:disabled { cursor: default; }
   -webkit-mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
   mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
 }
-/* 矮卡 / 长卡：封面贴左、缩放到满高（cover，超出裁边）——
- * 「封面顶着、播放区上下也顶着」，不再 contain 居中留白。
- * 列宽由 JS 按舞台宽写入 --cover-w。宽窗维持 contain 完整显示。 */
+/* 矮卡 / 长卡：封面贴左、宽高比 3:4（top-left 锚），不再细长满高。
+ * 「做方一点」：列宽由 JS 写 --cover-w，高度 = 宽 × 4/3。
+ * 下方露出的是封面主色底。宽窗维持 contain 完整显示。 */
 .player[data-layout="compact"] .cover,
 .player[data-layout="long"] .cover {
   right: auto;
-  width: var(--cover-w, 46%);
+  bottom: auto;
+  width: var(--cover-w, 44%);
+  height: auto;
+  aspect-ratio: 3 / 4;
   background-size: cover;
-  background-position: left center;
+  background-position: left top;
 }
 .player.nocover .cover {
   background-image: var(--cover-fallback);
@@ -496,7 +507,8 @@ button:disabled { cursor: default; }
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  text-align: center;
+  /* 左对齐：与歌名/歌手/来源同一条竖线（网易式），不再居中。 */
+  text-align: left;
   /* 滚动条：轨道常驻占位（文字宽度不随悬停改变，不抽动），轨道透明，
      只有条子本身带色；平时全透明，悬停淡入。 */
   scrollbar-width: thin;
@@ -521,7 +533,7 @@ button:disabled { cursor: default; }
 .lyrics:hover::-webkit-scrollbar-thumb { background: var(--sb-color); }
 .lyric-line {
   margin: 0;
-  padding: 8px 7%;
+  padding: 7px 8% 7px 0;
   font-size: 13px;
   line-height: 1.7;
   color: var(--lyric-far);
@@ -1082,10 +1094,13 @@ button:disabled { cursor: default; }
 .player[data-bar="tight"] .play-btn { width: 42px; height: 42px; }
 .player[data-bar="tight"] .play-btn .icon { width: 20px; height: 20px; }
 .player[data-bar="tight"] .ctl-divider { display: none; }
-.player[data-bar="tight"] .track-title { font-size: 18px; }
-.player[data-bar="tight"] .track-artist { font-size: 12px; }
-.player[data-bar="tight"] .lyric-line.is-current,
-.player[data-bar="tight"] .lyric-line { padding-left: 3%; padding-right: 3%; }
+.player[data-bar="tight"] .track-title { font-size: 16px; }
+.player[data-bar="tight"] .track-artist { font-size: 11.5px; }
+.player[data-bar="tight"] .track-meta { font-size: 11px; }
+.player[data-bar="tight"] .lyric-line { font-size: 12px; }
+.player[data-bar="tight"] .lyric-line.is-current { font-size: 13px; }
+.player[data-bar="tight"] .lyric-line,
+.player[data-bar="tight"] .lyric-line.is-current { padding-left: 0; padding-right: 6%; }
 
 /* 提示：走主题纸面 + 墨字，不是一个黑气泡 */
 .toast {
@@ -1130,10 +1145,45 @@ button:disabled { cursor: default; }
 .report { display: none; }
 
 /* ============================================================
-   布局一 · 长卡（默认）：舞台 58 / 队列 42 / 控制常驻
+   布局一 · 长卡（默认）：舞台/队列比例可拖，控制条常驻
    ============================================================ */
-.player[data-layout="long"] .scene { flex: 62 1 0; }
-.player[data-layout="long"] .queue { flex: 38 1 0; }
+/* 默认 62/38，JS 拖拽时写 --stage-flex / --queue-flex 覆盖 */
+.player[data-layout="long"] .scene { flex: var(--stage-flex, 62) 1 0; }
+.player[data-layout="long"] .queue { flex: var(--queue-flex, 38) 1 0; }
+
+/* 可拖分隔线（仅长卡）：贴在舞台与队列交界处，上下可拖。
+ * 只有指针靠近时才现形（平时不干扰）。 */
+.split-handle {
+  display: none;
+}
+.player[data-layout="long"] .split-handle {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 14px;
+  margin-top: -7px;
+  z-index: 5;
+  cursor: row-resize;
+  touch-action: none;
+}
+.split-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--hk-hairline);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+.split-handle:hover::after,
+.split-handle:active::after,
+.player.is-splitting .split-handle::after { opacity: 1; }
+.player.is-splitting { cursor: row-resize; }
 
 /* ============================================================
    布局二 · 矮卡：播放页 ⇄ 队列页，底部控制常驻

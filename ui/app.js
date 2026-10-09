@@ -185,6 +185,7 @@
     follow: true,
     page: 'play',
     drawer: false,
+    splitRatio: 0.62,   // 长卡：舞台占比（可拖分隔线），默认 62%
     lyricLines: [],
     loadError: ''
   };
@@ -582,21 +583,50 @@
   }
 
   /* ============================================================
-     环境色（封面取色 → 定字色极性）
-     背景已改为「封面模糊铺底」（.cover-haze 常驻，纯 CSS，不吃 CORS）。
-     这里只取封面右缘像素，算 WCAG 对比度，择优写 data-ambient=light|dark
-     决定歌词字色/阴影的深浅。取色失败 / 无封面 → 退回主题极性，背景不受影响。
+     封面主色调（背景色来源）
+     网易式：右列（歌词那侧）铺一层「封面主色调」平色，封面右缘淡出融进去。
+     —— 不再用「封面模糊照片」当底（照片里的集中色会被糊成一坨暖块）。
+     做法：整图降采样 → 4bit 量化统计 → 取占比最多的色（跳过近中性，
+     没有才退回全图最多）。同时算亮度定字色极性 data-ambient。
+     封面带 CORS，canvas 取像素不 taint；非 CORS / 解码失败静默退回主题极性。
      ============================================================ */
-  var AMBIENT_SEGMENTS = 12;   // 竖向分段数
   var coverAR = 0;             // 封面画幅比（只读自然尺寸，不碰 canvas）
   var coverProbeToken = 0;     // 切歌竞态：过期结果丢弃
-  var ambientCache = {};       // pic → 色标（或 null=失败），同一封面不重复取色
-  var stagePic = '';           // 当前舞台封面（取色需要它 + 尺寸/布局）
+  var ambientCache = {};       // pic → { color, polarity }（或 null=失败）
+  var stagePic = '';           // 当前舞台封面
 
-  /* 在「浅纱+墨字」与「深纱+纸字」两态里择优：按每条色标算合成后的对比度，
-   * 取最差段位的对比度为主评分（最差都看得清才算数），整体均值为辅。
-   * 纱的基色/alpha 从 :root 的 --veil-* 读，不在这里另存一份。 */
-  function ambientPolarity(segs) {
+  function lumOf(c) {
+    function ch(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
+  }
+  function rgbStr(c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+
+  /* 占比最多的色（4bit/通道量化）。近中性色（灰/黑/白）降权，优先取有彩的：
+   * 纯灰底当背景平淡，封面里的彩才是「主色调」的观感来源。 */
+  function dominantColor(data, w, h) {
+    var buckets = {};
+    for (var i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue;
+      var r = data[i], g = data[i + 1], b = data[i + 2];
+      var key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+      var bk = buckets[key] || (buckets[key] = { n: 0, r: 0, g: 0, b: 0 });
+      bk.n++; bk.r += r; bk.g += g; bk.b += b;
+    }
+    var best = null, bestColored = null;
+    for (var k in buckets) {
+      if (!Object.prototype.hasOwnProperty.call(buckets, k)) continue;
+      var x = buckets[k];
+      var avg = [Math.round(x.r / x.n), Math.round(x.g / x.n), Math.round(x.b / x.n)];
+      var mx = Math.max(avg[0], avg[1], avg[2]), mn = Math.min(avg[0], avg[1], avg[2]);
+      var sat = mx === 0 ? 0 : (mx - mn) / mx;
+      if (!best || x.n > best.n) best = { n: x.n, c: avg };
+      if (sat >= 0.14 && (!bestColored || x.n > bestColored.n)) bestColored = { n: x.n, c: avg };
+    }
+    return bestColored ? bestColored.c : (best ? best.c : null);
+  }
+
+  /* 平面主色下选字色极性：哪种纱（浅纱墨字 / 深纱纸字）在该底色上对比度更高。 */
+  function polarityFor(color) {
     var cs = getComputedStyle(document.documentElement);
     function hex(s) {
       var m = /^#([0-9a-f]{6})$/i.exec(String(s).trim());
@@ -604,17 +634,11 @@
       var v = parseInt(m[1], 16);
       return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
     }
-    function lum(c) {
-      function ch(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
-      return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
-    }
     function ratio(a, b) {
-      var la = lum(a), lb = lum(b);
+      var la = lumOf(a), lb = lumOf(b);
       return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
     }
-    function over(fg, bg, a) {
-      return [fg[0] * a + bg[0] * (1 - a), fg[1] * a + bg[1] * (1 - a), fg[2] * a + bg[2] * (1 - a)];
-    }
+    function over(fg, bg, a) { return [fg[0] * a + bg[0] * (1 - a), fg[1] * a + bg[1] * (1 - a), fg[2] * a + bg[2] * (1 - a)]; }
     var sets = [
       { key: 'light', veil: hex(cs.getPropertyValue('--veil-paper')), text: hex(cs.getPropertyValue('--on-veil-ink')), a: parseFloat(cs.getPropertyValue('--veil-paper-a')) },
       { key: 'dark', veil: hex(cs.getPropertyValue('--veil-ink')), text: hex(cs.getPropertyValue('--on-veil-paper')), a: parseFloat(cs.getPropertyValue('--veil-ink-a')) }
@@ -623,16 +647,11 @@
     for (var i = 0; i < sets.length; i++) {
       var s = sets[i];
       if (!s.veil || !s.text || !(s.a > 0)) continue;
-      var worst = Infinity, sum = 0;
-      for (var k = 0; k < segs.length; k++) {
-        var ct = ratio(s.text, over(s.veil, segs[k], s.a));
-        if (ct < worst) worst = ct;
-        sum += ct;
-      }
-      var score = worst * 0.7 + (sum / segs.length) * 0.3;
-      if (!best || score > best.score) best = { key: s.key, score: score };
+      var bg = over(s.veil, color, s.a);
+      var ct = ratio(s.text, bg);
+      if (!best || ct > best.ct) best = { key: s.key, ct: ct };
     }
-    return best ? best.key : 'light';
+    return best ? best.key : (lumOf(color) > 0.45 ? 'light' : 'dark');
   }
 
   function themePolarity() {
@@ -642,15 +661,17 @@
     catch (e) { return 'light'; }
   }
 
-  function applyAmbient(segs) {
-    /* 背景已改为「封面模糊铺底」（.cover-haze 常驻），不再用采样画渐变。
-     * 采样只用来定字色极性（data-ambient=light|dark）。
-     * 取色失败 / 无封面 → 退回主题极性；背景不受影响（CSS background 不吃 CORS）。 */
-    if (!segs || !segs.length) {
+  function applyAmbient(res) {
+    if (!res || !res.color) {
+      /* 取色失败 / 无封面：撤掉主色底，退回主题纸面；字色跟主题 */
+      player.style.removeProperty('--ambient-color');
+      player.classList.remove('ambient-ok');
       player.setAttribute('data-ambient', player.classList.contains('nocover') ? 'none' : themePolarity());
       return;
     }
-    player.setAttribute('data-ambient', ambientPolarity(segs));
+    player.style.setProperty('--ambient-color', rgbStr(res.color));
+    player.classList.add('ambient-ok');
+    player.setAttribute('data-ambient', res.polarity);
   }
 
   /* 取色还没回来时的临时态：先按主题极性亮字，出结果再校正 */
@@ -661,62 +682,38 @@
   /* 取色用小图：网易云封面支持 ?param=100y100（约 25KB），省流量也快 */
   function ambientUrl(url) {
     var u = withSession(url);
-    if (/music\.126\.net/.test(u) && u.indexOf('param=') < 0) {
+    if (/\.music\.126\.net/.test(u) && u.indexOf('param=') < 0) {
       u += (u.indexOf('?') > -1 ? '&' : '?') + 'param=100y100';
     }
     return u;
   }
 
-  /* 单独一张带 crossOrigin 的小图取像素（与画幅探测分开：非 CORS 封面也要量得出画幅） */
-  function probeAmbient(pic, token, frac) {
-    var f = (typeof frac === 'number' && frac > 0 && frac <= 1) ? frac : 1;
-    /* 缓存键带布局 + 可见比例（量化到 2%）——
-     * 竖版卡不同画幅的可见右缘不同，不能拿一份结果跨画幅复用。 */
-    var pkey = pic + (player.getAttribute('data-layout') === 'wide' ? '|w' : '|n' + Math.round(f * 50));
-    if (Object.prototype.hasOwnProperty.call(ambientCache, pkey)) {
-      applyAmbient(ambientCache[pkey]);
+  /* 取封面主色调（与画幅探测分开：非 CORS 封面也要量得出画幅） */
+  function probeAmbient(pic, token) {
+    if (Object.prototype.hasOwnProperty.call(ambientCache, pic)) {
+      applyAmbient(ambientCache[pic]);
       return;
     }
     var img = new Image();
     var settled = false;
-    function done(segs) {
+    function done(res) {
       if (settled) return;
       settled = true;
-      ambientCache[pkey] = segs || null;
+      ambientCache[pic] = res || null;
       if (token !== coverProbeToken) return;
-      applyAmbient(segs);
+      applyAmbient(res);
     }
     img.crossOrigin = 'anonymous';
     img.onload = function () {
       try {
-        var SW = 48, SH = AMBIENT_SEGMENTS * 8;
+        var SW = 40, SH = 40;
         var cv = document.createElement('canvas');
         cv.width = SW; cv.height = SH;
         var ctx = cv.getContext('2d');
         ctx.drawImage(img, 0, 0, SW, SH);
         var data = ctx.getImageData(0, 0, SW, SH).data;
-        /* 采样带落在封面的「可见右缘」上：
-         *  · 宽窗 contain 完整显示 → 右缘≈图片右缘（frac≈1）
-         *  · 竖版卡 cover 贴左载切 → 屏上只露左侧一条（方形≈38%、横幅≈14%），
-         *    取色必须落在可见范围内，否则环境色会与封面接缝对不上。
-         * 带位取 [frac-14%, frac-2%]，夹在 [0,1]。 */
-        var fx1 = Math.max(0.02, f - 0.02);
-        var fx0 = Math.max(0, fx1 - 0.14);
-        var x0 = Math.round(SW * fx0), x1 = Math.max(x0 + 1, Math.round(SW * fx1));
-        var segs = [];
-        for (var s = 0; s < AMBIENT_SEGMENTS; s++) {
-          var y0 = Math.floor(s * SH / AMBIENT_SEGMENTS);
-          var y1 = Math.floor((s + 1) * SH / AMBIENT_SEGMENTS);
-          var r = 0, g = 0, b = 0, n = 0;
-          for (var y = y0; y < y1; y++) {
-            for (var x = x0; x < x1; x++) {
-              var i = (y * SW + x) * 4;
-              r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
-            }
-          }
-          segs.push(n ? [Math.round(r / n), Math.round(g / n), Math.round(b / n)] : [0, 0, 0]);
-        }
-        done(segs);
+        var color = dominantColor(data, SW, SH);
+        done(color ? { color: color, polarity: polarityFor(color) } : null);
       } catch (e) {
         /* 非 CORS 封面 / 解码失败 / getImageData 抛 SecurityError → 静默退回 */
         done(null);
@@ -758,14 +755,7 @@
      *  · 竖版卡 cover 贴左载切 → 屏上只露左侧一条：方形≈38%、横幅≈14%，
      *    按 coverW / 封面自然宽（= h*AR）算可见比例。
      * 尺寸/布局/画幅都齐了才触发（probeCover 量到 AR 后会回过来调这里）。 */
-    if (stagePic) {
-      var visFrac = 1;
-      if (!wide && coverAR > 0) {
-        var naturalW = h * coverAR;   // 封面按满高缩放后的自然宽
-        if (naturalW > 0) visFrac = Math.max(0.06, Math.min(1, coverW / naturalW));
-      }
-      probeAmbient(stagePic, coverProbeToken, visFrac);
-    }
+    if (stagePic) probeAmbient(stagePic, coverProbeToken);
     measureLyricTop();
   }
   /* 歌词阅读列必须从标题块下方开始，否则歌名/歌手/元信息会与歌词行叠字。
@@ -2137,11 +2127,65 @@
     updateStageMetrics();
     sizeLyricPad();
     updateLyricIndex(true);
+    positionSplitHandle();
   }
   if (window.ResizeObserver) {
     new ResizeObserver(applyLayout).observe(frame);
   } else {
     window.addEventListener('resize', applyLayout);
+  }
+
+  /* ---------- 舞台/队列 可拖分隔线（仅长卡，motion/布局）----------
+   * 拖动改封面区/队列区比例，写 --stage-flex/--queue-flex；松手落盘（player-split）。
+   * 只动 flex，不动 width/height；可打断（指针一抬就结束）。 */
+  var SPLIT_KEY = 'player-split';
+  var splitHandle = $('splitHandle');
+  var stageEl = $('stage');
+  function setSplit(ratio, persist) {
+    var r = Math.max(0.25, Math.min(0.78, ratio));
+    state.splitRatio = r;
+    player.style.setProperty('--stage-flex', String(Math.round(r * 100)));
+    player.style.setProperty('--queue-flex', String(Math.round((1 - r) * 100)));
+    positionSplitHandle();
+    if (persist) storeSet(SPLIT_KEY, r);
+  }
+  function positionSplitHandle() {
+    if (!splitHandle || player.getAttribute('data-layout') !== 'long') return;
+    var sr = stageEl.getBoundingClientRect();
+    var pr = player.getBoundingClientRect();
+    splitHandle.style.top = Math.round(sr.bottom - pr.top) + 'px';
+  }
+  if (splitHandle && stageEl) {
+    splitHandle.hidden = false;
+    var splitting = false;
+    splitHandle.addEventListener('pointerdown', function (e) {
+      if (player.getAttribute('data-layout') !== 'long') return;
+      splitting = true;
+      player.classList.add('is-splitting');
+      try { splitHandle.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    });
+    splitHandle.addEventListener('pointermove', function (e) {
+      if (!splitting) return;
+      var pr = player.getBoundingClientRect();
+      var fr = frame.getBoundingClientRect();
+      /* 可用高 = 整帧高 - 控制条高；舞台占比 = 指针在上半的空间比 */
+      var ctrl = $('controls').getBoundingClientRect().height;
+      var avail = (fr.height - ctrl) || 1;
+      var y = e.clientY - pr.top;
+      setSplit(y / avail, false);
+    });
+    function endSplit() {
+      if (!splitting) return;
+      splitting = false;
+      player.classList.remove('is-splitting');
+      setSplit(state.splitRatio, true);
+      updateStageMetrics();
+      sizeLyricPad();
+    }
+    splitHandle.addEventListener('pointerup', endSplit);
+    splitHandle.addEventListener('pointercancel', endSplit);
+    window.addEventListener('resize', positionSplitHandle);
   }
 
   /* ============================================================
@@ -2320,14 +2364,17 @@
       }),
       loadPlaybackState(),
       storeGet(LISTS_KEY),
-      storeGet(LOCALDIR_KEY)
+      storeGet(LOCALDIR_KEY),
+      storeGet(SPLIT_KEY)
     ]).then(function (results) {
       applyHostTheme();
       var tracks = results[1];
       var pb = results[2];
       var savedLists = results[3];
       var dir = results[4];
+      var savedSplit = results[5];
       if (dir) state.localDir = String(dir);
+      if (typeof savedSplit === 'number' && savedSplit > 0 && savedSplit < 1) setSplit(savedSplit, false);
 
       if (tracks) {
         var needsAssign = migrateLists(tracks, savedLists);

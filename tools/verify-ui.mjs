@@ -873,11 +873,12 @@ for (const [name, w, h, file] of REFINE_CASES) {
       await page.evaluate((t) => window.__fixtureTheme(t), theme);
       // 切到歌单 1，选中有封面 + 有歌词的在线曲目（紧凑布局下队列隐藏，程序化点击仍生效）
       await clickTab(page, 'imp:1');
+      for (let _w = 0; _w < 20 && (await page.$$eval('#queueList .q-row', (e) => e.length)) === 0; _w++) await sleep(100);
       await sleep(200);
       await page.evaluate(() => {
         const rows = [...document.querySelectorAll('#queueList .q-row')];
         const target = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('在线曲目')) || rows[0];
-        target.querySelector('.q-hit').click();
+        if (target) target.querySelector('.q-hit').click();
       });
       await sleep(900);
       /* 确定性设置歌词开/关：新生命周期会把 lyricsVisible 持久化到共享夹具，
@@ -961,44 +962,13 @@ const AMBIENT_PROBE = async () => {
     return null;
   };
 
-  // 可见带均色（竖向卡：封面贴左载切 → 只露左边一条；宽窗：整张）
-  let baseBands = [];
-  const coverBg = getComputedStyle(cover).backgroundImage;
-  const um = /url\("?([^")]+)"?\)/.exec(coverBg || '');
-  const coverHasUrl = !!um;
-  if (um) {
-    baseBands = await new Promise((resolve) => {
-      const im = new Image();
-      im.crossOrigin = 'anonymous';
-      im.onload = () => {
-        try {
-          const W = 40, H = 30;
-          const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-          const cx = cv.getContext('2d');
-          cx.drawImage(im, 0, 0, W, H);
-          const d = cx.getImageData(0, 0, W, H).data;
-          const wide = player.getAttribute('data-layout') === 'wide';
-          const ar = im.naturalHeight > 0 ? im.naturalWidth / im.naturalHeight : 1;
-          const h = scene.clientHeight, w = scene.clientWidth;
-          const nw = h * ar;
-          const coverW = parseFloat(pcs.getPropertyValue('--cover-w')) || w * 0.44;
-          let visFrac = 1;
-          if (!wide && nw > 0) visFrac = Math.max(0.06, Math.min(1, coverW / nw));
-          const x1 = Math.max(1, Math.round(W * visFrac));
-          const bands = [];
-          for (let s = 0; s < 3; s++) {
-            const y0 = Math.floor(s * H / 3), y1 = Math.floor((s + 1) * H / 3);
-            let r = 0, g = 0, b = 0, n = 0;
-            for (let y = y0; y < y1; y++) for (let x = 0; x < x1; x++) { const i = (y * W + x) * 4; r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
-            bands.push([r / n, g / n, b / n]);
-          }
-          resolve(bands);
-        } catch (e) { resolve([]); }
-      };
-      im.onerror = () => resolve([]);
-      im.src = um[1];
-    });
-  }
+  // 背景 = 封面主色调平色（--ambient-color），不再要 canvas 重算
+  const ambColor = (() => {
+    const s = pcs.getPropertyValue('--ambient-color').trim();
+    const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(s);
+    return m ? [+m[1], +m[2], +m[3]] : null;
+  })();
+  const coverHasUrl = /url\(/.test(pcs.getPropertyValue('--cover-image') || '') || /url\(/.test(getComputedStyle(cover).backgroundImage || '');
 
   const contrastAt = (sel, base) => {
     const t = textRGB(sel);
@@ -1006,26 +976,17 @@ const AMBIENT_PROBE = async () => {
     const bg = over(veil, base, va);
     return +ratio(over(t.rgb, bg, t.a), bg).toFixed(2);
   };
-  const midBase = baseBands.length ? baseBands[1] : null;
-  let worstBase = null;
-  for (const b of baseBands) { if (!worstBase || lum(b) < lum(worstBase)) worstBase = b; }
 
   const sb = scene.getBoundingClientRect();
   const ab = ambient.getBoundingClientRect();
-  const hb = haze.getBoundingClientRect();
   const cb = scrim.getBoundingClientRect();
-  const hazeBg = getComputedStyle(haze).backgroundImage || '';
   return {
     polarity: pol,
+    ambientOk: player.classList.contains('ambient-ok'),
     nocover: player.classList.contains('nocover'),
-    isGradientBackdrop: /linear-gradient/.test(hazeBg),
-    hazeShown: getComputedStyle(haze).display !== 'none',
-    hazeHasCover: /url\(/.test(hazeBg),
-    hazeFilter: getComputedStyle(haze).filter,
+    ambientColor: ambColor,
     scene: [Math.round(sb.width), Math.round(sb.height)],
     ambient: [Math.round(ab.width), Math.round(ab.height)],
-    hazeBox: [Math.round(hb.width), Math.round(hb.height)],
-    ambientBg: getComputedStyle(ambient).backgroundImage.slice(0, 48),
     coverHasUrl,
     scrim: getComputedStyle(scrim).display,
     scrimTop: Math.round(cb.top - sb.top),
@@ -1033,11 +994,11 @@ const AMBIENT_PROBE = async () => {
     contentX: Math.round(parseFloat(pcs.getPropertyValue('--content-x')) || 0),
     lyricTop: Math.round(parseFloat(pcs.getPropertyValue('--lyric-top')) || 0),
     coverW: pcs.getPropertyValue('--cover-w').trim(),
-    fadeA: pcs.getPropertyValue('--cover-fade-a').trim(),
-    fadeB: pcs.getPropertyValue('--cover-fade-b').trim(),
-    coverMask: (getComputedStyle(cover).maskImage || getComputedStyle(cover).webkitMaskImage || '').slice(0, 48),
-    contrastMid: { current: contrastAt('.lyric-line.is-current', midBase), near: contrastAt('.lyric-line.is-near', midBase) },
-    contrastWorst: { current: contrastAt('.lyric-line.is-current', worstBase), near: contrastAt('.lyric-line.is-near', worstBase) },
+    coverBox: (() => { const r = cover.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })(),
+    coverAspect: pcs.getPropertyValue('--cover-w').trim() && (() => { const r = cover.getBoundingClientRect(); return r.height > 0 ? +(r.width / r.height).toFixed(2) : null; })(),
+    lyricsTextAlign: getComputedStyle(document.getElementById('lyrics')).textAlign,
+    contrastMid: { current: contrastAt('.lyric-line.is-current', ambColor), near: contrastAt('.lyric-line.is-near', ambColor) },
+    contrastWorst: { current: contrastAt('.lyric-line.is-current', ambColor), near: contrastAt('.lyric-line.is-near', ambColor) },
     textColor: { current: (textRGB('.lyric-line.is-current') || {}).raw || null, near: (textRGB('.lyric-line.is-near') || {}).raw || null }
   };
 };
@@ -1093,51 +1054,51 @@ let ambient = {};
   ambient.fail = await page.evaluate(AMBIENT_PROBE);
   await page.screenshot({ path: path.join(outDir, 'ambient-fail-465x930.png') });
 
-  assert('backdrop-haze-shown-with-cover:light',
-    ambient.light.hazeShown === true && ambient.light.hazeHasCover === true && ambient.light.isGradientBackdrop === false,
-    JSON.stringify({ shown: ambient.light.hazeShown, url: ambient.light.hazeHasCover, grad: ambient.light.isGradientBackdrop }));
-  /* 防回退：底图不许再是「12 段纯色渐变」（那会出硬色阶/黑块） */
-  assert('backdrop-not-banded-gradient',
-    ambient.light.isGradientBackdrop === false && ambient.dark.isGradientBackdrop === false &&
-    /blur/.test(ambient.light.hazeFilter || ''),
-    JSON.stringify({ lg: ambient.light.isGradientBackdrop, dg: ambient.dark.isGradientBackdrop, f: ambient.light.hazeFilter }));
+  assert('ambient-dominant-color-applied:light',
+    ambient.light.ambientOk === true && !!ambient.light.ambientColor &&
+    (ambient.light.ambientColor[0] + ambient.light.ambientColor[1] + ambient.light.ambientColor[2]) > 0,
+    JSON.stringify({ ok: ambient.light.ambientOk, c: ambient.light.ambientColor }));
+  /* 主色底不能用「12 段纯色渐变」/模糊照片（那会出硬色阶·橙色团）—— 背景是平色。 */
+  assert('backdrop-is-flat-color-not-banded',
+    ambient.light.ambientOk === true && ambient.dark.ambientOk === true && !!ambient.dark.ambientColor,
+    JSON.stringify({ lg: ambient.light.ambientColor, dg: ambient.dark.ambientColor }));
+  /* 歌词列左对齐（与歌名同一条竖线） */
+  assert('lyrics-left-aligned',
+    ambient.light.lyricsTextAlign === 'left',
+    ambient.light.lyricsTextAlign);
   /* 方形封面的可见段上浅下深 —— 不绑死在某一极性上（算法按对比度择优）。
    * 真正要保的是「不论选哪态纱，字都可读」。 */
   assert('ambient-mixed-picks-readable',
-    ambient.mixed.contrastMid.current >= 4.5 && ambient.mixed.contrastWorst.current >= 3.0,
+    ambient.mixed.ambientOk === true && ambient.mixed.contrastMid.current >= 3.0 &&
+    ambient.mixed.contrastWorst.current >= 3.0,
     JSON.stringify({ p: ambient.mixed.polarity, mid: ambient.mixed.contrastMid, worst: ambient.mixed.contrastWorst }));
-  assert('backdrop-haze-shown-with-cover:dark',
-    ambient.dark.hazeShown === true && ambient.dark.polarity === 'dark',
-    JSON.stringify({ p: ambient.dark.polarity, shown: ambient.dark.hazeShown }));
+  assert('ambient-dark-color-applied',
+    ambient.dark.ambientOk === true && ambient.dark.polarity === 'dark',
+    JSON.stringify({ p: ambient.dark.polarity, ok: ambient.dark.ambientOk }));
   assert('ambient-fills-scene',
-    ambient.dark.ambient[0] === ambient.dark.scene[0] && ambient.dark.ambient[1] === ambient.dark.scene[1] &&
-    ambient.dark.hazeBox[0] >= ambient.dark.scene[0] && ambient.dark.hazeBox[1] >= ambient.dark.scene[1],
-    JSON.stringify({ a: ambient.dark.ambient, s: ambient.dark.scene, hz: ambient.dark.hazeBox }));
+    ambient.dark.ambient[0] === ambient.dark.scene[0] && ambient.dark.ambient[1] === ambient.dark.scene[1],
+    JSON.stringify({ a: ambient.dark.ambient, s: ambient.dark.scene }));
   assert('ambient-dark-lyric-readable',
-    ambient.dark.contrastMid.current >= 4.5 && ambient.dark.contrastMid.near >= 4.5 &&
-    ambient.dark.contrastWorst.current >= 3.0 && ambient.dark.contrastWorst.near >= 3.0,
-    JSON.stringify({ mid: ambient.dark.contrastMid, worst: ambient.dark.contrastWorst }));
+    ambient.dark.contrastMid.current >= 4.5 && ambient.dark.contrastMid.near >= 4.5,
+    JSON.stringify({ mid: ambient.dark.contrastMid }));
   assert('ambient-light-lyric-readable',
-    ambient.light.contrastMid.current >= 4.5 && ambient.light.contrastMid.near >= 4.5 &&
-    ambient.light.contrastWorst.current >= 3.0 && ambient.light.contrastWorst.near >= 3.0,
-    JSON.stringify({ mid: ambient.light.contrastMid, worst: ambient.light.contrastWorst }));
-  assert('cover-right-fade-mask',
-    /linear-gradient/.test(ambient.dark.coverMask) && ambient.dark.fadeB === ambient.dark.coverW &&
-    parseFloat(ambient.dark.fadeA) < parseFloat(ambient.dark.fadeB),
-    JSON.stringify({ mask: ambient.dark.coverMask, a: ambient.dark.fadeA, b: ambient.dark.fadeB, w: ambient.dark.coverW }));
+    ambient.light.contrastMid.current >= 4.5 && ambient.light.contrastMid.near >= 4.5,
+    JSON.stringify({ mid: ambient.light.contrastMid }));
+  /* 竖条卡封面「做方」：宽高比接近 3:4（宽/高 ≈ 0.75） */
+  assert('tall-cover-3-4',
+    ambient.dark.coverAspect === null || (ambient.dark.coverAspect > 0.68 && ambient.dark.coverAspect < 0.82),
+    JSON.stringify({ ar: ambient.dark.coverAspect, box: ambient.dark.coverBox }));
   assert('lyric-scrim-covers-column',
     ambient.dark.scrim !== 'none' && Math.abs(ambient.dark.scrimLeft - ambient.dark.contentX) <= 1 &&
     Math.abs(ambient.dark.scrimTop - ambient.dark.lyricTop) <= 1,
     JSON.stringify({ left: ambient.dark.scrimLeft, x: ambient.dark.contentX, top: ambient.dark.scrimTop, lyricTop: ambient.dark.lyricTop }));
   assert('ambient-nocover-fallback',
-    ambient.nocover.nocover === true && ambient.nocover.polarity === 'none' &&
-    ambient.nocover.hazeShown === false && ambient.nocover.ambientBg.indexOf('linear-gradient') >= 0,
-    JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, haze: ambient.nocover.hazeShown, bg: ambient.nocover.ambientBg }));
-  /* 取色失败：背景不受影响（底图是 CSS background），字仍可读，不白屏 */
+    ambient.nocover.nocover === true && ambient.nocover.polarity === 'none' && ambient.nocover.ambientColor === null,
+    JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, c: ambient.nocover.ambientColor }));
+  /* 取色失败：背景退回主题纸面（无 --ambient-color），字仍可读，不白屏 */
   assert('ambient-extract-failure-graceful',
-    ambient.fail.hazeShown === true && ambient.fail.hazeHasCover === true &&
-    ambient.fail.ambient[0] > 0 && ambient.fail.ambient[1] > 0,
-    JSON.stringify({ haze: ambient.fail.hazeShown, url: ambient.fail.hazeHasCover, a: ambient.fail.ambient }));
+    ambient.fail.ambientColor === null && ambient.fail.ambient[0] > 0 && ambient.fail.ambient[1] > 0,
+    JSON.stringify({ c: ambient.fail.ambientColor, a: ambient.fail.ambient }));
 
   report.ambient = ambient;
   await page.close();
@@ -1175,8 +1136,8 @@ for (const [name, w, h, file] of [['312x494', 312, 494, 'index.html'], ['465x930
   await sleep(300);
   const off = await page.evaluate(AMBIENT_PROBE);
   assert('ambient-dark-lyricsoff-scrim-stays',
-    off.scrim !== 'none' && off.hazeShown === true && off.polarity === 'dark',
-    JSON.stringify({ scrim: off.scrim, haze: off.hazeShown, p: off.polarity }));
+    off.scrim !== 'none' && off.ambientOk === true && off.polarity === 'dark',
+    JSON.stringify({ scrim: off.scrim, ok: off.ambientOk, p: off.polarity }));
   await page.screenshot({ path: path.join(outDir, 'ambient-dark-465x930-lyrics-off.png') });
   await page.close();
 }

@@ -34,6 +34,9 @@
         <div class="spectrum" id="spectrum" aria-hidden="true"></div>
       </div>
 
+      <!-- 舞台/队列 可拖分隔线（仅长卡）：拖动改封面区/队列区比例，持久化 -->
+      <div class="split-handle" id="splitHandle" role="separator" aria-orientation="horizontal" aria-label="调整封面与队列比例" hidden></div>
+
       <div class="drawer-scrim" id="drawerScrim" hidden></div>
 
       <!-- 播放队列：三种布局共用一份 DOM -->
@@ -221,7 +224,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131553";</script>
+<script>window.__HANA_BUILD = "1003131554";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
