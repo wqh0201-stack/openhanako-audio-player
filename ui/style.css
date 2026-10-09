@@ -1278,15 +1278,11 @@ button:disabled { cursor: default; }
 .player[data-layout="wide"] .controls-info { display: block; }
 .player[data-layout="wide"] .range-vol { display: block; width: 88px; }
 
-/* 宽窗：阅读列位置由 --content-x 决定；抽屉打开时只收窄右边界，不整体搬家 */
-.player[data-layout="wide"] .lyric-wrap,
-.player[data-layout="wide"] .spectrum {
-  transition: right 0.22s ease;
-}
-.player[data-layout="wide"][data-drawer="1"] .lyric-wrap,
-.player[data-layout="wide"][data-drawer="1"] .spectrum {
-  right: clamp(330px, 40%, 400px);
-}
+/* 宽窗：阅读列位置由 --content-x 决定，右边界固定 20px。
+ * 抽屉是【浮在上层的独立面板】（.queue 为 absolute + z-index:6），
+ * 不占据布局 → 歌词列不得为它让位。
+ * （旧写法：抽屉打开时把 .lyric-wrap 的 right 提到 clamp(330px,40%,400px)，
+ *  把歌词列从 482px 砍成 102px，就是那个“挤压”的根因。已删。） */
 
 .player[data-layout="wide"] .queue {
   position: absolute;
