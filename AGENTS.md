@@ -195,7 +195,18 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
   接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
   断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **79/79** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **79/79** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪）
+- 指针涟漪（2026-10-10，**已部署**，构建号 1003131586）：**旧「频谱」整层替换为 Canvas 2D 指针涟漪**。
+  方案与行为约定：`docs/player-ui/RIPPLE-CANVAS-2D.md`（罐头拿提示词请教前端高手后的作品，已落地）。
+  层序改为：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)；涟漪落在文字与蒙层下方，
+  所以**常驻**，不再跟歌词互斥（无词时画面 = 封面 + 涟漪）。
+  行为：指针移动累计距离才落波、按下更大一圈、播放且空闲时低频自起（呼吸波）；
+  暂停约 350ms 收敛后停 rAF；截图/ reduced-motion / 隐藏 / 离屏全停调度；DPR 封顶 2。
+  ⚠️ **它不读音频**——`captureStream()` / `AnalyserNode` / `createMediaElementSource` 整条链已删。
+  这顺带根除了「跨源静音雷」：涟漪与音频同源与否无关，不再有 `is-reactive` / `specPulse`。
+  断言：`no-web-audio-media-chain`（源码级守卫）/ `ripple-layer-when-no-lyrics` /
+  `motion-lyric-crossfade` / `motion-ripple-when-no-lyrics` / `motion-ripple-poke-adds-wave`。
+  真机待验：浅深主题观感、三种布局下涟漪密度、歌词可读性是否受扰。
 - 第六轮（舞台底部渐隐 + 顶部圆角，2026-10-09 罐头拍板）：
   ① `.scene::after` 的舞台底部渐隐**已整个撤掉**：先是从「固定 72px 刷主题面色」改成「按舞台高比例
      `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，真机看过之后罐头拍板**连这道也去掉** ——

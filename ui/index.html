@@ -34,8 +34,9 @@
           <div class="lyrics" id="lyrics"></div>
         </div>
 
-        <!-- 无歌词时的兜底内容：纯装饰频谱（有词就显歌词，见 renderLyrics/syncPanels）。 -->
-        <div class="spectrum" id="spectrum" aria-hidden="true"></div>
+        <!-- 指针涟漪：Canvas 2D 装饰层，不读音频。落在封面之上、蒙层/文字之下，
+             所以可以常驻（不必跟歌词互斥）。方案见 docs/player-ui/RIPPLE-CANVAS-2D.md。 -->
+        <canvas class="ripple-canvas" id="rippleCanvas" aria-hidden="true"></canvas>
       </div>
 
       <!-- 舞台/队列 可拖分隔线（仅长卡）：拖动改封面区/队列区比例，持久化 -->
@@ -271,7 +272,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131585";</script>
+<script>window.__HANA_BUILD = "1003131586";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

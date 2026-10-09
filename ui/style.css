@@ -448,7 +448,7 @@ button:disabled { cursor: default; }
 .lyric-scrim {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
   background: var(--lyric-scrim);
   /* 透明 → 满，终点落在 --content-x；中间连续插值（离散多段 stop 会出竖纹）。 */
   -webkit-mask-image: linear-gradient(90deg,
@@ -459,20 +459,15 @@ button:disabled { cursor: default; }
       #000 var(--content-x, 34%));
   pointer-events: none;
 }
-/* 歌词 ⇄ 频谱：由显示态切换。无歌词（data-haslyrics=0）时无论开关都出频谱（没词可显）。 */
-.player[data-lyrics="0"] .lyric-wrap { display: none; }
-.player[data-lyrics="1"] .spectrum { display: none; }
+/* 歌词显隐：有词（data-haslyrics=1）才显歌词列；无词时只剩封面 + 涟漪。
+ * 涟漪（.ripple-canvas）落在封面之上、文字之下，**常驻**，不跟歌词互斥。 */
 .player[data-haslyrics="0"] .lyric-wrap { display: none; }
-.player[data-haslyrics="0"] .spectrum { display: flex; }
-.player[data-lyrics="1"][data-haslyrics="0"] .spectrum { display: flex; }
 
-/* 换层交叉淡入淡出（motion 4）：display 不能过渡，所以过渡期间用 .is-swap-* 把两层
- * 都强制挂载，结束时 JS 摘类 → 回到上面的 resting display:none（延迟卸载）。
- * 两层同时在场做交叉，不闪；频谱柱由真音频驱动，换层时动画不重启。 */
+/* 换层交叉淡入淡出（motion 4）：display 不能过渡，所以过渡期间用 .is-swap-* 把歌词层
+ * 强制挂载，结束时 JS 摘类 → 回到上面的 resting display:none（延迟卸载）。
+ * 涟漪不受换层影响，不会重启。 */
 .player[data-lyrics] .lyric-wrap.is-swap-out { display: block; animation: panelOut 0.22s ease both; }
-.player[data-lyrics] .spectrum.is-swap-out { display: flex; animation: panelOut 0.22s ease both; }
 .player[data-lyrics] .lyric-wrap.is-swap-in { animation: panelIn 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
-.player[data-lyrics] .spectrum.is-swap-in { animation: panelIn 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 @keyframes panelIn {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
@@ -490,7 +485,7 @@ button:disabled { cursor: default; }
   top: 0;
   left: var(--content-x, 34%);
   right: 18px;
-  z-index: 3;
+  z-index: 4;
   padding: 44px 0 0;
 }
 .track-title {
@@ -553,7 +548,7 @@ button:disabled { cursor: default; }
   bottom: 0;
   left: var(--content-x, 34%);
   right: 20px;
-  z-index: 2;
+  z-index: 4;
 }
 .lyrics {
   height: 100%;
@@ -990,44 +985,28 @@ button:disabled { cursor: default; }
 .pop-go:hover { filter: brightness(1.06); }
 
 /* ============================================================
-   频谱（R4）：歌词关闭 / 无词时的替代内容。
-   默认是 CSS 装饰循环（specPulse，由 data-playing 驱动，暂停时定格）；
-   接上真音频后（.player.is-reactive）改为 JS 写 transform:scaleY，中心对称缩放。
+   频谱（R4）：无词时的装饰层。
+   2026-10-10 已整层替换为「指针涟漪」（见文末 .ripple-canvas）；
+   旧的 .spectrum/.spec-bar/真音频反应链已移除。
    ============================================================ */
-.spectrum {
+
+/* ============================================================
+   指针涟漪（Canvas 2D 装饰层）
+   ------------------------------------------------------------
+   层序：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)。
+   落在文字与蒙层下方，所以可常驻，不跟歌词互斥。
+   颜色只从 CSS 变量取（Canvas 读计算后的 color），跟随主题。
+   方案与行为约定见 docs/player-ui/RIPPLE-CANVAS-2D.md。
+   ============================================================ */
+.ripple-canvas {
   position: absolute;
-  top: var(--lyric-top, 108px);
-  bottom: 0;
-  left: var(--content-x, 34%);
-  right: 20px;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 3px;
-  padding: 0 10px;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
   pointer-events: none;
-}
-.spec-bar {
-  flex: 0 0 3px;
-  width: 3px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--hk-accent) 58%, transparent);
-  transform-origin: 50% 100%;
-  animation: specPulse var(--d, 1.2s) ease-in-out var(--delay, 0s) infinite alternate;
-  animation-play-state: paused;
-}
-.player[data-playing="1"] .spec-bar { animation-play-state: running; }
-/* 真音频反应：关掉装饰循环，柱高由 JS 写 transform（见 app.js applyBins）。
- * 改中心对称缩放，保留居中的视觉。 */
-.player.is-reactive .spec-bar {
-  animation: none;
-  transform-origin: 50% 50%;
-  will-change: transform;
-}
-@keyframes specPulse {
-  from { transform: scaleY(0.32); }
-  to   { transform: scaleY(1); }
+  color: var(--hl-accent, var(--hk-accent));
 }
 
 /* ============================================================
@@ -1403,10 +1382,10 @@ body.is-shot *::after {
   /* 搜索页入场也退为纯淡入（去掉位移） */
   .search-page { animation: panelFadeIn 0.2s ease both !important; }
   /* 换层保留纯淡入淡出（去位移） */
-  .player[data-lyrics] .lyric-wrap.is-swap-in,
-  .player[data-lyrics] .spectrum.is-swap-in { animation: panelFadeIn 0.2s ease both !important; }
-  .player[data-lyrics] .lyric-wrap.is-swap-out,
-  .player[data-lyrics] .spectrum.is-swap-out { animation: panelFadeOut 0.2s ease both !important; }
+  .player[data-lyrics] .lyric-wrap.is-swap-in { animation: panelFadeIn 0.2s ease both !important; }
+  .player[data-lyrics] .lyric-wrap.is-swap-out { animation: panelFadeOut 0.2s ease both !important; }
+  /* 涟漪在 reduced-motion 下直接隐藏（JS 也会关掉调度，双保险） */
+  .ripple-canvas { display: none; }
 }
 @keyframes panelFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes panelFadeOut { from { opacity: 1; } to { opacity: 0; } }

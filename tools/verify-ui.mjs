@@ -523,13 +523,14 @@ for (const [name, w, h, file] of CASES) {
   await sleep(700);
   w.lyricsoffState = await page.evaluate(() => {
     const cs = (id) => getComputedStyle(document.getElementById(id)).display;
-    return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum') };
+    const rip = document.getElementById('rippleCanvas');
+    return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), ripple: rip ? cs('rippleCanvas') : 'none' };
   });
-  assert('spectrum-takes-over-when-no-lyrics',
-    w.lyricsoffState.wrap === 'none' && w.lyricsoffState.scrim !== 'none' && w.lyricsoffState.spec !== 'none',
+  assert('ripple-layer-when-no-lyrics',
+    w.lyricsoffState.wrap === 'none' && w.lyricsoffState.scrim !== 'none' && w.lyricsoffState.ripple !== 'none',
     JSON.stringify(w.lyricsoffState));
-  await page.screenshot({ path: path.join(outDir, 'no-lyrics-spectrum-465x930-light.png') });
-  // 切回有词曲目：歌词层回来，频谱让位
+  await page.screenshot({ path: path.join(outDir, 'no-lyrics-ripple-465x930-light.png') });
+  // 切回有词曲目：歌词层回来
   await page.evaluate(() => {
     const rows = [...document.querySelectorAll('#queueList .q-row')];
     const target = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('在线曲目'));
@@ -538,10 +539,10 @@ for (const [name, w, h, file] of CASES) {
   await sleep(700);
   w.lyricsBackState = await page.evaluate(() => {
     const cs = (id) => getComputedStyle(document.getElementById(id)).display;
-    return { wrap: cs('lyricWrap'), spec: cs('spectrum') };
+    return { wrap: cs('lyricWrap') };
   });
   assert('lyrics-return-when-track-has-lyrics',
-    w.lyricsBackState.wrap !== 'none' && w.lyricsBackState.spec === 'none',
+    w.lyricsBackState.wrap !== 'none',
     JSON.stringify(w.lyricsBackState));
   await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
   await sleep(400);
@@ -683,22 +684,22 @@ const motion = {};
     const pick = (kw) => { const r = rows().find((x) => x.querySelector('.q-title').textContent.startsWith(kw)); if (r) r.querySelector('.q-hit').click(); return !!r; };
     const has = () => document.getElementById('player').getAttribute('data-haslyrics');
     // 已经在有词曲目上（上面刚播过）
-    const withLyrics = { wrap: vis('lyricWrap'), scrim: vis('lyricScrim'), spec: vis('spectrum'), has: has() };
+    const withLyrics = { wrap: vis('lyricWrap'), scrim: vis('lyricScrim'), has: has() };
     // 切到无词曲目（“无词纯音乐”，假后端回空 LRC）
     pick('无词纯音乐');
     await new Promise((r) => setTimeout(r, 800));
-    const noLyrics = { wrap: vis('lyricWrap'), scrim: vis('lyricScrim'), spec: vis('spectrum'), has: has() };
+    const noLyrics = { wrap: vis('lyricWrap'), scrim: vis('lyricScrim'), has: has() };
     // 再切回有词曲目
     pick('在线曲目');
     await new Promise((r) => setTimeout(r, 800));
-    const back = { wrap: vis('lyricWrap'), spec: vis('spectrum'), has: has() };
+    const back = { wrap: vis('lyricWrap'), has: has() };
     return { withLyrics, noLyrics, back };
   });
-  assert('motion-lyric-spectrum-swap',
-    motion.crossfade.withLyrics.wrap !== 'none' && motion.crossfade.withLyrics.spec === 'none' &&
-    motion.crossfade.noLyrics.wrap === 'none' && motion.crossfade.noLyrics.spec !== 'none' &&
-    motion.crossfade.noLyrics.scrim !== 'none' && motion.crossfade.noLyrics.has === '0' &&
-    motion.crossfade.back.wrap !== 'none' && motion.crossfade.back.spec === 'none',
+  assert('motion-lyric-crossfade',
+    motion.crossfade.withLyrics.wrap !== 'none' && motion.crossfade.withLyrics.has === '1' &&
+    motion.crossfade.noLyrics.wrap === 'none' && motion.crossfade.noLyrics.scrim !== 'none' &&
+    motion.crossfade.noLyrics.has === '0' &&
+    motion.crossfade.back.wrap !== 'none' && motion.crossfade.back.has === '1',
     JSON.stringify(motion.crossfade));
 
   // 歌词跟随 3s 自动回归：滚动（wheel）后停 3.4s 应回到跟随（is-browsing 消失）
@@ -742,28 +743,25 @@ const motion = {};
   await sleep(900);
   motion.nolyr = await page.evaluate(() => ({
     haslyrics: document.getElementById('player').getAttribute('data-haslyrics'),
-    specShown: getComputedStyle(document.getElementById('spectrum')).display !== 'none',
+    rippleShown: !!(document.getElementById('rippleCanvas') && getComputedStyle(document.getElementById('rippleCanvas')).display !== 'none'),
     emptyShown: !!document.querySelector('#lyrics .lyric-empty')
   }));
-  assert('motion-spectrum-when-no-lyrics',
-    motion.nolyr.haslyrics === '0' && motion.nolyr.specShown === true && motion.nolyr.emptyShown === false,
+  assert('motion-ripple-when-no-lyrics',
+    motion.nolyr.haslyrics === '0' && motion.nolyr.emptyShown === false,
     JSON.stringify(motion.nolyr));
 
-  // 真音频反应：把 bins 喂进映射函数，频谱柱应随之变化（真机接音频后走同一条路径）
-  motion.reactive = await page.evaluate(() => {
+  // 指针涟漪：手动喂一圈，波列表增长；不读音频（无 captureStream 依赖）
+  motion.ripple = await page.evaluate(() => {
     const dbg = window.__playerDebug;
-    const bars = [...document.querySelectorAll('#spectrum .spec-bar')];
-    if (!dbg || typeof dbg.applyBins !== 'function') return { ok: false, reason: 'no-hook' };
-    const before = bars.slice(0, 4).map((b) => b.style.transform || 'none');
-    const data = new Uint8Array(64);
-    for (let i = 0; i < 14; i++) data[i] = 230;
-    dbg.applyBins(data);
-    const after = bars.slice(0, 4).map((b) => b.style.transform || 'none');
-    return { ok: true, count: bars.length, changed: before.join('|') !== after.join('|'), after };
+    if (!dbg || typeof dbg.ripplePoke !== 'function') return { ok: false, reason: 'no-hook' };
+    const before = dbg.rippleState();
+    const n = dbg.ripplePoke(0.4, 0.5, true);
+    return { ok: true, exists: before.exists !== false, beforeWaves: before.waves, afterWaves: n };
   });
-  assert('motion-spectrum-reactive',
-    motion.reactive.ok === true && motion.reactive.count > 0 && motion.reactive.changed === true,
-    JSON.stringify(motion.reactive));
+  assert('motion-ripple-poke-adds-wave',
+    motion.ripple.ok === true && motion.ripple.afterWaves >= 1 &&
+    motion.ripple.afterWaves > (motion.ripple.beforeWaves || 0),
+    JSON.stringify(motion.ripple));
 
   // 按钮按压：:active 样式存在（scale）—— 检查样式表里确实写了
   motion.press = await page.evaluate(() => {
@@ -1170,13 +1168,14 @@ const motion = {};
     lyricMatch.emptyList === null && lyricMatch.noUrl === 'null',
     JSON.stringify(lyricMatch));
 
-  /* 频谱反应链必须走 captureStream（非破坏性），**绝不能**回到 createMediaElementSource：
-   * 后者跨源会输出全零（静音）且不可逆。源码级守卫，去掉注释后再查。 */
+  /* 不再把音频接进 Web Audio（旧 captureStream/Analyser 链已随频谱一起移除）：
+   * 跨源音频接 createMediaElementSource 会输出全零（静音）且不可逆。涟漪不读音频，
+   * 从根上避开了这颗雷。源码级守卫，去掉注释后再查。 */
   const codeNoComments = fs.readFileSync(path.join(uiDir, 'app.js'), 'utf-8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-  assert('reactive-uses-captureStream-not-mediaElementSource',
-    /\.captureStream\(\)/.test(codeNoComments) && !/createMediaElementSource\s*\(/.test(codeNoComments),
-    JSON.stringify({ usesCaptureStream: /\.captureStream\(\)/.test(codeNoComments), callsOldApi: /createMediaElementSource\s*\(/.test(codeNoComments) }));
+  assert('no-web-audio-media-chain',
+    !/createMediaElementSource\s*\(/.test(codeNoComments) && !/\.captureStream\s*\(/.test(codeNoComments),
+    JSON.stringify({ callsOldApi: /createMediaElementSource\s*\(/.test(codeNoComments), usesCaptureStream: /\.captureStream\s*\(/.test(codeNoComments) }));
 
   report.four = w2;
   await page.close();
@@ -1353,15 +1352,15 @@ for (const [name, w, h, file] of REFINE_CASES) {
       await page.screenshot({ path: path.join(outDir, shotName) });
       report.refine.push(shotName);
 
-      // R4：有词 → 歌词层；无词 → 频谱接管。两种下蒙层/渐变都要在线。
+      // 有词 → 歌词层；无词 → 只剩封面 + 涟漪（涟漪常驻）。两种下蒙层/渐变都要在线。
       const swap = await page.evaluate(() => {
         const cs = (id) => getComputedStyle(document.getElementById(id)).display;
-        return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum'), has: document.getElementById('player').getAttribute('data-haslyrics') };
+        return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), has: document.getElementById('player').getAttribute('data-haslyrics') };
       });
       const swapOk = lyricsOn
-        ? (swap.wrap !== 'none' && swap.scrim !== 'none' && swap.spec === 'none' && swap.has === '1')
-        : (swap.wrap === 'none' && swap.scrim !== 'none' && swap.spec !== 'none' && swap.has === '0');
-      assert(`lyrics-spectrum-swap:${shotName}`, swapOk, JSON.stringify(swap));
+        ? (swap.wrap !== 'none' && swap.scrim !== 'none' && swap.has === '1')
+        : (swap.wrap === 'none' && swap.scrim !== 'none' && swap.has === '0');
+      assert(`lyrics-crossfade:${shotName}`, swapOk, JSON.stringify(swap));
 
       // R5：高亮/激活态必须吃主题强调色
       accentByTheme[theme] = await page.evaluate(() => getComputedStyle(document.getElementById('playBtn')).backgroundColor);
