@@ -971,10 +971,12 @@ const motion = {};
   await page.evaluate(() => document.getElementById('stageFavBtn').click());
   await sleep(250);
 
-  // ---- (c2b) 控制条常驻红心「喜欢」：点亮 + 与播放页/队列行同步
+  // ---- (c2b) 控制条常驻红心：纯图标（无「喜欢」文字）+ 点亮 + 与播放页/队列行同步
   const ctlFavBefore = await page.evaluate(() => ({
     pressed: document.getElementById('favBtn').getAttribute('aria-pressed'),
-    label: document.getElementById('favBtn').textContent.trim()
+    text: document.getElementById('favBtn').textContent.trim(),
+    hasIcon: !!document.querySelector('#favBtn .icon use'),
+    isBar: document.getElementById('favBtn').classList.contains('fav-btn-bar')
   }));
   await page.evaluate(() => document.getElementById('favBtn').click());
   await sleep(250);
@@ -986,7 +988,8 @@ const motion = {};
   }));
   w2.ctlFav = { before: ctlFavBefore, after: ctlFavAfter };
   assert('control-bar-fav-toggles',
-    ctlFavBefore.pressed === 'false' && ctlFavBefore.label === '喜欢' &&
+    ctlFavBefore.pressed === 'false' && ctlFavBefore.text === '' &&
+    ctlFavBefore.hasIcon === true && ctlFavBefore.isBar === true &&
     ctlFavAfter.on === true && ctlFavAfter.pressed === 'true' &&
     ctlFavAfter.stageOn === true && ctlFavAfter.rowOn === 1,
     JSON.stringify(w2.ctlFav));

@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>涟漪实验室 · Hana</title>
+<style>
+:root {
+  color-scheme:dark;
+  --demo-bg:#202c33; --demo-surface:#293840; --demo-ink:#e5ecee;
+  --demo-muted:#a6b5be; --demo-accent:#c99aaf;
+  --hk-bg:var(--bg,var(--demo-bg)); --hk-surface:var(--bg-card,var(--demo-surface));
+  --hk-text:var(--text,var(--demo-ink)); --hk-muted:var(--text-muted,var(--demo-muted));
+  --hk-accent:var(--accent,var(--demo-accent)); --hl-accent:var(--hk-accent);
+  --line:color-mix(in srgb,var(--hk-text) 13%,transparent);
+  --soft:color-mix(in srgb,var(--hk-accent) 10%,transparent);
+  --water:color-mix(in srgb,var(--hk-bg) 90%,var(--hk-accent));
+  --font:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif;
+}
+@media(prefers-color-scheme:light) {
+  :root:not([data-demo-theme]) { color-scheme:light; --demo-bg:#f0ede6; --demo-surface:#faf8f2; --demo-ink:#303b40; --demo-muted:#626d73; --demo-accent:#537d96; }
+}
+:root[data-demo-theme="light"] { color-scheme:light; --demo-bg:#f0ede6; --demo-surface:#faf8f2; --demo-ink:#303b40; --demo-muted:#626d73; --demo-accent:#537d96; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--hk-bg); color:var(--hk-text); font:14px/1.6 var(--font); }
+button,input { font:inherit; }
+button { cursor:pointer; color:inherit; border:0; background:none; }
+button:disabled { cursor:default; opacity:.42; }
+button:focus-visible,input:focus-visible,summary:focus-visible { outline:2px solid var(--hk-accent); outline-offset:5px; }
+button,summary { -webkit-tap-highlight-color:transparent; }
+button { transition:background .2s,transform .2s,color .2s; }
+button:not(:disabled):active { transform:translateY(1px); }
+svg.icon { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+[hidden] { display:none!important; }
+.shell { width:min(1200px,100%); margin:auto; padding:30px 48px 28px; }
+.masthead { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:25px; }
+.brand { display:flex; gap:14px; align-items:center; }
+.brand-mark { width:33px; height:33px; stroke:var(--hk-accent); fill:none; stroke-width:1.15; }
+.brand-name { font-size:16px; letter-spacing:.12em; }
+.brand-note { font-size:11px; color:var(--hk-muted); letter-spacing:.19em; }
+.header-tools { display:flex; align-items:center; gap:16px; }
+.edition { color:var(--hk-muted); font-size:11px; letter-spacing:.12em; }
+.icon-button { display:grid; place-items:center; width:36px; height:36px; border-radius:50%; }
+.icon-button:hover { background:var(--soft); }
+.hero { position:relative; overflow:hidden; isolation:isolate; height:472px; border-radius:14px 14px 0 0; background:var(--water); }
+.hero:before { content:""; position:absolute; inset:0; z-index:0; background:radial-gradient(ellipse at 74% 44%,color-mix(in srgb,var(--hk-accent) 13%,transparent),transparent 62%); pointer-events:none; }
+.water-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+.hero-scrim { position:absolute; inset:0; pointer-events:none; z-index:2; background:linear-gradient(90deg,color-mix(in srgb,var(--water) 90%,transparent),transparent 46%); }
+.hero-copy { position:absolute; top:35px; left:38px; z-index:3; pointer-events:none; }
+.kicker { margin:0; font-size:11px; letter-spacing:.17em; color:var(--hk-muted); }
+h1 { margin:26px 0 19px; font-family:"Songti SC","Noto Serif CJK SC",serif; font-weight:400; font-size:53px; line-height:1.3; letter-spacing:.08em; }
+.hero-copy p:last-child { color:var(--hk-muted); margin:0; font-size:12px; line-height:2; }
+.hero-index { position:absolute; top:37px; right:34px; z-index:3; text-align:right; pointer-events:none; }
+.hero-index .num { font-family:Georgia,serif; font-size:30px; color:var(--hk-accent); line-height:1.1; }
+.hero-index p { margin:8px 0 0; font-size:11px; color:var(--hk-muted); letter-spacing:.12em; }
+.hero-bottom { position:absolute; z-index:3; left:38px; right:34px; bottom:27px; display:flex; justify-content:space-between; align-items:flex-end; gap:22px; }
+.gesture-note { display:flex; gap:9px; align-items:center; color:var(--hk-muted); font-size:11px; }
+.gesture-dot { width:5px; height:5px; border-radius:50%; background:var(--hk-accent); }
+.water-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.pill { display:inline-flex; align-items:center; gap:7px; font-size:12px; padding:7px 12px; border-radius:5px; background:color-mix(in srgb,var(--hk-bg) 68%,transparent); }
+.pill:hover,.pill[aria-pressed="true"] { background:var(--soft); color:var(--hk-accent); }
+.drag-overlay { position:absolute; z-index:5; inset:12px; background:color-mix(in srgb,var(--hk-surface) 95%,transparent); display:grid; place-items:center; border:1px dashed var(--hk-accent); font-size:22px; pointer-events:none; }
+.settings { display:flex; align-items:center; justify-content:space-between; gap:22px; min-height:64px; padding:13px 23px; background:var(--hk-surface); }
+.segmented { display:flex; gap:4px; align-items:center; }
+.segmented button { padding:6px 12px; font-size:12px; border-radius:4px; color:var(--hk-muted); }
+.segmented button[aria-pressed="true"] { background:var(--soft); color:var(--hk-accent); }
+.intensity { display:flex; align-items:center; gap:11px; font-size:11px; color:var(--hk-muted); }
+input[type="range"] { accent-color:var(--hk-accent); cursor:pointer; margin:0; min-width:0; }
+.intensity input { width:100px; }
+output { min-width:26px; font-variant-numeric:tabular-nums; color:var(--hk-text); }
+.mini { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--hk-muted); }
+.live-dot { height:5px; width:5px; border-radius:50%; background:var(--hk-muted); }
+.live-dot.connected { background:var(--hk-accent); }
+.player { padding:26px 0 23px; display:flex; align-items:center; gap:17px; border-bottom:1px solid var(--line); }
+.album { display:grid; place-items:center; flex-shrink:0; width:52px; height:52px; border-radius:5px; background:var(--soft); color:var(--hk-accent); }
+.album svg { width:29px; height:29px; }
+.track { flex:1; min-width:0; }
+.track h2 { margin:0 0 3px; font-size:14px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.track p { margin:0; font-size:11px; color:var(--hk-muted); }
+.primary { display:inline-flex; align-items:center; justify-content:center; gap:9px; background:var(--hk-accent); color:var(--hk-bg); padding:10px 16px; border-radius:5px; font-size:12px; white-space:nowrap; }
+.primary:hover { filter:brightness(1.07); }
+.secondary { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:10px 12px; color:var(--hk-muted); border-radius:5px; font-size:12px; white-space:nowrap; }
+.secondary:hover { background:var(--soft); color:var(--hk-text); }
+.transport { display:flex; align-items:center; gap:13px; padding:17px 0 0; }
+.play-button { width:34px; height:34px; display:grid; place-items:center; color:var(--hk-accent); border-radius:50%; background:var(--soft); }
+.seek { flex:1; }
+.time { color:var(--hk-muted); font-size:11px; font-variant-numeric:tabular-nums; min-width:75px; text-align:center; }
+.volume-wrap { display:flex; align-items:center; gap:9px; color:var(--hk-muted); }
+.volume-wrap input { width:68px; }
+.analysis { padding-top:29px; }
+.analysis-head { display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:15px; }
+.analysis-title { display:flex; align-items:baseline; gap:16px; }
+h3 { font-size:15px; font-weight:400; margin:0; }
+.readout { display:flex; gap:23px; font-size:11px; color:var(--hk-muted); }
+.readout b { color:var(--hk-text); font-weight:400; font-variant-numeric:tabular-nums; margin-left:7px; }
+.graph-wrap { position:relative; height:169px; }
+.fft-canvas { width:100%; height:100%; display:block; }
+.empty-graph { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; gap:5px; }
+.empty-graph span { font-size:12px; color:var(--hk-muted); }
+.empty-graph small { font-size:11px; color:var(--hk-muted); opacity:.85; }
+.frequency-labels { position:relative; height:22px; font-size:11px; color:var(--hk-muted); margin-top:5px; }
+.frequency-labels span { position:absolute; top:0; transform:translateX(-50%); }
+.frequency-labels span:first-child { transform:none; }
+.frequency-labels span:last-child { transform:translateX(-100%); }
+footer { margin-top:27px; padding-top:17px; border-top:1px solid var(--line); display:flex; align-items:flex-start; justify-content:space-between; gap:30px; color:var(--hk-muted); font-size:11px; }
+footer p { margin:0; }
+details { max-width:500px; }
+summary { cursor:pointer; text-align:right; }
+details p { margin-top:10px; line-height:1.9; }
+.notice { min-height:24px; margin:11px 0 0; color:var(--hk-muted); font-size:12px; }
+.color-probe { position:absolute; width:0; height:0; pointer-events:none; visibility:hidden; color:var(--hl-accent); }
+.motion-notice { position:absolute; bottom:78px; left:38px; right:34px; z-index:4; font-size:12px; color:var(--hk-muted); pointer-events:none; }
+body.is-shot *,body.is-shot *:before,body.is-shot *:after { animation-play-state:paused!important; transition:none!important; }
+@media(max-width:760px) {
+  .shell { padding:20px 22px; } .edition { display:none; }
+  .hero { height:440px; } .hero-copy { top:28px; left:25px; } h1 { font-size:44px; }
+  .hero-index { right:24px; top:31px; } .hero-index p { max-width:85px; }
+  .hero-bottom { left:25px; right:24px; bottom:22px; } .gesture-note { max-width:110px; }
+  .settings { flex-wrap:wrap; gap:12px; padding:13px 16px; } .settings>.mini { display:none; }
+  .player { flex-wrap:wrap; gap:13px; padding-top:23px; } .track { flex-basis:calc(100% - 72px); }
+  .primary,.secondary { flex:1; } .analysis-title .kicker { display:none; }
+  .readout { gap:12px; } .readout .peak { display:none; }
+  footer { flex-direction:column; gap:14px; } summary { text-align:left; }
+}
+@media(max-width:390px) {
+  .shell { padding:16px; } .hero { height:410px; } .hero-copy p:last-child { max-width:185px; }
+  .hero-index { display:none; } h1 { font-size:38px; }
+  .hero-bottom { gap:10px; } .gesture-note { display:none; } .water-actions { margin-left:auto; }
+  .settings { gap:10px; } .segmented button { padding:6px 8px; } .intensity input { width:77px; }
+  .volume-wrap { display:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *,*:before,*:after { animation:none!important; transition:none!important; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 8V5h7l2 3h9v12H3Z"/></symbol>
+<symbol id="i-share" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4M9 10l3-3 3 3m-3-3v7"/></symbol>
+<symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4Zm12-1a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+<symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3c-2 4-7 8-7 12a7 7 0 0 0 14 0c0-4-5-8-7-12Z"/><path d="M8 15a4 4 0 0 0 4 4"/></symbol>
+<symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16m0-16a8 8 0 0 1 0 16Z"/></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><path d="M9 17V5l11-2v12M9 9l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/></symbol>
+</defs></svg>
+<main class="shell" id="app">
+<header class="masthead">
+  <div class="brand"><svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true"><ellipse cx="18" cy="23" rx="15" ry="7"/><ellipse cx="18" cy="23" rx="9" ry="4"/><path d="M18 5c-2 4-4 6-4 8a4 4 0 0 0 8 0c0-2-2-4-4-8Z"/></svg><div><div class="brand-name">涟漪实验室</div><div class="brand-note">HANA · RIPPLE STUDY</div></div></div>
+  <div class="header-tools"><span class="edition">INTERACTION & SOUND / 01</span><button class="icon-button" id="themeBtn" aria-label="切换演示深浅主题" title="切换演示深浅主题"><svg class="icon"><use href="#i-theme"/></svg></button></div>
+</header>
+<section class="hero" id="scene" aria-label="交互水面，移动指针或点击产生涟漪">
+  <canvas class="water-canvas" id="waterCanvas" aria-hidden="true"></canvas>
+  <div class="hero-scrim"></div>
+  <div class="hero-copy"><p class="kicker">01 / A SURFACE THAT LISTENS</p><h1>静水，<br>有回声。</h1><p>划过，是一束流光。<br>落下，是层层回响。</p></div>
+  <div class="hero-index"><div class="num">水 / 声</div><p>指尖唤醒水面<br>声音留下形状</p></div>
+  <div class="hero-bottom"><span class="gesture-note"><i class="gesture-dot"></i><span id="gestureHint">轻移起波 · 按下共振</span></span><div class="water-actions"><button class="pill" id="dropBtn"><svg class="icon"><use href="#i-drop"/></svg>落下一滴</button><button class="pill" id="freezeBtn" aria-pressed="false"><svg class="icon"><use href="#i-pause"/></svg><span>冻结画面</span></button></div></div>
+  <div class="motion-notice" id="motionNotice" hidden>已遵循系统的减少动态效果设置；音频仍可正常播放。</div>
+  <div class="drag-overlay" id="dragOverlay" hidden>放下这首歌，让水面听见。</div>
+</section>
+<div class="settings">
+  <div class="segmented" role="group" aria-label="水面视觉模式"><button data-mode="light" aria-pressed="true">流光</button><button data-mode="contour" aria-pressed="false">等高线</button><button data-mode="rings" aria-pressed="false">回响</button></div>
+  <label class="intensity">波澜 <input id="intensity" type="range" min="0.6" max="2.4" step="0.1" value="1.6" aria-label="涟漪强度"><output id="intensityValue">1.6</output></label>
+  <span class="mini"><i class="live-dot" id="sourceDot"></i><span id="sourceLabel">手势演示 · 未接入音频</span></span>
+</div>
+<section aria-label="音频来源和播放控制">
+  <div class="player"><div class="album" aria-hidden="true"><svg class="icon"><use href="#i-music"/></svg></div><div class="track"><h2 id="trackTitle">让一首歌，经过这片水面。</h2><p id="trackMeta">选择或拖入本地音频，仅在此设备播放。</p></div><button class="primary" id="fileBtn"><svg class="icon"><use href="#i-folder"/></svg>选择本地音频</button><button class="secondary" id="shareBtn"><svg class="icon"><use href="#i-share"/></svg><span>共享正在播放的音频</span></button></div>
+  <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus" hidden>
+  <audio id="audio" preload="metadata"></audio>
+  <div class="transport"><button class="play-button" id="playBtn" disabled aria-label="播放"><svg class="icon"><use href="#i-play"/></svg></button><input class="seek" id="seek" type="range" min="0" max="1" step="0.01" value="0" disabled aria-label="播放进度"><span class="time" id="timeText">0:00 / 0:00</span><label class="volume-wrap"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><input type="range" id="volume" min="0" max="1" step="0.01" value="0.75" aria-label="音量"></label></div>
+  <p class="notice" id="notice" role="status" aria-live="polite">水面可以随手起波；下方频谱只来自真实音频。</p>
+</section>
+<section class="analysis" aria-label="真实音频分析">
+  <div class="analysis-head"><div class="analysis-title"><span class="kicker">02 / LIVE SIGNAL</span><h3>声音的形状</h3></div><div class="readout"><span>电平<b id="rmsText">— dBFS</b></span><span class="peak">主频<b id="freqText">— Hz</b></span></div></div>
+  <div class="graph-wrap" id="graphWrap"><canvas class="fft-canvas" id="fftCanvas" aria-label="实时对数频谱，上方细线为实际音频波形" role="img"></canvas><div class="empty-graph" id="emptyGraph"><span id="emptyTitle">还没有音频输入</span><small id="emptySubtitle">不使用预设柱高，也不模拟节拍。</small></div></div>
+  <div class="frequency-labels" aria-hidden="true"><span>40 Hz</span><span>160</span><span>640</span><span>2.5k</span><span id="highFreqLabel">20k Hz</span></div>
+</section>
+<footer><p>CANVAS 2D / 指针波场 + 真实音频响应<br>无外部资源 · 文件不会上传</p><details><summary>能读取电脑里正在播放的声音吗？</summary><p>本页播放的本地文件可以直接分析。其他网页或应用的声音，需要点击“共享正在播放的音频”，在浏览器弹窗中选择来源并开启音频共享；是否支持系统音频取决于 Chromium、操作系统和 Electron 宿主。授权没有返回音轨时，这里会明确提示，不用假的频谱替代。共享画面不会在本页展示或上传；结束后请点“停止共享”。</p></details></footer>
+<div class="color-probe" id="accentProbe" aria-hidden="true"></div>
+</main>
+<script>
+/* Standalone demo, AGPL-3.0. No network, no dependency, no WebGL.
+   Water is decorative. Spectrum and waveform use AnalyserNode data ONLY.
+   Local audio stays on its original playback path: captureStream -> analyser,
+   whose output is left unconnected; there is no duplicate audible output. */
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+  var scene=$('scene'), water=$('waterCanvas'), wc=water.getContext('2d');
+  var graph=$('fftCanvas'), gc=graph.getContext('2d'), audio=$('audio');
+  var reduced=matchMedia('(prefers-reduced-motion: reduce)');
+  var W=1,H=1,GW=1,GH=1,DPR=1, dirtySize=true, view=true;
+  var cols=0,rows=0,field=null,previous=null,fieldEnergy=0;
+  var low=document.createElement('canvas'), lc=low.getContext('2d'), pixels;
+  var waves=[],trail=[],lastPoint=null,travel=0,lastEmit=0,lastInput=0;
+  var raf=0,idleTimer=0,lastFrame=0,accumulator=0,clock=0,frameCount=0,inFrame=false;
+  var mode='light',strength=1.6,frozen=false,disposed=false,pausedDrain=0;
+  var color='',ink='',muted='',rgb=[0,0,0],themeDirty=true;
+  var context=null,analyser=null,source=null,stream=null,streamBinding=null,mediaURL=null;
+  var sourceKind='none',signalActive=false,capturePending=false,generation=0,analysisError='';
+  var bins=null,timeData=null,bands=new Float32Array(80),peaks=new Float32Array(80);
+  var rms=0,peakHz=0,bass=0,bassAverage=0,lastBeat=0,beatCount=0,readAt=0,uiAt=0;
+  var loopStats={lastMs:0,peakMs:0};
+  var MAX_WAVES=22, MAX_TRAIL=40;
+  audio.volume=.75;
+
+  function notice(text) { $('notice').textContent=text; }
+  function shot() { return frozen||document.body.classList.contains('is-shot'); }
+  function blocked() { return disposed||shot()||reduced.matches||document.hidden||!view||W<2||H<2; }
+  function canInteract() { return !blocked()&&(sourceKind==='none'||signalActive); }
+  function stopWork() { cancelAnimationFrame(raf);clearTimeout(idleTimer);raf=idleTimer=0;lastFrame=0; }
+  function palette() {
+    color=getComputedStyle($('accentProbe')).color;
+    var styles=getComputedStyle(document.body); ink=styles.color;
+    var probe=document.createElement('canvas').getContext('2d');
+    probe.fillStyle=color;probe.fillRect(0,0,1,1);
+    var p=probe.getImageData(0,0,1,1).data;rgb=[p[0],p[1],p[2]];
+    muted=getComputedStyle($('notice')).color;themeDirty=false;
+  }
+  function resize() {
+    if (shot()) { dirtySize=true;return; }
+    var w=scene.clientWidth,h=scene.clientHeight,g=$('graphWrap');
+    var ratio=Math.min(window.devicePixelRatio||1,2);
+    if (w!==W||h!==H||ratio!==DPR||dirtySize) {
+      W=w;H=h;DPR=ratio;water.width=Math.max(1,Math.round(W*DPR));water.height=Math.max(1,Math.round(H*DPR));wc.setTransform(DPR,0,0,DPR,0,0);
+      cols=Math.max(3,Math.min(260,Math.round(W/4.8)));rows=Math.max(3,Math.min(160,Math.round(H/4.8)));
+      field=new Float32Array(cols*rows);previous=new Float32Array(cols*rows);fieldEnergy=0;
+      low.width=cols;low.height=rows;pixels=lc.createImageData(cols,rows);
+      for(var i=0;i<waves.length;i++) inject(waves[i].x,waves[i].y,2,1.1);
+    }
+    if(GW!==g.clientWidth||GH!==g.clientHeight||ratio!==graph._dpr||dirtySize) {
+      GW=g.clientWidth;GH=g.clientHeight;graph.width=Math.max(1,Math.round(GW*ratio));graph.height=Math.max(1,Math.round(GH*ratio));graph._dpr=ratio;gc.setTransform(ratio,0,0,ratio,0,0);
+    }
+    dirtySize=false;
+  }
+  function inject(nx,ny,radius,power) {
+    if(!field) return;
+    var x=nx*(cols-1),y=ny*(rows-1),r=Math.ceil(radius*2.4);
+    for(var j=Math.max(1,Math.floor(y)-r);j<Math.min(rows-1,Math.ceil(y)+r);j++) {
+      for(var i=Math.max(1,Math.floor(x)-r);i<Math.min(cols-1,Math.ceil(x)+r);i++) {
+        var d=(i-x)*(i-x)+(j-y)*(j-y);
+        field[j*cols+i]+=Math.exp(-d/(radius*radius))*power;
+      }
+    }
+    fieldEnergy=1;
+  }
+  function drop(x,y,power,origin) {
+    if(blocked()) return;
+    if(waves.length>=MAX_WAVES) waves.shift();
+    waves.push({x:x,y:y,age:0,power:power,life:2.9+power*.35,origin:origin||'pointer',phase:Math.random()*6.28});
+    inject(x,y,1.7+power*.7,power*strength*1.8);
+    wake();
+  }
+  function stepField() {
+    var sum=0;
+    for(var y=1;y<rows-1;y++) {
+      for(var x=1;x<cols-1;x++) {
+        var i=y*cols+x;
+        var v=((field[i-1]+field[i+1]+field[i-cols]+field[i+cols])*.5-previous[i])*.976;
+        previous[i]=v;sum+=v*v;
+      }
+    }
+    var swap=previous;previous=field;field=swap;fieldEnergy=sum/(cols*rows);
+  }
+  function paintField(fade) {
+    var data=pixels.data;
+    for(var y=1;y<rows-1;y++) {
+      for(var x=1;x<cols-1;x++) {
+        var i=y*cols+x,o=i*4;
+        var dx=field[i+1]-field[i-1],dy=field[i+cols]-field[i-cols];
+        // Two-buffer waves interfere physically; directional normals turn them into light.
+        var edge=Math.abs(dx*.65+dy*.85),slope=Math.sqrt(dx*dx+dy*dy);
+        var a=Math.min(.64,(edge*.22+slope*.06)*strength);
+        data[o]=rgb[0];data[o+1]=rgb[1];data[o+2]=rgb[2];data[o+3]=Math.round(a*255);
+      }
+    }
+    lc.putImageData(pixels,0,0);wc.globalAlpha=fade;wc.imageSmoothingEnabled=true;wc.drawImage(low,0,0,W,H);
+  }
+  function paintContours(fade) {
+    var sx=W/(cols-1),sy=H/(rows-1);
+    wc.strokeStyle=color;wc.lineWidth=.7;
+    for(var y=3;y<rows-3;y+=3) {
+      wc.globalAlpha=.08*fade;wc.beginPath();
+      for(var x=1;x<cols-1;x++) {
+        var px=x*sx,py=y*sy+field[y*cols+x]*9*strength;
+        if(x===1)wc.moveTo(px,py);else wc.lineTo(px,py);
+      }
+      wc.stroke();
+    }
+  }
+  function ringPath(w,r,phase) {
+    var x=w.x*W,y=w.y*H;
+    wc.beginPath();
+    for(var n=0;n<=88;n++) {
+      var a=n/88*Math.PI*2;
+      var deformation=1+Math.sin(a*3+w.phase+phase)*.014+Math.sin(a*7-w.age)*.005;
+      var px=x+Math.cos(a)*r*deformation,py=y+Math.sin(a)*r*.68*deformation;
+      if(n===0)wc.moveTo(px,py);else wc.lineTo(px,py);
+    }
+    wc.closePath();
+  }
+  function paintWater() {
+    wc.clearRect(0,0,W,H);
+    if(reduced.matches)return;
+    var fade=pausedDrain>0?Math.min(1,pausedDrain/.4):1;
+    wc.save();wc.globalAlpha=fade;
+    // Apply pause fade to the whole water layer through a CSS-free drawing group.
+    if(mode==='light'&&fieldEnergy>0.00001)paintField(fade);
+    if(mode==='contour')paintContours(fade);
+    wc.strokeStyle=color;
+    for(var i=0;i<waves.length;i++) {
+      var w=waves[i],life=w.age/w.life;
+      var birth=Math.min(1,w.age/.10),end=Math.pow(1-life,1.8);
+      var reach=Math.min(W,H)*(.44+w.power*.14);
+      var radius=8+reach*(1-Math.pow(1-life,2));
+      var count=mode==='rings'?5:4;
+      for(var k=0;k<count;k++) {
+        var r=radius-k*(10+w.power*5)*(1-life*.45);
+        if(r<3)continue;
+        var alpha=birth*end*(.60-k*.105)*Math.min(1.4,strength)*fade;
+        ringPath(w,r,k*.3);
+        // Wider under-stroke gives a small, bounded halo without shadowBlur/filter.
+        wc.lineWidth=k===0?5:2.5;wc.globalAlpha=alpha*.075;wc.stroke();
+        wc.lineWidth=k===0?1.25:.7;wc.globalAlpha=alpha;wc.stroke();
+      }
+      if(w.age<.55) {
+        wc.globalAlpha=(1-w.age/.55)*.8*fade;wc.lineWidth=.8;
+        wc.beginPath();wc.arc(w.x*W,w.y*H,2+w.age*14,0,Math.PI*2);wc.stroke();
+      }
+    }
+    if(trail.length>1&&mode!=='rings') {
+      for(var t=1;t<trail.length;t++) {
+        wc.strokeStyle=color;wc.globalAlpha=Math.max(0,1-trail[t].age/.65)*.45*fade;
+        wc.lineWidth=.65+1.8*(1-trail[t].age/.65);
+        wc.beginPath();wc.moveTo(trail[t-1].x*W,trail[t-1].y*H);wc.lineTo(trail[t].x*W,trail[t].y*H);wc.stroke();
+      }
+    }
+    wc.restore();wc.globalAlpha=1;
+  }
+  function readSignal(now) {
+    if(!analyser||!signalActive||now-readAt<30)return;
+    readAt=now;analyser.getFloatFrequencyData(bins);analyser.getFloatTimeDomainData(timeData);
+    var square=0,max=-Infinity,maxIndex=0;
+    for(var i=0;i<timeData.length;i++)square+=timeData[i]*timeData[i];
+    rms=Math.sqrt(square/timeData.length);
+    for(var f=1;f<bins.length;f++)if(bins[f]>max){max=bins[f];maxIndex=f;}
+    peakHz=max>-90?maxIndex*context.sampleRate/analyser.fftSize:0;
+    var hi=Math.min(20000,context.sampleRate/2),binHz=context.sampleRate/analyser.fftSize;
+    for(var b=0;b<bands.length;b++) {
+      var loHz=40*Math.pow(hi/40,b/bands.length),hiHz=40*Math.pow(hi/40,(b+1)/bands.length);
+      var start=Math.max(1,Math.floor(loHz/binHz)),end=Math.min(bins.length,Math.max(start+1,Math.ceil(hiHz/binHz)));
+      var db=-Infinity;for(var j=start;j<end;j++)db=Math.max(db,bins[j]);
+      bands[b]=Math.max(0,Math.min(1,(db+90)/75));
+      peaks[b]=Math.max(bands[b],peaks[b]-.016);
+    }
+    var energy=0,count=0;
+    for(var n=Math.max(1,Math.floor(40/binHz));n<Math.min(bins.length,Math.ceil(180/binHz));n++){energy+=Math.pow(10,bins[n]/10);count++;}
+    bass=Math.sqrt(energy/Math.max(1,count));
+    bassAverage=bassAverage*.93+bass*.07;
+    if(bass>.014&&bass>bassAverage*1.28&&now-lastBeat>300) {
+      lastBeat=now;beatCount++;
+      drop(.60+Math.sin(beatCount*2.4)*.19,.52+Math.cos(beatCount*1.7)*.19,Math.min(1.9,.7+bass*6),'audio');
+    }
+    if(now-uiAt>180) {
+      uiAt=now;$('rmsText').textContent=(rms>0.000001?(20*Math.log(rms)/Math.LN10).toFixed(1):'−∞')+' dBFS';
+      $('freqText').textContent=peakHz?Math.round(peakHz)+' Hz':'— Hz';
+    }
+  }
+  function paintGraph() {
+    gc.clearRect(0,0,GW,GH);
+    gc.strokeStyle=muted;gc.globalAlpha=.11;gc.lineWidth=1;
+    for(var y=57;y<GH;y+=48){gc.beginPath();gc.moveTo(0,y+.5);gc.lineTo(GW,y+.5);gc.stroke();}
+    if(!analyser||!signalActive||reduced.matches){gc.globalAlpha=1;return;}
+    gc.strokeStyle=color;gc.globalAlpha=.48;gc.lineWidth=.8;gc.beginPath();
+    for(var i=0;i<Math.min(500,timeData.length);i++) {
+      var x=i/(Math.min(500,timeData.length)-1)*GW;
+      var yy=20+timeData[Math.floor(i/Math.min(500,timeData.length)*timeData.length)]*17;
+      if(i===0)gc.moveTo(x,yy);else gc.lineTo(x,yy);
+    }
+    gc.stroke();
+    var bw=GW/bands.length,bottom=GH-1,height=GH-48;
+    gc.fillStyle=color;
+    for(var b=0;b<bands.length;b++) {
+      var h=bands[b]*height;
+      if(h>.1){gc.globalAlpha=.33+bands[b]*.6;gc.fillRect(b*bw+1,bottom-h,Math.max(1,bw-2),h);}
+      if(peaks[b]>.005){gc.globalAlpha=.7;gc.fillRect(b*bw+1,bottom-peaks[b]*height,Math.max(1,bw-2),1);}
+    }
+    gc.globalAlpha=1;
+  }
+  function needsFrame() { return signalActive||waves.length||trail.length||fieldEnergy>.00002||pausedDrain>0; }
+  function scheduleBreath() {
+    if(idleTimer||blocked()||!signalActive)return;
+    idleTimer=setTimeout(function(){idleTimer=0;if(!blocked()&&signalActive&&performance.now()-lastInput>4500)drop(.61,.55,.65,'breath');scheduleBreath();},6500);
+  }
+  function wake() {
+    if(blocked())return;
+    clearTimeout(idleTimer);idleTimer=0;
+    if(!raf&&!inFrame&&needsFrame()){lastFrame=performance.now();raf=requestAnimationFrame(frame);}
+    else if(!needsFrame())scheduleBreath();
+  }
+  function frame(now) {
+    raf=0;if(blocked())return;
+    if(now-lastFrame<15){raf=requestAnimationFrame(frame);return;}
+    inFrame=true;var started=performance.now(),dt=Math.min(.05,(now-lastFrame)/1000);lastFrame=now;clock+=dt;frameCount++;
+    if(dirtySize)resize();if(themeDirty)palette();
+    readSignal(now);
+    if(pausedDrain>0) {
+      pausedDrain=Math.max(0,pausedDrain-dt);
+      if(!pausedDrain){waves.length=trail.length=0;field.fill(0);previous.fill(0);fieldEnergy=0;}
+    }
+    for(var i=waves.length-1;i>=0;i--){waves[i].age+=dt;if(waves[i].age>=waves[i].life)waves.splice(i,1);}
+    for(var t=trail.length-1;t>=0;t--){trail[t].age+=dt;if(trail[t].age>.65)trail.splice(t,1);}
+    accumulator+=dt;
+    if(fieldEnergy>.00002){var steps=0;while(accumulator>=1/60&&steps<3){stepField();accumulator-=1/60;steps++;}}
+    else accumulator=0;
+    if(!waves.length&&!trail.length&&fieldEnergy<.00002){fieldEnergy=0;field.fill(0);previous.fill(0);}
+    paintWater();paintGraph();
+    loopStats.lastMs=performance.now()-started;loopStats.peakMs=Math.max(loopStats.peakMs,loopStats.lastMs);
+    inFrame=false;if(needsFrame())raf=requestAnimationFrame(frame);else scheduleBreath();
+  }
+  function emptyState(title,sub) { $('emptyGraph').hidden=false;$('emptyTitle').textContent=title;$('emptySubtitle').textContent=sub||''; }
+  function updateUI() {
+    $('playBtn').disabled=sourceKind!=='local';$('seek').disabled=sourceKind!=='local'||!isFinite(audio.duration);
+    $('playBtn').setAttribute('aria-label',audio.paused?'播放':'暂停');$('playBtn').querySelector('use').setAttribute('href',audio.paused?'#i-play':'#i-pause');
+    $('sourceDot').classList.toggle('connected',!!analyser&&signalActive);
+    $('sourceLabel').textContent=sourceKind==='none'?'手势演示 · 未接入音频':sourceKind==='shared'?'共享音轨 · 实时采样':signalActive?(analyser?'本地文件 · 实时采样':'本地文件 · 分析未连接'):'本地文件 · 已暂停';
+    $('gestureHint').textContent=sourceKind!=='none'&&!signalActive?'播放暂停 · 水面收敛':'轻移起波 · 按下共振';
+    if(reduced.matches)emptyState('动态显示已关闭','音频播放不受影响。');
+    else if(analyser&&signalActive)$('emptyGraph').hidden=true;
+    else if(sourceKind==='none')emptyState('还没有音频输入','不使用预设柱高，也不模拟节拍。');
+    else if(!signalActive)emptyState('播放已暂停','恢复播放后继续实时采样。');
+    else if(analysisError)emptyState('无法读取真实频谱','音频播放不受影响，不使用模拟数据。');
+    else emptyState('等待真实音轨','未取得数据前，不显示频谱。');
+    $('motionNotice').hidden=!reduced.matches;
+    $('shareBtn').querySelector('span').textContent=sourceKind==='shared'?'停止共享':'共享正在播放的音频';
+  }
+  function sync() {
+    stopWork();lastPoint=null;travel=0;
+    if(reduced.matches) {waves.length=trail.length=0;if(field){field.fill(0);previous.fill(0);}fieldEnergy=0;pausedDrain=0;wc.clearRect(0,0,W,H);gc.clearRect(0,0,GW,GH);updateUI();return;}
+    if(shot())return;
+    resize();if(themeDirty)palette();updateUI();paintWater();paintGraph();wake();
+  }
+  function ensureContext() {
+    if(!context)context=new AudioContext();
+    return context.resume();
+  }
+  function updateAxis() {
+    var hi=context?Math.min(20000,context.sampleRate/2):20000;
+    var values=[40,160,640,2500,hi];
+    Array.prototype.forEach.call(document.querySelectorAll('.frequency-labels span'),function(el,i){el.style.left=(Math.log(values[i]/40)/Math.log(hi/40)*100)+'%';});
+    $('highFreqLabel').textContent=Math.round(hi/1000)+'k Hz';
+  }
+  function clearSignal() {
+    bands.fill(0);peaks.fill(0);rms=bass=bassAverage=peakHz=0;
+    $('rmsText').textContent='— dBFS';$('freqText').textContent='— Hz';
+  }
+  function releaseStream() {
+    analysisError='';
+    if(streamBinding&&stream)stream.removeEventListener('addtrack',streamBinding);
+    streamBinding=null;
+    if(source){source.disconnect();source=null;}if(analyser){analyser.disconnect();analyser=null;}
+    var old=stream;stream=null;
+    if(old)old.getTracks().forEach(function(t){t.onended=null;t.stop();});
+    clearSignal();
+  }
+  function bindStream(s,token) {
+    stream=s;
+    function connect() {
+      if(token!==generation||stream!==s||!s.getAudioTracks().length)return;
+      if(source)source.disconnect();
+      source=context.createMediaStreamSource(s);
+      if(!analyser){analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=.65;analyser.minDecibels=-90;analyser.maxDecibels=-15;}
+      bins=new Float32Array(analyser.frequencyBinCount);timeData=new Float32Array(analyser.fftSize);
+      source.connect(analyser); // Do not connect to destination: original audio already plays.
+      updateAxis();
+      updateUI();wake();
+    }
+    streamBinding=connect;s.addEventListener('addtrack',connect);connect();
+  }
+  function captureLocal() {
+    if(sourceKind!=='local'||stream)return;
+    try {
+      if(!audio.captureStream)throw new Error('当前内核不支持 captureStream');
+      bindStream(audio.captureStream(),generation);
+    } catch(e) {
+      analysisError=e.message;notice('音频照常播放，但无法读取频谱：'+e.message+'。不会改用模拟数据。');
+      emptyState('无法读取真实频谱','音频播放不受影响。');
+    }
+  }
+  function setFile(file) {
+    if(!file)return;
+    if(!/^audio\//.test(file.type)&&!(/\.(mp3|wav|m4a|aac|ogg|flac|opus|webm)$/i).test(file.name)){notice('请选择 MP3、WAV、M4A、FLAC 等音频文件。');return;}
+    generation++;signalActive=false;audio.pause();releaseStream();
+    if(mediaURL)URL.revokeObjectURL(mediaURL);
+    sourceKind='local';mediaURL=URL.createObjectURL(file);audio.src=mediaURL;
+    $('trackTitle').textContent=file.name.replace(/\.[^.]+$/,'');$('trackMeta').textContent='本地文件 · '+(file.size/1024/1024).toFixed(1)+' MB · 仅在此设备播放';
+    $('volume').disabled=false;notice('频谱与波形直接读取这首歌；水面随真实低频起伏。');
+    var token=generation;
+    ensureContext().then(function(){if(token!==generation)return;return audio.play();}).catch(function(e){if(token===generation)notice('未能开始播放，请点击播放重试：'+e.message);});
+    updateUI();sync();
+  }
+  function stopShare() {
+    generation++;signalActive=false;releaseStream();sourceKind='none';pausedDrain=.4;
+    $('trackTitle').textContent='让一首歌，经过这片水面。';$('trackMeta').textContent='选择或拖入本地音频，仅在此设备播放。';$('volume').disabled=false;
+    notice('音频共享已结束。');$('timeText').textContent='0:00 / 0:00';$('seek').value=0;updateUI();sync();
+  }
+  function share() {
+    if(sourceKind==='shared'){stopShare();return;}
+    if(capturePending)return;
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){notice('当前页面或宿主没有开放音频共享。请用桌面 Chrome 打开，或选择本地音频。');return;}
+    capturePending=true;$('shareBtn').disabled=true;
+    var token=generation;
+    // Both calls happen in the click gesture. No automatic capture or permission retry.
+    var ready=ensureContext();
+    navigator.mediaDevices.getDisplayMedia({video:true,audio:true,systemAudio:'include'}).then(function(s){
+      if(disposed||token!==generation){s.getTracks().forEach(function(t){t.stop();});return;}
+      if(!s.getAudioTracks().length){s.getTracks().forEach(function(t){t.stop();});notice('这次共享没有音轨。请选择支持音频的标签页并勾选“共享音频”；系统声音需宿主和平台支持。');return;}
+      return ready.then(function(){
+        if(disposed||token!==generation){s.getTracks().forEach(function(t){t.stop();});return;}
+        audio.pause();releaseStream();generation++;sourceKind='shared';signalActive=true;pausedDrain=0;
+        try { bindStream(s,generation); } catch(e) { releaseStream();sourceKind='none';signalActive=false;updateUI();sync();notice('共享音轨无法分析：'+e.message);return; }
+        s.getTracks().forEach(function(t){t.onended=function(){if(stream===s)stopShare();};});
+        $('trackTitle').textContent=s.getAudioTracks()[0].label||'正在共享的音频';$('trackMeta').textContent='共享音轨 · 只分析，不重复播放';$('volume').disabled=true;
+        notice('正在读取获授权的真实音轨。结束时请点击“停止共享”。');$('timeText').textContent='实时音频';$('seek').value=0;updateUI();sync();
+      },function(e){s.getTracks().forEach(function(t){t.stop();});throw e;});
+    }).catch(function(e){if(token===generation)notice(e.name==='NotAllowedError'?'未获得共享授权。你仍可选择本地音频。':'当前环境未能共享音频：'+e.message);}).then(function(){capturePending=false;$('shareBtn').disabled=false;});
+    ready.catch(function(){});
+  }
+  function playLocal() {
+    if(sourceKind!=='local')return;
+    if(!audio.paused){audio.pause();return;}
+    ensureContext().then(function(){return audio.play();}).catch(function(e){notice('播放未能开始：'+e.message);});
+  }
+  function localPlaying() {
+    if(sourceKind!=='local')return;
+    signalActive=true;pausedDrain=0;captureLocal();updateUI();wake();
+  }
+  function localPaused() {
+    if(sourceKind!=='local')return;
+    signalActive=false;pausedDrain=.4;clearSignal();updateUI();sync();
+  }
+  function timeLabel(v) { if(!isFinite(v))return '0:00';return Math.floor(v/60)+':'+('0'+Math.floor(v%60)).slice(-2); }
+  function timeUpdate() {
+    $('seek').max=isFinite(audio.duration)?audio.duration:1;$('seek').value=audio.currentTime||0;
+    $('timeText').textContent=timeLabel(audio.currentTime)+' / '+timeLabel(audio.duration);
+    $('seek').disabled=sourceKind!=='local'||!isFinite(audio.duration);
+  }
+  function pointerPosition(e) {var r=scene.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width,y:(e.clientY-r.top)/r.height,t:performance.now()};}
+  function onMove(e) {
+    if(!canInteract()||e.pointerType==='touch'||e.isPrimary===false)return;
+    var p=pointerPosition(e);lastInput=p.t;
+    if(lastPoint) {
+      var dx=(p.x-lastPoint.x)*W,dy=(p.y-lastPoint.y)*H,dist=Math.sqrt(dx*dx+dy*dy),speed=dist/Math.max(1,p.t-lastPoint.t);
+      travel=speed>.055?travel+dist:0;
+      if(speed>.07&&dist>1){trail.push({x:p.x,y:p.y,age:0});if(trail.length>MAX_TRAIL)trail.shift();inject(p.x,p.y,1.6,Math.min(1.4,speed)*strength*.35);wake();}
+      if(travel>18&&p.t-lastEmit>65){drop(p.x,p.y,Math.min(1.2,.4+speed*.35));travel=0;lastEmit=p.t;}
+    }
+    lastPoint=p;
+  }
+  function onDown(e) {
+    if(!canInteract()||e.button!==0||e.isPrimary===false||e.target.closest('button,input'))return;
+    var p=pointerPosition(e);lastInput=p.t;drop(p.x,p.y,1.8);
+  }
+  function onLeave() {lastPoint=null;travel=0;}
+  function manualDrop() {if(!canInteract()){if(!signalActive&&sourceKind!=='none')notice('先恢复播放，水面与真实频谱会一起继续。');return;}drop(.64,.53,2.1);}
+  function toggleFreeze() {
+    frozen=!frozen;$('freezeBtn').setAttribute('aria-pressed',String(frozen));$('freezeBtn').querySelector('span').textContent=frozen?'继续流动':'冻结画面';sync();
+  }
+  function toggleTheme() {
+    var root=document.documentElement,current=getComputedStyle(root).colorScheme;
+    root.setAttribute('data-demo-theme',current==='dark'?'light':'dark');themeDirty=true;sync();
+  }
+  var pointerOptions={passive:true,capture:true};
+  scene.addEventListener('pointermove',onMove,pointerOptions);scene.addEventListener('pointerdown',onDown,pointerOptions);scene.addEventListener('pointerleave',onLeave,pointerOptions);scene.addEventListener('pointercancel',onLeave,pointerOptions);
+  $('fileBtn').onclick=function(){$('fileInput').click();};$('fileInput').onchange=function(){setFile(this.files[0]);this.value='';};
+  $('playBtn').onclick=playLocal;$('shareBtn').onclick=share;$('dropBtn').onclick=manualDrop;$('freezeBtn').onclick=toggleFreeze;$('themeBtn').onclick=toggleTheme;
+  $('volume').oninput=function(){audio.volume=Number(this.value);};$('seek').oninput=function(){if(sourceKind==='local'&&isFinite(audio.duration))audio.currentTime=Number(this.value);};
+  $('intensity').oninput=function(){strength=Number(this.value);$('intensityValue').value=strength.toFixed(1);if(canInteract())drop(.64,.55,.8);};
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'),function(btn){btn.onclick=function(){mode=btn.getAttribute('data-mode');Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'),function(b){b.setAttribute('aria-pressed',String(b===btn));});if(canInteract())drop(.64,.53,1.4);else sync();};});
+  audio.addEventListener('playing',localPlaying);audio.addEventListener('pause',localPaused);audio.addEventListener('ended',localPaused);audio.addEventListener('waiting',localPaused);audio.addEventListener('timeupdate',timeUpdate);audio.addEventListener('loadedmetadata',timeUpdate);
+  audio.addEventListener('error',function(){signalActive=false;pausedDrain=.4;notice('无法解码这份音频，请换一个受 Chromium 支持的文件。');updateUI();sync();});
+  var dragDepth=0;
+  $('app').addEventListener('dragenter',function(e){if(e.dataTransfer&&Array.prototype.indexOf.call(e.dataTransfer.types,'Files')!==-1){e.preventDefault();dragDepth++;$('dragOverlay').hidden=false;}});
+  $('app').addEventListener('dragover',function(e){if(e.dataTransfer&&Array.prototype.indexOf.call(e.dataTransfer.types,'Files')!==-1)e.preventDefault();});
+  $('app').addEventListener('dragleave',function(){dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('dragOverlay').hidden=true;});
+  $('app').addEventListener('drop',function(e){e.preventDefault();dragDepth=0;$('dragOverlay').hidden=true;setFile(e.dataTransfer.files[0]);});
+  var ro=new ResizeObserver(function(){dirtySize=true;sync();});ro.observe(scene);ro.observe($('graphWrap'));
+  var io=new IntersectionObserver(function(entries){view=entries[0].isIntersecting;sync();});io.observe($('app'));
+  var mo=new MutationObserver(sync);mo.observe(document.body,{attributes:true,attributeFilter:['class']});
+  var themeObserver=new MutationObserver(function(){themeDirty=true;sync();});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class','style','data-theme']});
+  var dprQuery;
+  function watchDpr(){if(dprQuery)dprQuery.removeEventListener('change',dprChange);dprQuery=matchMedia('(resolution: '+window.devicePixelRatio+'dppx)');dprQuery.addEventListener('change',dprChange);}
+  function dprChange(){watchDpr();dirtySize=true;sync();}
+  document.addEventListener('visibilitychange',sync);reduced.addEventListener('change',sync);window.addEventListener('resize',sync);watchDpr();
+  function destroy() {
+    if(disposed)return;disposed=true;generation++;stopWork();audio.pause();releaseStream();
+    if(mediaURL)URL.revokeObjectURL(mediaURL);if(context)context.close();
+    ro.disconnect();io.disconnect();mo.disconnect();themeObserver.disconnect();dprQuery.removeEventListener('change',dprChange);
+    document.removeEventListener('visibilitychange',sync);reduced.removeEventListener('change',sync);window.removeEventListener('resize',sync);
+    scene.removeEventListener('pointermove',onMove,pointerOptions);scene.removeEventListener('pointerdown',onDown,pointerOptions);scene.removeEventListener('pointerleave',onLeave,pointerOptions);scene.removeEventListener('pointercancel',onLeave,pointerOptions);
+  }
+  window.addEventListener('pagehide',function(e){if(e.persisted){stopWork();}else destroy();});window.addEventListener('pageshow',function(e){if(e.persisted)sync();});
+  // Read-only diagnostics make it possible to verify that spectrum values are real.
+  window.rippleLab={stats:function(){return{source:sourceKind,active:signalActive,analysing:!!analyser,rms:rms,peakHz:peakHz,waves:waves.length,fieldEnergy:fieldEnergy,raf:!!raf,frames:frameCount,drawMs:loopStats.lastMs,peakDrawMs:loopStats.peakMs,dpr:DPR,grid:[cols,rows],maxBand:Math.max.apply(null,bands)};},destroy:destroy};
+  palette();resize();updateAxis();updateUI();paintGraph();
+  // One decorative welcome gesture, never audio or spectrum data.
+  if(!reduced.matches&&!shot()){drop(.65,.56,1.9,'welcome');drop(.79,.36,.9,'welcome');}
+})();
+</script>
+</body>
+</html>

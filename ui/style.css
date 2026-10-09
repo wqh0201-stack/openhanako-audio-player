@@ -882,13 +882,24 @@ button:disabled { cursor: default; }
 
 /* ============================================================
    红心（喜欢）：未点亮 = 撞色描线（与歌词当前句同一套 --hl-accent），
-   点亮 = 实心填充。三处入口共用这套语义：控制条 .fav-text / 队列行 .q-fav / 播放页 .fav-btn。
+   点亮 = 实心填充。三处入口共用这套语义：控制条 .fav-btn-bar / 队列行 .q-fav / 播放页 .fav-btn。
    ============================================================ */
-/* 控制条「喜欢」：文字按钮，未点亮用撞色描线（不吃 .text-btn 的 --hk-muted，否则太淡） */
-.fav-text { color: var(--hl-accent); }
-.fav-text:hover { background: var(--hk-hover); color: var(--hl-accent); }
-.fav-text[aria-pressed="true"] { color: var(--hl-accent); }
-.fav-text[aria-pressed="true"] .icon { fill: currentColor; }
+/* 控制条红心：纯图标（不再带「喜欢」文字），与队列行红心同一套视觉。
+   尺寸对齐旁边 icon-btn（30px 点击区），常态撞色描线、点亮实心。 */
+.fav-btn-bar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-s);
+  color: var(--hl-accent);
+  opacity: 0.55;
+}
+.fav-btn-bar:hover { background: var(--hk-hover); opacity: 1; }
+.fav-btn-bar.is-on { opacity: 1; }
+.fav-btn-bar.is-on .icon { fill: currentColor; }
 
 /* 队列行红心：常态撞色描线（悬停加深，不抢行内容）；点亮实心 */
 .q-fav {
