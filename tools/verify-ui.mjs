@@ -248,6 +248,10 @@ const server = http.createServer((req, res) => {
     const kw = u.searchParams.get('keyword') || '';
     return json(res, 200, { ok: true, results: [{ id: `netease:${770000 + kw.length}`, title: `命中 ${kw}`, author: '搜索歌手', url: goUrl(770000 + kw.length), pic: '', lrc: 'http://mock/lrc/' + encodeURIComponent(kw) }], host: 'mock', total: 1 });
   }
+  if (p === API + '/widget/api/music/hot') {
+    const results = Array.from({ length: 3 }, (_, i) => ({ id: `netease:${780000 + i}`, title: `热门推荐 ${i + 1}`, author: `推荐歌手 ${i + 1}`, url: goUrl(780000 + i), pic: '', lrc: '' }));
+    return json(res, 200, { ok: true, results, host: 'mock' });
+  }
   if (p === API + '/widget/api/music/playlist') {
     const id = u.searchParams.get('id') || '0';
     const tracks = Array.from({ length: 5 }, (_, i) => ({ id: `netease:${id}${i}`, title: `歌单曲目 ${i + 1}`, author: '测试', url: goUrl(`${id}${i}`), pic: '', lrc: '' }));
@@ -1156,6 +1160,98 @@ const motion = {};
   await page.close();
 }
 
+/* ============ 2c) 搜索页：左下角入口（仅独立窗）+ 搜索/加入落库 ============ */
+{
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const page = await newPage();
+  await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+  await page.goto(`${BASE}/standalone.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await page.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(700);
+
+  const s = {};
+  // 入口仅独立窗口（wide）可见；留在控制条左侧原位置
+  s.entryVisibleWide = await page.evaluate(() => {
+    const b = document.getElementById('searchEntryBtn');
+    const r = b.getBoundingClientRect();
+    const host = b.closest('.controls-info');
+    return { shown: getComputedStyle(host).display !== 'none' && r.width > 0, left: Math.round(r.left) };
+  });
+  assert('search-entry-visible-in-window', s.entryVisibleWide.shown === true, JSON.stringify(s.entryVisibleWide));
+
+  // 窄卡（compact 高<560）下入口应隐藏
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await sleep(300);
+  s.entryHiddenCard = await page.evaluate(() => {
+    const b = document.getElementById('searchEntryBtn');
+    return getComputedStyle(b.parentElement).display === 'none' || b.getBoundingClientRect().width === 0;
+  });
+  assert('search-entry-hidden-in-card', s.entryHiddenCard === true, String(s.entryHiddenCard));
+
+  // 回到独立窗，开搜索页 → 喂假结果 → 点加入 → 曲目落进当前列表
+  await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+  await sleep(300);
+  await clickTab(page, 'imp:1');
+  await sleep(200);
+  const beforeRows = await page.evaluate(() => document.querySelectorAll('#queueList .q-row').length);
+  await page.evaluate(() => {
+    window.__playerDebug.openSearch();
+    window.__playerDebug.renderResults([
+      { id: 'netease:770001', title: '搜索命中曲', author: '搜索歌手', url: '/api/apps/hanako-audio-player/routes/widget/api/music/go/770001?server=netease', pic: '' }
+    ]);
+  });
+  await sleep(200);
+  s.pageOpen = await page.evaluate(() => ({ open: window.__playerDebug.searchState().open, rows: document.querySelectorAll('#searchList .search-row').length, addBtns: document.querySelectorAll('#searchList .search-add').length }));
+  assert('search-page-lists-results',
+    s.pageOpen.open === true && s.pageOpen.rows === 1 && s.pageOpen.addBtns === 1,
+    JSON.stringify(s.pageOpen));
+  await page.screenshot({ path: path.join(outDir, 'search-page-1040x780-light.png') });
+
+  await page.evaluate(() => document.querySelector('#searchList .search-add').click());
+  await sleep(300);
+  s.afterAdd = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#queueList .q-row').length,
+    added: !!document.querySelector('#searchList .search-add.is-added'),
+    hasNew: Array.prototype.some.call(document.querySelectorAll('#queueList .q-title'), (e) => e.textContent === '搜索命中曲')
+  }));
+  assert('search-add-into-active-list',
+    s.afterAdd.rows === beforeRows + 1 && s.afterAdd.added === true && s.afterAdd.hasNew === true,
+    JSON.stringify({ beforeRows, ...s.afterAdd }));
+
+  // Esc 关闭搜索页
+  await page.keyboard.press('Escape');
+  await sleep(200);
+  s.closed = await page.evaluate(() => window.__playerDebug.searchState().open);
+  assert('search-page-esc-closes', s.closed === false, String(s.closed));
+
+  // 搜歌手 / 搜歌曲：范围切换按钮存在且能切（后台同一关键词接口，侧重不同）
+  await page.evaluate(() => window.__playerDebug.openSearch());
+  await sleep(150);
+  s.scopeButtons = await page.evaluate(() => Array.from(document.querySelectorAll('#searchScope .search-scope-btn')).map((b) => b.getAttribute('data-scope')));
+  await page.evaluate(() => document.querySelector('#searchScope .search-scope-btn[data-scope="artist"]').click());
+  await sleep(120);
+  s.scopeAfter = await page.evaluate(() => window.__playerDebug.searchState().scope);
+  assert('search-scope-song-and-artist',
+    s.scopeButtons.join(',') === 'song,artist' && s.scopeAfter === 'artist',
+    JSON.stringify({ buttons: s.scopeButtons, after: s.scopeAfter }));
+
+  // 热门推荐：清空关键词/重开搜索时预置内容（拉一次 /music/hot，缓存）
+  await page.evaluate(() => window.__playerDebug.clearSearch());
+  await sleep(400);
+  s.hot = await page.evaluate(() => ({
+    section: (document.getElementById('searchSection') || {}).textContent || '',
+    rows: document.querySelectorAll('#searchList .search-row').length,
+    firstTitle: (document.querySelector('#searchList .q-title') || {}).textContent || ''
+  }));
+  assert('search-hot-recommendations',
+    s.hot.section === '热门推荐' && s.hot.rows === 3 && s.hot.firstTitle === '热门推荐 1',
+    JSON.stringify(s.hot));
+  await page.screenshot({ path: path.join(outDir, 'search-hot-1040x780-light.png') });
+
+  report.search = s;
+  await page.close();
+}
+
 /* ============ 3) 精修矩阵：312 / 465 / 1040 × 浅深 × 歌词开/关 ============ */
 /* 先复位夹具：上一段接线冒烟改过歌单（删了 imp:1）也留了播放态；不复位这里
  * 拍到的就是那个残局（无封面的歌单曲目），看不出封面/环境色的真实效果。 */
@@ -1815,6 +1911,7 @@ console.log(JSON.stringify({
   narrowFailed: narrowFailed.map((f) => ({ case: f.case, failed: f.failed.map((x) => x.name + ' | ' + x.detail) })),
   assertions: `${report.assertions.length - assertFailed.length}/${report.assertions.length}`,
   failedAssertions: assertFailed,
+  search: report.search,
   wiringOk,
   migrationOk,
   lifecycleOk,

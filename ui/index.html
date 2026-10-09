@@ -120,8 +120,10 @@
     <!-- 底部播放控制：三种布局常驻 -->
     <footer class="controls" id="controls">
       <div class="controls-info">
-        <div class="ci-title" id="ciTitle">风经过的地方</div>
-        <div class="ci-artist" id="ciArtist">林间来信</div>
+        <button class="search-entry" id="searchEntryBtn" type="button" aria-label="搜索歌曲" title="搜索歌曲">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
+          <span>搜索歌曲</span>
+        </button>
       </div>
 
       <div class="controls-main">
@@ -168,6 +170,30 @@
       <svg class="icon icon-sm" aria-hidden="true"><use href="#i-play"></use></svg>
       <span>继续播放</span>
     </button>
+
+    <!-- 搜索页：整页浮层（含底部控制栏），仅在独立窗口（大卡片）由左下角搜索入口唤出 -->
+    <section class="search-page" id="searchPage" hidden aria-label="搜索歌曲">
+      <header class="search-head">
+        <button class="back-btn" id="searchBackBtn" type="button">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-left"></use></svg>
+          <span>返回</span>
+        </button>
+        <div class="search-bar">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
+          <input class="search-input" id="searchInput" type="search" placeholder="搜歌名 / 歌手" aria-label="搜索关键词" autocomplete="off">
+          <button class="search-go" id="searchGoBtn" type="button" aria-label="搜索">搜索</button>
+        </div>
+        <div class="search-servers" id="searchServers" role="group" aria-label="搜索平台"></div>
+      </header>
+      <div class="search-scope" id="searchScope" role="group" aria-label="搜索范围">
+        <button class="search-scope-btn is-active" type="button" data-scope="song" aria-pressed="true">搜歌曲</button>
+        <button class="search-scope-btn" type="button" data-scope="artist" aria-pressed="false">搜歌手</button>
+      </div>
+      <p class="search-section" id="searchSection" hidden></p>
+      <ol class="search-list" id="searchList"></ol>
+      <p class="search-note" id="searchNote"></p>
+    </section>
+
     <pre class="report" id="report" hidden></pre>
   </div>
 </div>
@@ -226,10 +252,11 @@
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M5 19h3.2L18.6 8.6a2.26 2.26 0 0 0-3.2-3.2L5 15.8z"/><path d="M14.4 6.6l3 3"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><path d="M12 11.4a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4z"/><path d="M5.1 19.4a6.9 6.9 0 0 1 13.8 0"/></symbol>
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 19.6 4.9 12.9a4.4 4.4 0 0 1 5.8-6.6l1.3 1 1.3-1a4.4 4.4 0 0 1 5.8 6.6z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6"/><path d="M15.3 15.3 20 20"/></symbol>
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131580";</script>
+<script>window.__HANA_BUILD = "1003131584";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

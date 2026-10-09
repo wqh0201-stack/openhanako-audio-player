@@ -170,7 +170,21 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      只在 `mode==='在线'` 与当前无词时触发）。断言 `lyric-crosssource-match-rules`。
      ⚠️ 别改回 `createMediaElementSource`：跨源会静音且不可逆（原理与实测见
      知识库 `20-资料/Web Audio 频谱反应-同源媒体与CORS陷阱.md`）。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **70/70** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
+- 搜索页（罐头最初需求，2026-10-09，**已部署**，构建号 1003131584）：
+  ① 左下角控制条那块（`.controls-info`，原本显示歌名/歌手 `ciTitle`/`ciArtist`）换成**搜索入口**，
+     仅独立窗口（`data-layout="wide"`）显示（窄卡/长卡控制条本来就没这格）。`ciTitle`/`ciArtist` 已删。
+  ② 新增**搜索页**（`#searchPage`，整页浮层盖住 stage+controls）：输入框 + 5 平台选择 +
+     **搜歌曲 / 搜歌手**范围切换 + 结果列表（每行「加入」）。结果归入**当前激活列表**，
+     本地/我的喜欢时新建/复用名为「搜索」的导入列表（与 `resolveImportTarget` 同口径）。
+  ③ **热门推荐**：搜索页空白时预置，后端新路由 `/widget/api/music/hot` 走网易云官方
+     `/api/personalized/newsong`（`music.163.com` 已在白名单），拉不到静默回空。
+  ④ 竞态：`loadHot` 与 `doSearch` 共用代次 `searchSeq`，热门回填不覆盖用户已发起/已输入的搜索结果。
+  断言：`search-entry-visible-in-window` / `search-entry-hidden-in-card` / `search-page-lists-results` /
+  `search-add-into-active-list` / `search-page-esc-closes` / `search-scope-song-and-artist` / `search-hot-recommendations`。
+  动效/视觉沿用现有语言（同一条 cubic-bezier、轻位移不抢镜、统一按压反馈、reduced-motion 退为纯淡入）。
+  后端 `verify-backend.mjs` 仍 10/10（新增路由不改既有单测）。⚠️ **搜索结果会引入非网易云曲目**，
+  即前面那颗「跨源静音雷」的真实验证场景。
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **77/77** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页）
 - 第六轮（舞台底部渐隐 + 顶部圆角，2026-10-09 罐头拍板）：
   ① `.scene::after` 的舞台底部渐隐**已整个撤掉**：先是从「固定 72px 刷主题面色」改成「按舞台高比例
      `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，真机看过之后罐头拍板**连这道也去掉** ——

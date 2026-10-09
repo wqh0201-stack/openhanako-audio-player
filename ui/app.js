@@ -59,6 +59,7 @@
     song: API + '/widget/api/music/song',
     musicPlaylist: API + '/widget/api/music/playlist',
     search: API + '/widget/api/music/search',
+    hot: API + '/widget/api/music/hot',
     importFile: API + '/widget/api/import-file',
     scanFolder: API + '/widget/api/scan-folder',
     playbackState: API + '/api/playback-state'
@@ -976,8 +977,6 @@
       paintFav(favBtn, null);
       paintFav(favTextBtn, null);
       if (favBtn) favBtn.hidden = true;   // 没曲目可喜欢，不留孤零零一颗心
-      $('ciTitle').textContent = '还没有曲目';
-      $('ciArtist').textContent = '';
       seek.max = '0';
       $('durTime').textContent = '--:--';
       applyCovers();
@@ -991,8 +990,6 @@
     paintFav(favBtn, t);
     paintFav(favTextBtn, t);
     if (favBtn) favBtn.hidden = false;
-    $('ciTitle').textContent = t.title;
-    $('ciArtist').textContent = t.author || '';
     var d = trackDuration(t);
     seek.max = String(d || 0);
     $('durTime').textContent = d ? fmtTime(d) : '--:--';
@@ -2728,6 +2725,289 @@
     });
   }
 
+  /* ============================================================
+     搜索页（罐头最初需求：左下角换搜索入口 + 一个搜索页）
+     ------------------------------------------------------------
+     入口长在独立窗口（wide）控制条最左；点开是一张整页浮层：
+     输入框 + 平台选择 + 结果列表，每行一个「加入」，把搜索结果
+     归入当前激活列表（本地列表时退化为新建/复用「搜索」列表）。
+     后端 /widget/api/music/search 已存在，这里只做界面与落库。
+     ============================================================ */
+  var SEARCH_SERVERS = [
+    { id: 'netease', label: '网易云' },
+    { id: 'tencent', label: 'QQ' },
+    { id: 'kugou', label: '酷狗' },
+    { id: 'kuwo', label: '酷我' },
+    { id: 'baidu', label: '百度' }
+  ];
+  var searchServer = 'netease';
+  var searchScope = 'song';   // 'song' 搜歌曲 / 'artist' 搜歌手（后台同一关键词接口）
+  var searchResults = [];
+  var searchBusy = false;
+  var searchSeq = 0;   // 代次：连打两次搜索，旧响应不许覆盖新结果
+  var hotResults = null;   // 热门推荐缓存（搜索页空白时预置）
+  var searchPage = $('searchPage');
+  var searchList = $('searchList');
+  var searchNoteEl = $('searchNote');
+  var searchInput = $('searchInput');
+  var searchServersEl = $('searchServers');
+  var searchScopeEl = $('searchScope');
+  var searchSectionEl = $('searchSection');
+
+  function setSearchNote(msg) { if (searchNoteEl) searchNoteEl.textContent = msg || ''; }
+  function setSearchSection(msg) {
+    if (!searchSectionEl) return;
+    if (msg) { searchSectionEl.textContent = msg; searchSectionEl.hidden = false; }
+    else { searchSectionEl.textContent = ''; searchSectionEl.hidden = true; }
+  }
+  function renderSearchScope() {
+    if (!searchScopeEl) return;
+    var btns = searchScopeEl.querySelectorAll('.search-scope-btn');
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute('data-scope') === searchScope;
+      btns[i].classList.toggle('is-active', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
+  function serverLabel(id) {
+    for (var i = 0; i < SEARCH_SERVERS.length; i++) if (SEARCH_SERVERS[i].id === id) return SEARCH_SERVERS[i].label;
+    return id;
+  }
+
+  function renderSearchServers() {
+    if (!searchServersEl) return;
+    var html = '';
+    for (var i = 0; i < SEARCH_SERVERS.length; i++) {
+      var s = SEARCH_SERVERS[i];
+      html += '<button class="search-server' + (s.id === searchServer ? ' is-active' : '') + '" type="button"' +
+        ' data-server="' + esc(s.id) + '" aria-pressed="' + (s.id === searchServer ? 'true' : 'false') + '">' +
+        esc(s.label) + '</button>';
+    }
+    searchServersEl.innerHTML = html;
+  }
+
+  /* 搜索结果行：封面 + 标题/歌手 + 加入。inList 标记该曲已在当前列表。 */
+  function renderSearchResults() {
+    if (!searchList) return;
+    if (!searchResults.length) {
+      searchList.innerHTML = '<li class="search-empty">' +
+        (searchBusy ? '正在搜索…' : '在上方输入歌名或歌手，回车开始搜索') + '</li>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < searchResults.length; i++) {
+      var r = searchResults[i];
+      var title = String(r.title || r.name || '').trim() || '未命名';
+      var author = String(r.author || '').trim();
+      var inList = !!r._inList;
+      html += '<li class="search-row" data-i="' + i + '">' +
+        '<span class="q-cover"></span>' +
+        '<span class="q-meta">' +
+          '<span class="q-title">' + esc(title) + '</span>' +
+          '<span class="q-artist">' + esc(author) + '</span>' +
+        '</span>' +
+        '<button class="search-add' + (inList ? ' is-added' : '') + '" type="button" data-i="' + i + '"' +
+          (inList ? ' disabled' : '') + ' aria-label="' + (inList ? '已加入' : '加入曲单') + '">' +
+          (inList ? '已加入' : (icon('i-plus', 'icon-sm') + '<span>加入</span>')) +
+        '</button>' +
+      '</li>';
+    }
+    searchList.innerHTML = html;
+    applySearchCovers();
+  }
+
+  /* 搜索结果封面：搜索结果里带 pic（封面地址），与队列同一套 cover 变量 */
+  function applySearchCovers() {
+    if (!searchList) return;
+    var rows = searchList.querySelectorAll('.search-row');
+    for (var i = 0; i < rows.length; i++) {
+      var idx = Number(rows[i].getAttribute('data-i'));
+      var r = searchResults[idx];
+      var cov = rows[i].querySelector('.q-cover');
+      if (!cov || !r) continue;
+      var pic = String(r.pic || '').trim();
+      if (pic) {
+        cov.style.setProperty('--cover-image', 'url("' + pic.replace(/"/g, '') + '")');
+        cov.style.setProperty('--cover-fallback', 'none');
+      } else {
+        cov.style.removeProperty('--cover-image');
+        cov.style.setProperty('--cover-fallback', 'var(--hk-surface)');
+      }
+    }
+  }
+
+  function openSearch() {
+    if (!searchPage) return;
+    searchPage.hidden = false;
+    renderSearchServers();
+    renderSearchScope();
+    renderSearchResults();
+    if (!searchResults.length) loadHot();   // 空白页预置热门推荐
+    if (searchInput) setTimeout(function () { try { searchInput.focus(); } catch (e) {} }, 30);
+  }
+  function closeSearch() {
+    if (!searchPage) return;
+    searchPage.hidden = true;
+  }
+
+  /* 热门推荐（搜索页空白时的预置内容）。只拉一次并缓存。
+   * 竞态防护：拉取期间用户若已发起搜索（searchSeq 前进）或输入了关键词，
+   * 回来的热门不得覆盖当前结果 —— 与 doSearch 的代次是同一套思路。 */
+  function loadHot() {
+    var gen = searchSeq;
+    if (hotResults) {
+      if (searchSeq !== gen || String((searchInput && searchInput.value) || '').trim()) return;
+      searchResults = hotResults.slice(); markSearchInList(); renderSearchResults();
+      setSearchSection('热门推荐'); setSearchNote(''); return;
+    }
+    setSearchSection('热门推荐');
+    setSearchNote('正在加载推荐…');
+    apiGetJson(ENDPOINT.hot + '?limit=12').then(function (res) {
+      var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
+      hotResults = list;
+      if (searchSeq !== gen) return;                                        // 已发起搜索，不覆盖
+      if (String((searchInput && searchInput.value) || '').trim()) return;  // 已输入关键词，不覆盖
+      searchResults = list.slice();
+      markSearchInList();
+      renderSearchResults();
+      if (list.length) setSearchNote('');
+      else setSearchNote('在上方输入歌名或歌手，回车开始搜索');
+    }).catch(function () {
+      if (searchSeq !== gen) return;
+      setSearchNote('在上方输入歌名或歌手，回车开始搜索');
+    });
+  }
+
+  function doSearch() {
+    if (searchBusy) return;
+    var kw = searchInput ? String(searchInput.value || '').trim() : '';
+    if (!kw) { setSearchNote('先输入关键词'); return; }
+    searchBusy = true;
+    var gen = ++searchSeq;
+    setSearchSection(searchScope === 'artist' ? '歌手结果' : '歌曲结果');
+    setSearchNote('正在搜索…');
+    searchResults = [];
+    renderSearchResults();
+    apiGetJson(ENDPOINT.search + '?keyword=' + encodeURIComponent(kw) + '&server=' + encodeURIComponent(searchServer))
+      .then(function (res) {
+        if (gen !== searchSeq) return;
+        searchBusy = false;
+        var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
+        if (!list.length) {
+          searchResults = [];
+          renderSearchResults();
+          setSearchNote('没搜到「' + kw + '」，换个关键词或平台试试');
+          return;
+        }
+        searchResults = list;
+        markSearchInList();
+        renderSearchResults();
+        setSearchNote('共 ' + list.length + ' 条 · 来自' + serverLabel(searchServer));
+      })
+      .catch(function () {
+        if (gen !== searchSeq) return;
+        searchBusy = false;
+        searchResults = [];
+        renderSearchResults();
+        setSearchNote('搜索失败：网络错误');
+      });
+  }
+
+  /* 清空搜索：回到热门推荐 */
+  function clearSearch() {
+    if (searchInput) searchInput.value = '';
+    searchSeq++;
+    searchBusy = false;
+    if (hotResults) { searchResults = hotResults.slice(); markSearchInList(); renderSearchResults(); setSearchSection('热门推荐'); setSearchNote(''); }
+    else { searchResults = []; renderSearchResults(); setSearchSection(''); loadHot(); }
+  }
+
+  /* 标记搜索结果里已在当前列表的曲目（按稳定 id 判，和红心同一套） */
+  function markSearchInList() {
+    var target = searchTargetList();
+    for (var i = 0; i < searchResults.length; i++) {
+      var r = searchResults[i];
+      var id = deriveId(r, r.url);
+      var hit = false;
+      for (var j = 0; j < state.tracks.length; j++) {
+        if (state.tracks[j].id === id && state.tracks[j].list === target) { hit = true; break; }
+      }
+      r._inList = hit;
+    }
+  }
+
+  /* 搜索结果归入哪个列表：与导入同一套语义 —— 当前是导入列表就用它，
+   * 本地/我的喜欢时新建/复用一个名为「搜索」的导入列表。 */
+  function searchTargetList() {
+    if (/^imp:/.test(state.activeList) && findList(state.activeList)) return state.activeList;
+    for (var i = 0; i < state.lists.length; i++) {
+      if (state.lists[i].id !== 'local' && state.lists[i].id !== 'fav' && state.lists[i].name === '搜索') return state.lists[i].id;
+    }
+    var id = nextImportId();
+    state.lists.push({ id: id, name: '搜索' });
+    saveLists();
+    return id;
+  }
+
+  function addSearchHit(idx) {
+    var r = searchResults[idx];
+    if (!r) return;
+    var target = searchTargetList();
+    var added = mergeTracks([r], target);
+    var l = findList(target);
+    if (added > 0) {
+      savePlaylist();
+      renderQueue();
+      toast('已加入「' + ((l && l.name) || '搜索') + '」：' + (r.title || r.name || ''));
+    } else {
+      toast('「' + ((l && l.name) || '搜索') + '」里已有这首');
+    }
+    markSearchInList();
+    renderSearchResults();
+  }
+
+  if ($('searchEntryBtn')) $('searchEntryBtn').addEventListener('click', openSearch);
+  if ($('searchBackBtn')) $('searchBackBtn').addEventListener('click', closeSearch);
+  if ($('searchGoBtn')) $('searchGoBtn').addEventListener('click', doSearch);
+  if (searchInput) {
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+      else if (e.key === 'Escape') { e.preventDefault(); clearSearch(); }
+    });
+  }
+  if (searchScopeEl) {
+    searchScopeEl.addEventListener('click', function (e) {
+      var btn = e.target.closest('.search-scope-btn');
+      if (!btn) return;
+      var sc = btn.getAttribute('data-scope');
+      if (!sc || sc === searchScope) return;
+      searchScope = sc;
+      renderSearchScope();
+      if (searchInput) searchInput.placeholder = sc === 'artist' ? '搜歌手名' : '搜歌名 / 歌手';
+      if (searchInput && String(searchInput.value || '').trim()) doSearch();   // 换范围自动重搜
+      else loadHot();
+    });
+  }
+  if (searchServersEl) {
+    searchServersEl.addEventListener('click', function (e) {
+      var btn = e.target.closest('.search-server');
+      if (!btn) return;
+      var id = btn.getAttribute('data-server');
+      if (!id || id === searchServer) return;
+      searchServer = id;
+      renderSearchServers();
+      if (searchInput && String(searchInput.value || '').trim()) doSearch();   // 换平台自动重搜
+    });
+  }
+  if (searchList) {
+    searchList.addEventListener('click', function (e) {
+      var btn = e.target.closest('.search-add');
+      if (!btn || btn.disabled) return;
+      addSearchHit(Number(btn.getAttribute('data-i')));
+    });
+  }
+
   importPop.addEventListener('click', function (e) {
     var item = e.target.closest('[data-import]');
     if (item) {
@@ -2755,6 +3035,7 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
+    if (searchPage && !searchPage.hidden) { closeSearch(); return; }
     if (!morePop.hidden || !importPop.hidden) { closePops(); return; }
     if (player.getAttribute('data-layout') === 'wide' && state.drawer) closeDrawer();
   });
@@ -2776,6 +3057,7 @@
       player.setAttribute('data-layout', next);
       if (next !== 'wide') state.drawer = false;
       if (next !== 'compact') state.page = 'play';
+      if (next !== 'wide' && searchPage && !searchPage.hidden) closeSearch();   // 离开独立窗便收起搜索
       renderChrome();
     }
     updateStageMetrics();
@@ -3094,6 +3376,7 @@
     function shown(el) {
       var cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      if (el.closest('[hidden]')) return false;   // 隐藏的祖先（搜索页未唤出时整页不参与版面）
       var r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     }
@@ -3254,6 +3537,13 @@
     /* 跨源歌词兜底的匹配判定（测试用）：不依赖网络，直接喂结果集。 */
     pickLyricHit: pickLyricHit,
     normLyricTitle: normLyricTitle,
-    normLyricAuthor: normLyricAuthor
+    normLyricAuthor: normLyricAuthor,
+    /* 搜索页（测试用）：不依赖真实网络，直接喂结果验证渲染/落库。 */
+    openSearch: openSearch,
+    closeSearch: closeSearch,
+    renderResults: function (list) { searchSeq++; searchBusy = false; searchResults = list || []; markSearchInList(); renderSearchResults(); },
+    setScope: function (sc) { searchScope = sc; renderSearchScope(); },
+    clearSearch: clearSearch,
+    searchState: function () { return { server: searchServer, scope: searchScope, results: searchResults.length, open: !!(searchPage && !searchPage.hidden) }; }
   };
 })();
