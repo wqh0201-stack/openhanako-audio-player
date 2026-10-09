@@ -76,14 +76,23 @@
 }
 
 /* ============================================================
-   封面层：文字与遮罩都吃宿主主题色，不写死白色
-   · 有封面（pic）：主题纸色遮罩压一层，让墨色文字在任意封面上都可读
-   · 无封面（.player.nocover）：不需要压暗，直接纸面留白
+   封面层 / 环境色层
+   目标（网易云沉浸播放页那种）：整块舞台跟着封面颜色铺满到最右缘，
+   封面右缘柔和「化」进背景，歌词压在一层薄纱上（上下淡出 + 中部可读）。
+
+   两态纱：由 JS 按封面右缘像素的对比度择优写进 .player[data-ambient]。
+     light → 浅纱 + 墨字；dark → 深纱 + 纸字。
+   纱只负责可读性，薄（中部 0.55 上下）—— 不再把封面色相洗成纸白。
    ============================================================ */
 :root {
-  /* 封面上的文字用主题墨色/次级色（浅色主题=暖墨，夜间=浅字） */
-  --cover-text: var(--hk-text);
-  --cover-text-soft: var(--hk-muted);
+  /* 纱与字的两套基色（JS 也读这几个值做对比度择优，别只改一边）
+   * -a 是「较薄处」的 alpha：JS 用它做保守估计，取最小对比度定极性。 */
+  --veil-paper: #FCFAF5;
+  --veil-ink: #14171C;
+  --on-veil-ink: #2A2622;
+  --on-veil-paper: #F2F6FA;
+  --veil-paper-a: 0.48;
+  --veil-ink-a: 0.54;
   /* 在线曲目有 pic 时由 JS 写入 url(...)；没有就只剩兜底 */
   --cover-image: none;
   /* 兜底：主题色 + 极淡斜纹纹理，不是彩色糊渐变，也不硬编码山景 */
@@ -97,36 +106,86 @@
     linear-gradient(168deg,
       color-mix(in srgb, var(--hk-surface) 97%, var(--hk-accent) 3%) 0%,
       color-mix(in srgb, var(--hk-surface) 88%, var(--hk-accent) 12%) 100%);
-  /* 顶部：主题纸色自下淡出（不是黑压暗），墨色曲目信息压在上面 */
-  --cover-top-scrim: linear-gradient(180deg,
-      color-mix(in srgb, var(--hk-surface) 92%, transparent) 0%,
-      color-mix(in srgb, var(--hk-surface) 58%, transparent) 52%,
-      color-mix(in srgb, var(--hk-surface) 0%, transparent) 100%);
+  /* 封面右缘 mask 淡出的起止位置（px），由 JS 按封面显示宽写入 */
+  --cover-fade-a: 100%;
+  --cover-fade-b: 100%;
   /* 封面底部渐隐融入下方面板：跟随歌词开关，关闭时只剩封面 */
   --cover-blend: linear-gradient(180deg, transparent 0%, var(--hk-surface) 92%);
-  /* 歌词/频谱阅读列蒙层：主题纸色遮罩，左端几乎透明 → 右端厚实一层。
-   * 封面晕开（blur 副本）打底，这层只负责把右列压平到能读字。
-   * 歌词关闭时它不许消失 —— 频谱也压在它上面（R4）。 */
-  --lyric-scrim: linear-gradient(90deg,
-      color-mix(in srgb, var(--hk-surface) 0%, transparent) 0%,
-      color-mix(in srgb, var(--hk-surface) 34%, transparent) 14%,
-      color-mix(in srgb, var(--hk-surface) 82%, transparent) 30%,
-      color-mix(in srgb, var(--hk-surface) 95%, transparent) 56%,
-      color-mix(in srgb, var(--hk-surface) 97%, transparent) 100%);
   /* 右侧内容列起点：JS 按封面实际显示宽算出 px 写进来（--cover-w 同理） */
   --content-x: 34%;
-  /* 滚动条条子颜色（轨道透明）；歌词落在纸色遮罩上，墨色才看得见 */
+  /* 默认（无 data-ambient / 无封面）：吃主题字色 + 一条轻量顶渐变 */
+  --cover-text: var(--hk-text);
+  --cover-text-soft: var(--hk-muted);
+  --cover-top-scrim: linear-gradient(180deg,
+      color-mix(in srgb, var(--veil-paper) 78%, transparent) 0%,
+      color-mix(in srgb, var(--veil-paper) 40%, transparent) 52%,
+      color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
+  /* 歌词薄纱（竖向）：上下淡出、中部够厚 —— 透出底色但不把封面色相压死。
+   * 歌词关闭时它不许消失 —— 频谱也压在它上面（R4）。 */
+  --lyric-scrim: linear-gradient(180deg,
+      color-mix(in srgb, var(--veil-paper) 0%, transparent) 0%,
+      color-mix(in srgb, var(--veil-paper) 44%, transparent) 12%,
+      color-mix(in srgb, var(--veil-paper) 55%, transparent) 42%,
+      color-mix(in srgb, var(--veil-paper) 55%, transparent) 74%,
+      color-mix(in srgb, var(--veil-paper) 32%, transparent) 94%,
+      color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
+  /* 滚动条条子颜色（轨道透明） */
   --sb-color: color-mix(in srgb, var(--hk-text) 34%, transparent);
-  /* 当前歌词用主题强调色（与播放键、当前队列行同色） */
-  --lyric-current: var(--hk-accent);
+  /* 当前歌词：强调色往墨色压，压到在浅纱上仍看得清 */
+  --lyric-current: color-mix(in srgb, var(--hk-accent) 46%, var(--on-veil-ink));
   --lyric-near: color-mix(in srgb, var(--hk-text) 62%, transparent);
   --lyric-far: color-mix(in srgb, var(--hk-text) 34%, transparent);
 }
 
-/* 无封面兜底态：没有封面要压，顶部与歌词遮罩都不需要 */
+/* 浅底封面：浅纱 + 墨字（薄纱只留一层，不把封面色相洗掉） */
+.player[data-ambient="light"] {
+  --cover-text: var(--on-veil-ink);
+  --cover-text-soft: color-mix(in srgb, var(--on-veil-ink) 72%, transparent);
+  --cover-top-scrim: linear-gradient(180deg,
+      color-mix(in srgb, var(--veil-paper) 80%, transparent) 0%,
+      color-mix(in srgb, var(--veil-paper) 42%, transparent) 52%,
+      color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
+  --lyric-scrim: linear-gradient(180deg,
+      color-mix(in srgb, var(--veil-paper) 0%, transparent) 0%,
+      color-mix(in srgb, var(--veil-paper) 44%, transparent) 12%,
+      color-mix(in srgb, var(--veil-paper) 55%, transparent) 42%,
+      color-mix(in srgb, var(--veil-paper) 55%, transparent) 74%,
+      color-mix(in srgb, var(--veil-paper) 32%, transparent) 94%,
+      color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
+  --lyric-current: color-mix(in srgb, var(--hk-accent) 46%, var(--on-veil-ink));
+  --lyric-near: color-mix(in srgb, var(--on-veil-ink) 75%, transparent);
+  --lyric-far: color-mix(in srgb, var(--on-veil-ink) 50%, transparent);
+  --sb-color: color-mix(in srgb, var(--on-veil-ink) 34%, transparent);
+}
+
+/* 深底封面：深纱 + 纸字（可读 > 还原度） */
+.player[data-ambient="dark"] {
+  --cover-text: var(--on-veil-paper);
+  --cover-text-soft: color-mix(in srgb, var(--on-veil-paper) 76%, transparent);
+  --cover-top-scrim: linear-gradient(180deg,
+      color-mix(in srgb, var(--veil-ink) 66%, transparent) 0%,
+      color-mix(in srgb, var(--veil-ink) 32%, transparent) 52%,
+      color-mix(in srgb, var(--veil-ink) 0%, transparent) 100%);
+  --lyric-scrim: linear-gradient(180deg,
+      color-mix(in srgb, var(--veil-ink) 0%, transparent) 0%,
+      color-mix(in srgb, var(--veil-ink) 50%, transparent) 12%,
+      color-mix(in srgb, var(--veil-ink) 60%, transparent) 42%,
+      color-mix(in srgb, var(--veil-ink) 60%, transparent) 74%,
+      color-mix(in srgb, var(--veil-ink) 36%, transparent) 94%,
+      color-mix(in srgb, var(--veil-ink) 0%, transparent) 100%);
+  --lyric-current: color-mix(in srgb, var(--hk-accent) 44%, var(--on-veil-paper));
+  --lyric-near: color-mix(in srgb, var(--on-veil-paper) 82%, transparent);
+  --lyric-far: color-mix(in srgb, var(--on-veil-paper) 52%, transparent);
+  --sb-color: color-mix(in srgb, var(--on-veil-paper) 38%, transparent);
+}
+
+/* 无封面兜底态：没有封面要压，顶部与歌词遮罩都不需要。
+ * 放在两态之后 —— 同特异度，靠位置压过 .player[data-ambient="*"]。 */
 .player.nocover {
   --cover-top-scrim: none;
   --lyric-scrim: none;
+  --cover-text: var(--hk-text);
+  --cover-text-soft: var(--hk-muted);
 }
 
 * { box-sizing: border-box; }
@@ -266,8 +325,23 @@ button:disabled { cursor: default; }
   pointer-events: none;
 }
 
-/* 封面晕开层（R2）：同一张封面的模糊放大副本打底，上面叠主题纸色蒙层压平。
- * 纯 CSS —— 跨源封面没有 CORS，canvas 取像素会 taint，所以绝不能走 canvas。
+/* 环境色层（最底）：封面右缘像素 → 竖向渐变，铺满整个舞台到最右缘。
+ * JS 取色成功后写 --ambient-gradient；取不到就退回纸面兜底（--cover-fallback）。 */
+.stage-ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: var(--hk-surface);
+  background-image: var(--ambient-gradient, var(--cover-fallback));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* 封面晕开层（R2）：同一张封面的模糊放大副本。
+ * 现在是「取色失败时的兜底层」：取色成功（.ambient-ok）就收起，让环境色渐变接管。
+ * 纯 CSS —— 跨源封面没有 CORS 时 canvas 取像素会 taint，这条退路必须有。
  * transform: scale 是为了把 blur 边缘的透明采样区推出画面。 */
 .cover-haze {
   position: absolute;
@@ -285,38 +359,58 @@ button:disabled { cursor: default; }
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg,
-      color-mix(in srgb, var(--hk-surface) 26%, transparent) 0%,
-      color-mix(in srgb, var(--hk-surface) 48%, transparent) 42%,
-      color-mix(in srgb, var(--hk-surface) 66%, transparent) 100%);
+  /* 取色失败时没有「已知底色」，只能压一层主题纸面保字可读 */
+  background: linear-gradient(180deg,
+      color-mix(in srgb, var(--hk-surface) 58%, transparent) 0%,
+      color-mix(in srgb, var(--hk-surface) 38%, transparent) 52%,
+      color-mix(in srgb, var(--hk-surface) 62%, transparent) 100%);
 }
-.player.nocover .cover-haze { display: none; }
+.player.nocover .cover-haze,
+.player.ambient-ok .cover-haze { display: none; }
 
 /* 封面本体贴着左边，按高度完整显示（contain：高度优先填满舞台，
- * 容器比画幅窄时退化成按宽适配）—— 永不裁头砍脚（R2）。 */
+ * 容器比画幅窄时退化成按宽适配）—— 永不裁头砍脚（R2）。
+ * 背景色透明：contain 的留白露出底下的环境色，而不是一块纸。 */
 .cover {
   position: absolute;
   inset: 0;
   z-index: 1;
-  background-color: var(--hk-surface);
-  background-image: var(--cover-image), var(--cover-fallback);
+  background-color: transparent;
+  background-image: var(--cover-image);
   background-size: contain;
   background-position: left center;
   background-repeat: no-repeat;
+  /* 右缘淡出：让封面「化」进环境色。起点/终点由 JS 按封面显示宽写入 */
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
+  mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
 }
-.player.nocover .cover,
+.player.nocover .cover {
+  background-image: var(--cover-fallback);
+  background-size: cover;
+  background-position: center;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 .player.nocover .q-cover {
   background-image: var(--cover-fallback);
   background-size: cover;
   background-position: center;
 }
 
-/* 右列蒙层：歌词与频谱共用，歌词关闭时也不许消失（R4） */
+/* 歌词薄纱：只罩阅读列（从标题块下方到底），竖向上下淡出 + 中部可读。
+ * 歌词与频谱共用，歌词关闭时也不许消失（R4）。 */
 .lyric-scrim {
   position: absolute;
-  inset: 0;
+  top: var(--lyric-top, 108px);
+  bottom: 0;
+  left: var(--content-x, 34%);
+  right: 0;
   z-index: 2;
   background: var(--lyric-scrim);
+  /* 左缘别切一刀：横向羽化 28px，让它从封面色里长出来 */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 28px);
+  mask-image: linear-gradient(90deg, transparent 0, #000 28px);
+  pointer-events: none;
 }
 .player[data-lyrics="0"] .lyric-wrap { display: none; }
 .player[data-lyrics="1"] .spectrum { display: none; }

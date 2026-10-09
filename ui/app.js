@@ -573,15 +573,182 @@
   function coverImage(url) {
     return url ? 'url(' + JSON.stringify(withSession(url)) + '), var(--cover-fallback)' : 'var(--cover-fallback)';
   }
+  /* 舞台封面专用：不叠兜底层 —— contain 的留白要让底下的环境色透出来，
+   * 而不是盖一块纸（队列行的小封面仍用 coverImage，那里留白小、叠兜底更稳）。 */
+  function coverStageImage(url) {
+    return url ? 'url(' + JSON.stringify(withSession(url)) + ')' : 'var(--cover-fallback)';
+  }
   function coverUrlOnly(url) {
     return url ? 'url(' + JSON.stringify(withSession(url)) + ')' : 'none';
   }
+
+  /* ============================================================
+     环境色（封面右缘取色）
+     目标：整块舞台跟着封面颜色铺满到最右缘，封面右缘柔和「化」进背景。
+     做法：把封面画进小 canvas，只取右缘一条竖带逐段水平平均，得到竖向
+     色标 → linear-gradient 写进 --ambient-gradient，由 .stage-ambient 消费。
+     网易云封面带 CORS（access-control-allow-origin: *），所以
+     crossOrigin='anonymous' + getImageData 能拿到像素、不 taint；
+     非 CORS / 解码失败会抛异常 → 静默退回模糊副本/纸面，不白屏不刷错误。
+     ============================================================ */
+  var AMBIENT_SEGMENTS = 12;   // 竖向分段数
+  var coverAR = 0;             // 封面画幅比（只读自然尺寸，不碰 canvas）
+  var coverProbeToken = 0;     // 切歌竞态：过期结果丢弃
+  var ambientSegs = null;      // 最近一次取色结果（竖向色标）
+  var ambientCache = {};       // pic → 色标（或 null=失败），同一封面不重复取色
+
+  /* 竖向色标 → 渐变。色标映射到封面「实际显示的那一段高度」上，两端外延
+   * 铺满：否则 contain 的 letterbox 会把渐变整体拉伸，封面右缘上下角对不上。 */
+  function renderAmbientGradient() {
+    var sceneEl = $('scene');
+    if (!ambientSegs || !sceneEl) return;
+    var n = ambientSegs.length;
+    var h = sceneEl.clientHeight;
+    var rgb = function (c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; };
+    var stops = [rgb(ambientSegs[0]) + ' 0%'];
+    var t0 = 0, t1 = 1;
+    if (h > 0 && coverAR > 0) {
+      var ch = Math.min(h, (sceneEl.clientWidth || 0) / coverAR);
+      t0 = Math.max(0, (h - ch) / 2 / h);
+      t1 = 1 - t0;
+    }
+    for (var i = 0; i < n; i++) {
+      stops.push(rgb(ambientSegs[i]) + ' ' + (t0 + (t1 - t0) * (i / (n - 1))) * 100 + '%');
+    }
+    stops.push(rgb(ambientSegs[n - 1]) + ' 100%');
+    player.style.setProperty('--ambient-gradient', 'linear-gradient(180deg, ' + stops.join(', ') + ')');
+  }
+
+  /* 在「浅纱+墨字」与「深纱+纸字」两态里择优：按每条色标算合成后的对比度，
+   * 取最差段位的对比度为主评分（最差都看得清才算数），整体均值为辅。
+   * 纱的基色/alpha 从 :root 的 --veil-* 读，不在这里另存一份。 */
+  function ambientPolarity(segs) {
+    var cs = getComputedStyle(document.documentElement);
+    function hex(s) {
+      var m = /^#([0-9a-f]{6})$/i.exec(String(s).trim());
+      if (!m) return null;
+      var v = parseInt(m[1], 16);
+      return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+    }
+    function lum(c) {
+      function ch(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+      return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
+    }
+    function ratio(a, b) {
+      var la = lum(a), lb = lum(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    }
+    function over(fg, bg, a) {
+      return [fg[0] * a + bg[0] * (1 - a), fg[1] * a + bg[1] * (1 - a), fg[2] * a + bg[2] * (1 - a)];
+    }
+    var sets = [
+      { key: 'light', veil: hex(cs.getPropertyValue('--veil-paper')), text: hex(cs.getPropertyValue('--on-veil-ink')), a: parseFloat(cs.getPropertyValue('--veil-paper-a')) },
+      { key: 'dark', veil: hex(cs.getPropertyValue('--veil-ink')), text: hex(cs.getPropertyValue('--on-veil-paper')), a: parseFloat(cs.getPropertyValue('--veil-ink-a')) }
+    ];
+    var best = null;
+    for (var i = 0; i < sets.length; i++) {
+      var s = sets[i];
+      if (!s.veil || !s.text || !(s.a > 0)) continue;
+      var worst = Infinity, sum = 0;
+      for (var k = 0; k < segs.length; k++) {
+        var ct = ratio(s.text, over(s.veil, segs[k], s.a));
+        if (ct < worst) worst = ct;
+        sum += ct;
+      }
+      var score = worst * 0.7 + (sum / segs.length) * 0.3;
+      if (!best || score > best.score) best = { key: s.key, score: score };
+    }
+    return best ? best.key : 'light';
+  }
+
+  function themePolarity() {
+    var t = document.documentElement.getAttribute('data-theme');
+    if (t === 'dark' || t === 'light') return t;
+    try { return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+    catch (e) { return 'light'; }
+  }
+
+  function applyAmbient(segs) {
+    ambientSegs = (segs && segs.length) ? segs : null;
+    if (!ambientSegs) {
+      /* 取色失败 / 无封面：收起渐变，退回模糊副本或纸面 */
+      player.classList.remove('ambient-ok');
+      player.style.removeProperty('--ambient-gradient');
+      player.setAttribute('data-ambient', player.classList.contains('nocover') ? 'none' : themePolarity());
+      return;
+    }
+    renderAmbientGradient();
+    player.setAttribute('data-ambient', ambientPolarity(ambientSegs));
+    player.classList.add('ambient-ok');
+  }
+
+  /* 取色还没回来时的临时态：先退回模糊副本，出结果再换渐变（不白屏） */
+  function applyAmbientPending() {
+    player.classList.remove('ambient-ok');
+    player.style.removeProperty('--ambient-gradient');
+    if (!player.classList.contains('nocover')) player.setAttribute('data-ambient', themePolarity());
+  }
+
+  /* 取色用小图：网易云封面支持 ?param=100y100（约 25KB），省流量也快 */
+  function ambientUrl(url) {
+    var u = withSession(url);
+    if (/music\.126\.net/.test(u) && u.indexOf('param=') < 0) {
+      u += (u.indexOf('?') > -1 ? '&' : '?') + 'param=100y100';
+    }
+    return u;
+  }
+
+  /* 单独一张带 crossOrigin 的小图取像素（与画幅探测分开：非 CORS 封面也要量得出画幅） */
+  function probeAmbient(pic, token) {
+    if (Object.prototype.hasOwnProperty.call(ambientCache, pic)) {
+      applyAmbient(ambientCache[pic]);
+      return;
+    }
+    var img = new Image();
+    var settled = false;
+    function done(segs) {
+      if (settled) return;
+      settled = true;
+      ambientCache[pic] = segs || null;
+      if (token !== coverProbeToken) return;
+      applyAmbient(segs);
+    }
+    img.crossOrigin = 'anonymous';
+    img.onload = function () {
+      try {
+        var SW = 48, SH = AMBIENT_SEGMENTS * 8;
+        var cv = document.createElement('canvas');
+        cv.width = SW; cv.height = SH;
+        var ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, SW, SH);
+        var data = ctx.getImageData(0, 0, SW, SH).data;
+        /* 只取封面右缘一条竖带（约右 8%~28% 宽），逐段水平平均 → 竖向色标 */
+        var x0 = Math.round(SW * 0.72), x1 = Math.round(SW * 0.92);
+        var segs = [];
+        for (var s = 0; s < AMBIENT_SEGMENTS; s++) {
+          var y0 = Math.floor(s * SH / AMBIENT_SEGMENTS);
+          var y1 = Math.floor((s + 1) * SH / AMBIENT_SEGMENTS);
+          var r = 0, g = 0, b = 0, n = 0;
+          for (var y = y0; y < y1; y++) {
+            for (var x = x0; x < x1; x++) {
+              var i = (y * SW + x) * 4;
+              r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+            }
+          }
+          segs.push(n ? [Math.round(r / n), Math.round(g / n), Math.round(b / n)] : [0, 0, 0]);
+        }
+        done(segs);
+      } catch (e) {
+        /* 非 CORS 封面 / 解码失败 / getImageData 抛 SecurityError → 静默退回 */
+        done(null);
+      }
+    };
+    img.onerror = function () { done(null); };
+    img.src = ambientUrl(pic);
+  }
+
   /* 舞台指标（纯呈现）：封面按 contain 贴左完整显示，先算它的实际显示宽，
-   * 再决定右侧内容列（标题/歌词/频谱）从哪里开始。
-   * 量画幅比例只读 Image 自然尺寸 —— 绝不碰 canvas：跨源封面无 CORS，
-   * drawImage 取像素会 taint 且不可逆。 */
-  var coverAR = 0;
-  var coverProbeToken = 0;
+   * 再决定右侧内容列（标题/歌词/频谱）从哪里开始。 */
   function updateStageMetrics() {
     var sceneEl = $('scene');
     if (!sceneEl) return;
@@ -593,8 +760,13 @@
     var lo = wide ? 0.30 : 0.22;
     var hi = wide ? 0.66 : 0.36;
     var x = Math.max(w * lo, Math.min(coverW + 18, w * hi));
+    /* 右缘淡出宽度：跟封面显示宽走，夹在 28~140px，窄封面也不会整张糊掉 */
+    var fade = Math.max(28, Math.min(140, coverW * 0.24));
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
+    player.style.setProperty('--cover-fade-a', Math.round(Math.max(0, coverW - fade)) + 'px');
+    player.style.setProperty('--cover-fade-b', Math.round(coverW) + 'px');
     player.style.setProperty('--content-x', Math.round(x) + 'px');
+    renderAmbientGradient();
     measureLyricTop();
   }
   /* 歌词阅读列必须从标题块下方开始，否则歌名/歌手/元信息会与歌词行叠字。
@@ -612,7 +784,14 @@
   }
   function probeCover(pic) {
     var token = ++coverProbeToken;
-    if (!pic) { coverAR = 0; updateStageMetrics(); return; }
+    if (!pic) {
+      coverAR = 0;
+      applyAmbient(null);
+      updateStageMetrics();
+      return;
+    }
+    applyAmbientPending();
+    /* 画幅比例：只读 Image 自然尺寸 —— 绝不碰 canvas（非 CORS 封面也要量得出来） */
     var img = new Image();
     img.onload = function () {
       if (token !== coverProbeToken) return;
@@ -625,14 +804,16 @@
       updateStageMetrics();
     };
     img.src = withSession(pic);
+    /* 环境色：另一张带 crossOrigin 的小图取像素 */
+    probeAmbient(pic, token);
   }
   function applyCovers() {
     var t = currentTrack();
     var pic = t && t.pic ? t.pic : '';
     /* 呈现层标记：无封面时走「纸面留白」兜底（只切 CSS 变量，不动业务） */
     player.classList.toggle('nocover', !pic);
-    $('cover').style.backgroundImage = coverImage(pic);
-    /* 晕开层：同一张封面的模糊放大副本（R2，纯 CSS） */
+    $('cover').style.backgroundImage = coverStageImage(pic);
+    /* 晕开层：同一张封面的模糊放大副本（取色失败时的兜底） */
     $('coverHaze').style.backgroundImage = coverUrlOnly(pic);
     probeCover(pic);
     var rows = queueList.querySelectorAll('.q-row');

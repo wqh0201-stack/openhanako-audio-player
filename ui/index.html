@@ -10,11 +10,12 @@
 <audio id="audio" preload="metadata"></audio>
 
 <div class="frame" id="frame">
-  <div class="player" id="player" data-layout="long" data-page="play" data-drawer="0" data-lyrics="1">
+  <div class="player" id="player" data-layout="long" data-page="play" data-drawer="0" data-lyrics="1" data-ambient="none">
 
     <section class="stage" id="stage">
-      <!-- 舞台：封面（贴左不裁切）+ 晕开背景 + 歌词/频谱 -->
+      <!-- 舞台：环境色（封面右缘色铺满）+ 封面（贴左不裁切）+ 歌词/频谱 -->
       <div class="scene" id="scene">
+        <div class="stage-ambient" id="stageAmbient" aria-hidden="true"></div>
         <div class="cover-haze" id="coverHaze" aria-hidden="true"></div>
         <div class="cover" id="cover" aria-hidden="true"></div>
         <div class="lyric-scrim" id="lyricScrim" aria-hidden="true"></div>
@@ -224,7 +225,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131550";</script>
+<script>window.__HANA_BUILD = "1003131551";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
