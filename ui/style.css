@@ -9,21 +9,25 @@
   --radius-s: 5px;
   --radius-m: 8px;
   --radius-l: 10px;
-  --on-accent: #FFFDF7;
-
-  /* ── 主题：只消费宿主 hana.theme，不重定义宿主变量名 ──
-   * --bg / --bg-card / --text / --accent / --border / --text-muted / --text-light
-   * 全部由宿主主题样式表注入（浅色=纸/墨/远山蓝，夜间=深板岩/藕荷粉）。
-   * 注意：宿主没有 --surface 这个名字，面板底色从 --bg-card 派生。
-   * 这里只做派生，绝不同名覆盖——所以正文里 var(--bg) 等读到的就是宿主值。 */
-  --surface: var(--bg-card, color-mix(in srgb, var(--bg, #F8F4ED) 94%, var(--text, #2A2622) 6%));
-  --muted: var(--text-muted, color-mix(in srgb, var(--text, #2A2622) 62%, transparent));
-  --faint: var(--text-light, color-mix(in srgb, var(--text, #2A2622) 45%, transparent));
-  --hairline: var(--border, color-mix(in srgb, var(--text, #2A2622) 13%, transparent));
-  --hover: color-mix(in srgb, var(--text, #2A2622) 6%, transparent);
-  --track: color-mix(in srgb, var(--text, #2A2622) 15%, transparent);
-  --accent-soft: color-mix(in srgb, var(--accent, #537D96) 13%, transparent);
-  --pop-shadow: 0 10px 26px color-mix(in srgb, var(--text, #2A2622) 16%, transparent);
+  /* ── 主题桥 ──
+   * 宿主主题样式表会给卡片注入 --bg / --bg-card / --text / --accent / --border /
+   * --text-muted / --text-light（换主题时整份样式表替换）。但注入可能缺席，
+   * 一旦缺席，裸 var(--accent) 会让按钮底色失效、白图标浮在透明上。
+   * 所以统一走 --hk-*：有宿主值就用宿主值，没有就落 Hana 默认暖纸一套。
+   * 组件一律只吃 --hk-*，不再直接引用宿主变量名。 */
+  --hk-bg: var(--bg, #F8F4ED);
+  --hk-surface: var(--bg-card, #FCFAF5);
+  --hk-text: var(--text, #3B3D3F);
+  --hk-muted: var(--text-muted, #6B6158);
+  --hk-faint: var(--text-light, #8E9196);
+  --hk-accent: var(--accent, #537D96);
+  --hk-border: var(--border, rgba(122, 96, 88, 0.18));
+  --hk-on-accent: #FFFDF7;
+  --hk-hairline: var(--hk-border);
+  --hk-hover: color-mix(in srgb, var(--hk-text) 6%, transparent);
+  --hk-track: color-mix(in srgb, var(--hk-text) 15%, transparent);
+  --hk-accent-soft: color-mix(in srgb, var(--hk-accent) 13%, transparent);
+  --hk-pop-shadow: 0 10px 26px color-mix(in srgb, var(--hk-text) 16%, transparent);
 }
 
 /* ============================================================
@@ -33,42 +37,43 @@
    ============================================================ */
 :root {
   /* 封面上的文字用主题墨色/次级色（浅色主题=暖墨，夜间=浅字） */
-  --cover-text: var(--text);
-  --cover-text-soft: var(--muted);
+  --cover-text: var(--hk-text);
+  --cover-text-soft: var(--hk-muted);
   /* 在线曲目有 pic 时由 JS 写入 url(...)；没有就只剩兜底 */
   --cover-image: none;
   /* 兜底：主题色 + 极淡斜纹纹理，不是彩色糊渐变，也不硬编码山景 */
   --cover-fallback:
     repeating-linear-gradient(135deg,
-      color-mix(in srgb, var(--text, #2A2622) 2.5%, transparent) 0 1px,
+      color-mix(in srgb, var(--hk-text) 2.5%, transparent) 0 1px,
       transparent 1px 13px),
     radial-gradient(130% 95% at 22% 12%,
-      color-mix(in srgb, var(--accent, #537D96) 12%, transparent) 0%,
+      color-mix(in srgb, var(--hk-accent) 12%, transparent) 0%,
       transparent 62%),
     linear-gradient(168deg,
-      color-mix(in srgb, var(--surface) 97%, var(--accent, #537D96) 3%) 0%,
-      color-mix(in srgb, var(--surface) 88%, var(--accent, #537D96) 12%) 100%);
+      color-mix(in srgb, var(--hk-surface) 97%, var(--hk-accent) 3%) 0%,
+      color-mix(in srgb, var(--hk-surface) 88%, var(--hk-accent) 12%) 100%);
   /* 顶部：主题纸色自下淡出（不是黑压暗），墨色曲目信息压在上面 */
   --cover-top-scrim: linear-gradient(180deg,
-      color-mix(in srgb, var(--surface) 92%, transparent) 0%,
-      color-mix(in srgb, var(--surface) 58%, transparent) 52%,
-      color-mix(in srgb, var(--surface) 0%, transparent) 100%);
+      color-mix(in srgb, var(--hk-surface) 92%, transparent) 0%,
+      color-mix(in srgb, var(--hk-surface) 58%, transparent) 52%,
+      color-mix(in srgb, var(--hk-surface) 0%, transparent) 100%);
   /* 封面底部渐隐融入下方面板：跟随歌词开关，关闭时只剩封面 */
-  --cover-blend: linear-gradient(180deg, transparent 0%, var(--surface) 92%);
+  --cover-blend: linear-gradient(180deg, transparent 0%, var(--hk-surface) 92%);
   /* 歌词阅读列在右：主题纸色遮罩，左端完全透明 → 右端厚实一层，墨色歌词才压得住 */
   --lyric-scrim: linear-gradient(90deg,
-      color-mix(in srgb, var(--surface) 0%, transparent) 0%,
-      color-mix(in srgb, var(--surface) 34%, transparent) 14%,
-      color-mix(in srgb, var(--surface) 82%, transparent) 30%,
-      color-mix(in srgb, var(--surface) 95%, transparent) 56%,
-      color-mix(in srgb, var(--surface) 97%, transparent) 100%);
+      color-mix(in srgb, var(--hk-surface) 0%, transparent) 0%,
+      color-mix(in srgb, var(--hk-surface) 34%, transparent) 14%,
+      color-mix(in srgb, var(--hk-surface) 82%, transparent) 30%,
+      color-mix(in srgb, var(--hk-surface) 95%, transparent) 56%,
+      color-mix(in srgb, var(--hk-surface) 97%, transparent) 100%);
   /* 歌词整体右移的量（左侧留白 = 封面可见区） */
   --lyric-shift: 22%;
   /* 滚动条条子颜色（轨道透明）；歌词落在纸色遮罩上，墨色才看得见 */
-  --sb-color: color-mix(in srgb, var(--text) 34%, transparent);
-  --lyric-current: var(--text);
-  --lyric-near: color-mix(in srgb, var(--text) 60%, transparent);
-  --lyric-far: color-mix(in srgb, var(--text) 34%, transparent);
+  --sb-color: color-mix(in srgb, var(--hk-text) 34%, transparent);
+  /* 当前歌词用主题强调色（与播放键、当前队列行同色） */
+  --lyric-current: var(--hk-accent);
+  --lyric-near: color-mix(in srgb, var(--hk-text) 62%, transparent);
+  --lyric-far: color-mix(in srgb, var(--hk-text) 34%, transparent);
 }
 
 /* 无封面兜底态：没有封面要压，顶部与歌词遮罩都不需要 */
@@ -79,12 +84,29 @@
 
 * { box-sizing: border-box; }
 
+/* ============================================================
+   全局滚动条：轨道一律透明，只有滑块带色。
+   宿主 Chromium 默认会给滑块/轨道刷白底（就是那个丑白条），这里统一清掉。
+   ============================================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--hk-text) 22%, transparent);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--hk-text) 38%, transparent);
+}
+/* 标准属性：Firefox / 新版标准路径 */
+* { scrollbar-color: color-mix(in srgb, var(--hk-text) 22%, transparent) transparent; }
+
 html, body { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg, var(--hana-bg, #F8F4ED));
-  color: var(--text);
+  background: var(--hk-bg);
+  color: var(--hk-text);
   font-family: var(--font-ui);
   font-size: 13px;
   display: block;
@@ -97,7 +119,7 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--bg, var(--hana-bg, #F8F4ED));
+  background: var(--hk-bg);
 }
 
 /* ---------- 播放器根 ---------- */
@@ -108,8 +130,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--hk-bg);
+  color: var(--hk-text);
   /* 根容器：直角、无外描边、无外阴影 */
   border-radius: 0;
   border: 0;
@@ -130,7 +152,7 @@ button {
 button:disabled { cursor: default; }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--hk-accent);
   outline-offset: 2px;
   border-radius: var(--radius-s);
 }
@@ -203,7 +225,7 @@ button:disabled { cursor: default; }
   position: absolute;
   inset: 0;
   z-index: 0;
-  background-color: var(--surface);
+  background-color: var(--hk-surface);
   background-image: var(--cover-image), var(--cover-fallback);
   background-size: cover;
   background-position: center;
@@ -320,10 +342,10 @@ button:disabled { cursor: default; }
   gap: 6px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--pop-shadow);
-  color: var(--text);
+  background: var(--hk-surface);
+  border: 1px solid var(--hk-hairline);
+  box-shadow: var(--hk-pop-shadow);
+  color: var(--hk-text);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -335,9 +357,9 @@ button:disabled { cursor: default; }
   z-index: -1;
   border-radius: 999px;
   background: radial-gradient(ellipse at center,
-      color-mix(in srgb, var(--surface) 88%, transparent) 0%,
-      color-mix(in srgb, var(--surface) 52%, transparent) 55%,
-      color-mix(in srgb, var(--surface) 0%, transparent) 100%);
+      color-mix(in srgb, var(--hk-surface) 88%, transparent) 0%,
+      color-mix(in srgb, var(--hk-surface) 52%, transparent) 55%,
+      color-mix(in srgb, var(--hk-surface) 0%, transparent) 100%);
 }
 .player.nocover .lyric-back::before { background: none; }
 .lyric-back[hidden] { display: none; }
@@ -351,8 +373,8 @@ button:disabled { cursor: default; }
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border-top: 1px solid var(--hairline);
+  background: var(--hk-surface);
+  border-top: 1px solid var(--hk-hairline);
 }
 
 .queue-topline {
@@ -369,9 +391,9 @@ button:disabled { cursor: default; }
   padding: 6px 10px 6px 6px;
   border-radius: var(--radius-s);
   font-size: 13px;
-  color: var(--text);
+  color: var(--hk-text);
 }
-.back-btn:hover { background: var(--hover); }
+.back-btn:hover { background: var(--hk-hover); }
 
 .queue-head {
   flex: 0 0 auto;
@@ -385,14 +407,14 @@ button:disabled { cursor: default; }
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--text);
+  color: var(--hk-text);
 }
 /* 计数是普通信息，不占强调色（强调色只给当前/激活/强调） */
 .queue-count {
   margin-left: 2px;
   font-size: 12.5px;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--hk-muted);
 }
 .queue-head-actions {
   margin-left: auto;
@@ -410,9 +432,9 @@ button:disabled { cursor: default; }
   width: 30px;
   height: 30px;
   border-radius: var(--radius-s);
-  color: var(--muted);
+  color: var(--hk-muted);
 }
-.icon-btn:hover { background: var(--hover); color: var(--text); }
+.icon-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
 
 .queue-list {
   flex: 1 1 auto;
@@ -423,22 +445,20 @@ button:disabled { cursor: default; }
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
-.queue-list::-webkit-scrollbar { width: 6px; height: 6px; }
-.queue-list::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
+/* 滚动条样式统一走全局规则（轨道透明、滑块带色），此处不再另写 */
 
 .q-row {
   display: flex;
   align-items: center;
   border-radius: var(--radius-m);
   padding-right: 2px;
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hk-hairline);
 }
 .q-row:last-child,
 .q-row.is-current { border-bottom-color: transparent; }
-.q-row:hover { background: var(--hover); }
-.q-row.is-current { background: var(--accent-soft); }
+.q-row:hover { background: var(--hk-hover); }
+.q-row.is-current { background: var(--hk-accent-soft); }
 
 .q-hit {
   flex: 1 1 auto;
@@ -455,7 +475,7 @@ button:disabled { cursor: default; }
   width: 44px;
   height: 44px;
   border-radius: 6px;
-  background-color: var(--surface);
+  background-color: var(--hk-surface);
   background-image: var(--cover-image), var(--cover-fallback);
   background-size: cover;
   background-position: center;
@@ -471,7 +491,7 @@ button:disabled { cursor: default; }
 .q-title {
   font-size: 14px;
   line-height: 1.35;
-  color: var(--text);
+  color: var(--hk-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -479,14 +499,14 @@ button:disabled { cursor: default; }
 .q-artist {
   font-size: 11px;
   line-height: 1.35;
-  color: var(--muted);
+  color: var(--hk-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.q-row.is-current .q-title { color: var(--accent); }
+.q-row.is-current .q-title { color: var(--hk-accent); }
 
-.q-eq { display: none; flex: 0 0 auto; color: var(--accent); }
+.q-eq { display: none; flex: 0 0 auto; color: var(--hk-accent); }
 .q-row.is-current .q-eq { display: inline-flex; }
 .q-eq svg {
   width: 15px;
@@ -512,7 +532,7 @@ button:disabled { cursor: default; }
 .q-dur {
   flex: 0 0 auto;
   font-size: 11px;
-  color: var(--faint);
+  color: var(--hk-faint);
   font-variant-numeric: tabular-nums;
 }
 .q-more {
@@ -523,12 +543,12 @@ button:disabled { cursor: default; }
   width: 30px;
   height: 30px;
   border-radius: var(--radius-s);
-  color: var(--faint);
+  color: var(--hk-faint);
   opacity: 0.75;
 }
 .q-row:hover .q-more,
 .q-more:focus-visible { opacity: 1; }
-.q-more:hover { background: var(--hover); color: var(--text); }
+.q-more:hover { background: var(--hk-hover); color: var(--hk-text); }
 
 /* ---------- 浮层（行内菜单 / 导入） ---------- */
 .pop {
@@ -537,15 +557,15 @@ button:disabled { cursor: default; }
   min-width: 148px;
   padding: 6px;
   border-radius: var(--radius-m);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--pop-shadow);
+  background: var(--hk-surface);
+  border: 1px solid var(--hk-hairline);
+  box-shadow: var(--hk-pop-shadow);
 }
 .pop[hidden] { display: none; }
 .pop-title {
   margin: 2px 6px 5px;
   font-size: 11px;
-  color: var(--faint);
+  color: var(--hk-faint);
   max-width: 190px;
   white-space: nowrap;
   overflow: hidden;
@@ -558,15 +578,15 @@ button:disabled { cursor: default; }
   width: 100%;
   padding: 7px 8px;
   border-radius: var(--radius-s);
-  color: var(--text);
+  color: var(--hk-text);
   text-align: left;
 }
-.pop-item:hover { background: var(--hover); }
+.pop-item:hover { background: var(--hk-hover); }
 .pop-note {
   margin: 5px 6px 3px;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--faint);
+  color: var(--hk-faint);
   max-width: 190px;
 }
 .pop-note:empty { display: none; }
@@ -583,20 +603,20 @@ button:disabled { cursor: default; }
   width: 168px;
   padding: 6px 8px;
   border-radius: var(--radius-s);
-  border: 1px solid var(--hairline);
-  background: var(--bg);
-  color: var(--text);
+  border: 1px solid var(--hk-hairline);
+  background: var(--hk-bg);
+  color: var(--hk-text);
   font: inherit;
   font-size: 12px;
 }
-.pop-input::placeholder { color: var(--faint); }
-.pop-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.pop-input::placeholder { color: var(--hk-faint); }
+.pop-input:focus-visible { outline: 2px solid var(--hk-accent); outline-offset: 0; }
 .pop-go {
   flex: 0 0 auto;
   padding: 6px 10px;
   border-radius: var(--radius-s);
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
   font: inherit;
   font-size: 12px;
   white-space: nowrap;
@@ -612,14 +632,14 @@ button:disabled { cursor: default; }
   align-items: center;
   gap: 20px;
   padding: 12px 18px 14px;
-  background: var(--surface);
-  border-top: 1px solid var(--hairline);
+  background: var(--hk-surface);
+  border-top: 1px solid var(--hk-hairline);
 }
 .controls-info { display: none; min-width: 0; flex: 0 1 220px; }
 .ci-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--hk-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -627,7 +647,7 @@ button:disabled { cursor: default; }
 .ci-artist {
   margin-top: 2px;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--hk-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -642,10 +662,10 @@ button:disabled { cursor: default; }
 .time {
   flex: 0 0 auto;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--hk-muted);
   font-variant-numeric: tabular-nums;
 }
-#durTime { color: var(--faint); }
+#durTime { color: var(--hk-faint); }
 
 /* 设计稿第二行是整条均分节奏：歌词 ⟳ ⏮ (⏸) ⏭ 🔊 | ☰ 队列 */
 .btn-row {
@@ -664,13 +684,13 @@ button:disabled { cursor: default; }
   gap: 6px;
   padding: 6px 10px;
   border-radius: var(--radius-s);
-  color: var(--muted);
+  color: var(--hk-muted);
   font-size: 12px;
   white-space: nowrap;
 }
-.text-btn:hover { background: var(--hover); color: var(--text); }
-.text-btn[aria-pressed="true"] { color: var(--accent); background: none; }
-.text-btn[aria-pressed="true"]:hover { background: var(--hover); }
+.text-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
+.text-btn[aria-pressed="true"] { color: var(--hk-accent); background: none; }
+.text-btn[aria-pressed="true"]:hover { background: var(--hk-hover); }
 
 .play-btn {
   display: inline-flex;
@@ -680,8 +700,8 @@ button:disabled { cursor: default; }
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
 }
 .play-btn .icon { width: 22px; height: 22px; }
 .play-btn:hover { filter: brightness(1.06); }
@@ -690,7 +710,7 @@ button:disabled { cursor: default; }
 .ctl-divider {
   width: 1px;
   height: 18px;
-  background: var(--hairline);
+  background: var(--hk-hairline);
   margin: 0 2px;
 }
 
@@ -700,12 +720,12 @@ button:disabled { cursor: default; }
   gap: 5px;
   padding: 6px 9px;
   border-radius: var(--radius-s);
-  color: var(--muted);
+  color: var(--hk-muted);
   white-space: nowrap;
 }
-.queue-btn:hover { background: var(--hover); color: var(--text); }
+.queue-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
 .queue-btn.is-static { opacity: 0.85; }
-.queue-btn.is-static:hover { background: none; color: var(--muted); }
+.queue-btn.is-static:hover { background: none; color: var(--hk-muted); }
 
 /* 矮卡队列页：底栏右键语义变「正在播放」（纯呈现层切换，不动 app.js） */
 .qb-now { display: none; }
@@ -728,8 +748,8 @@ button:disabled { cursor: default; }
   height: 4px;
   border-radius: 2px;
   background: linear-gradient(to right,
-    var(--accent) 0%, var(--accent) var(--fill, 0%),
-    var(--track) var(--fill, 0%), var(--track) 100%);
+    var(--hk-accent) 0%, var(--hk-accent) var(--fill, 0%),
+    var(--hk-track) var(--fill, 0%), var(--hk-track) 100%);
 }
 .range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -738,7 +758,7 @@ button:disabled { cursor: default; }
   height: 11px;
   margin-top: -3.5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--hk-accent);
   border: 0;
 }
 .range-vol::-webkit-slider-thumb {
@@ -758,10 +778,10 @@ button:disabled { cursor: default; }
   max-width: 78%;
   padding: 8px 14px;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--pop-shadow);
-  color: var(--text);
+  background: var(--hk-surface);
+  border: 1px solid var(--hk-hairline);
+  box-shadow: var(--hk-pop-shadow);
+  color: var(--hk-text);
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
@@ -812,7 +832,7 @@ button:disabled { cursor: default; }
   bottom: 14px;
   width: clamp(320px, 34%, 380px);
   min-width: 320px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--hk-hairline);
   border-radius: var(--radius-l);
   box-shadow: 0 18px 44px rgba(12, 16, 20, 0.32);
   overflow: hidden;
@@ -842,14 +862,14 @@ body.is-shot *::after {
    接线补充：本地导入在纯浏览器里拿不到磁盘绝对路径，
    入口保留但明确标注，不假装能用
    ============================================================ */
-.pop-item.is-pending { color: var(--muted); cursor: default; }
+.pop-item.is-pending { color: var(--hk-muted); cursor: default; }
 .pop-item.is-pending:hover { background: none; }
 .pop-tag {
   margin-left: auto;
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid var(--hairline);
-  color: var(--faint);
+  border: 1px solid var(--hk-hairline);
+  color: var(--hk-faint);
   font-size: 11px;
   white-space: nowrap;
 }
