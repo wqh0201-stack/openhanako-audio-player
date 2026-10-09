@@ -246,12 +246,19 @@ for (const [name, w, h, file] of CASES) {
     lyricScrolling: document.getElementById('lyrics').scrollHeight > document.getElementById('lyrics').clientHeight
   }));
   await page.screenshot({ path: path.join(outDir, 'lyrics-465x930-light.png') });
-  // 鼠标悬上去：滚动条应现身（scrollbar-width 从 none 变 thin）
+  // 悬停：滚动条应现形，但**歌词宽度不能变**（不抽动）
+  w.lyricBeforeHover = await page.evaluate(() => {
+    const el = document.getElementById('lyrics');
+    return { clientWidth: el.clientWidth, offsetWidth: el.offsetWidth, sb: getComputedStyle(el).scrollbarColor };
+  });
   await page.hover('#lyrics');
-  await new Promise((r) => setTimeout(r, 200));
-  w.lyricScrollbarOnHover = await page.evaluate(() => getComputedStyle(document.getElementById('lyrics')).scrollbarWidth);
+  await new Promise((r) => setTimeout(r, 350));
+  w.lyricAfterHover = await page.evaluate(() => {
+    const el = document.getElementById('lyrics');
+    return { clientWidth: el.clientWidth, offsetWidth: el.offsetWidth, sb: getComputedStyle(el).scrollbarColor };
+  });
   await page.mouse.move(2, 2);
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 250));
   // 同一帧紧接关掉歌词（无遮罩），用于对比遮罩方向
   await page.evaluate(() => document.getElementById('lyricToggle').click());
   await new Promise((r) => setTimeout(r, 250));

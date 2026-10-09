@@ -27,14 +27,14 @@
 }
 
 /* ============================================================
-   封面层：压在照片上的文字用同一套覆盖色，两个主题一致
-   · 有封面（pic）：浅色字 + 深色渐变，保证任意封面都可读
-   · 无封面（.player.nocover）：安静的纸面留白（主题色 + 极淡纹理），
-     文字转主题墨色，贴近设计稿「封面融入背景」的留白气质
+   封面层：文字与遮罩都吃宿主主题色，不写死白色
+   · 有封面（pic）：主题纸色遮罩压一层，让墨色文字在任意封面上都可读
+   · 无封面（.player.nocover）：不需要压暗，直接纸面留白
    ============================================================ */
 :root {
-  --cover-text: #FFFDF7;
-  --cover-text-soft: rgba(255, 253, 247, 0.72);
+  /* 封面上的文字用主题墨色/次级色（浅色主题=暖墨，夜间=浅字） */
+  --cover-text: var(--text);
+  --cover-text-soft: var(--muted);
   /* 在线曲目有 pic 时由 JS 写入 url(...)；没有就只剩兜底 */
   --cover-image: none;
   /* 兜底：主题色 + 极淡斜纹纹理，不是彩色糊渐变，也不硬编码山景 */
@@ -48,35 +48,33 @@
     linear-gradient(168deg,
       color-mix(in srgb, var(--surface) 97%, var(--accent, #537D96) 3%) 0%,
       color-mix(in srgb, var(--surface) 88%, var(--accent, #537D96) 12%) 100%);
-  /* 顶部局部渐变：只为曲目信息保可读（局部底色，不盖满整张封面） */
+  /* 顶部：主题纸色自下淡出（不是黑压暗），墨色曲目信息压在上面 */
   --cover-top-scrim: linear-gradient(180deg,
-      rgba(12, 16, 20, 0.5) 0%,
-      rgba(12, 16, 20, 0.26) 46%,
-      rgba(12, 16, 20, 0) 100%);
+      color-mix(in srgb, var(--surface) 92%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 58%, transparent) 52%,
+      color-mix(in srgb, var(--surface) 0%, transparent) 100%);
   /* 封面底部渐隐融入下方面板：跟随歌词开关，关闭时只剩封面 */
   --cover-blend: linear-gradient(180deg, transparent 0%, var(--surface) 92%);
-  /* 歌词阅读列在右：遮罩横向渐变 —— 右侧深、向左渐浅、最左透明，左边留给封面主体 */
+  /* 歌词阅读列在右：主题纸色遮罩，左端完全透明 → 右端厚实一层，墨色歌词才压得住 */
   --lyric-scrim: linear-gradient(90deg,
-      rgba(14, 18, 22, 0) 0%,
-      rgba(14, 18, 22, 0.14) 38%,
-      rgba(14, 18, 22, 0.48) 70%,
-      rgba(14, 18, 22, 0.62) 100%);
+      color-mix(in srgb, var(--surface) 0%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 34%, transparent) 14%,
+      color-mix(in srgb, var(--surface) 82%, transparent) 30%,
+      color-mix(in srgb, var(--surface) 95%, transparent) 56%,
+      color-mix(in srgb, var(--surface) 97%, transparent) 100%);
   /* 歌词整体右移的量（左侧留白 = 封面可见区） */
-  --lyric-shift: 11%;
-  --lyric-current: rgba(255, 253, 247, 0.97);
-  --lyric-near: rgba(255, 253, 247, 0.58);
-  --lyric-far: rgba(255, 253, 247, 0.32);
+  --lyric-shift: 22%;
+  /* 滚动条条子颜色（轨道透明）；歌词落在纸色遮罩上，墨色才看得见 */
+  --sb-color: color-mix(in srgb, var(--text) 34%, transparent);
+  --lyric-current: var(--text);
+  --lyric-near: color-mix(in srgb, var(--text) 60%, transparent);
+  --lyric-far: color-mix(in srgb, var(--text) 34%, transparent);
 }
 
-/* 无封面兜底态：文字转主题墨色，遮罩退成纯纸面（无封面就不用压暗） */
+/* 无封面兜底态：没有封面要压，顶部与歌词遮罩都不需要 */
 .player.nocover {
-  --cover-text: var(--text);
-  --cover-text-soft: var(--muted);
   --cover-top-scrim: none;
   --lyric-scrim: none;
-  --lyric-current: var(--text);
-  --lyric-near: color-mix(in srgb, var(--text) 55%, transparent);
-  --lyric-far: color-mix(in srgb, var(--text) 32%, transparent);
 }
 
 * { box-sizing: border-box; }
@@ -264,22 +262,27 @@ button:disabled { cursor: default; }
   text-align: center;
   /* 歌词整体右移：左边留出封面可见区，与右侧遮罩对齐 */
   padding-left: var(--lyric-shift);
-  /* 滚动条平时藏起来（播放时不打扰），鼠标进歌词区才现身 */
-  scrollbar-width: none;
+  /* 滚动条：轨道常驻占位（文字宽度不随悬停改变，不抽动），轨道透明，
+     只有条子本身带色；平时全透明，悬停淡入。 */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
   /* 首尾淡出：边缘行不硬裁，也避免与曲目信息牌磁上 */
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
 }
-.lyrics::-webkit-scrollbar { width: 0; height: 0; }
-.lyrics:hover { scrollbar-width: thin; }
-.lyrics:hover::-webkit-scrollbar { width: 6px; height: 6px; }
-.lyrics:hover::-webkit-scrollbar-thumb {
-  background: rgba(255, 253, 247, 0.34);
+.lyrics:hover { scrollbar-color: var(--sb-color) transparent; }
+
+/* Chromium（宿主就是它）：::-webkit-scrollbar 一旦出现，标准属性就被忽略，
+   所以两套都写，各引擎各取所需；宽度固定 → 始终占位。 */
+.lyrics::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+.lyrics::-webkit-scrollbar-track,
+.lyrics::-webkit-scrollbar-corner { background: transparent; }
+.lyrics::-webkit-scrollbar-thumb {
+  background: transparent;
   border-radius: 3px;
+  transition: background-color 0.22s ease;
 }
-.player.nocover .lyrics:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text) 22%, transparent);
-}
+.lyrics:hover::-webkit-scrollbar-thumb { background: var(--sb-color); }
 .lyric-line {
   margin: 0;
   padding: 8px 7%;
@@ -324,7 +327,7 @@ button:disabled { cursor: default; }
   font-size: 12px;
   white-space: nowrap;
 }
-/* 恢复跟随：只压住「返回」按钮那一小块，不碰整行（否则每句歌词都会顶着深背景） */
+/* 恢复跟随：只压住「返回」按钮那一小块，用主题纸色，不碰整行 */
 .lyric-back::before {
   content: '';
   position: absolute;
@@ -332,9 +335,9 @@ button:disabled { cursor: default; }
   z-index: -1;
   border-radius: 999px;
   background: radial-gradient(ellipse at center,
-      rgba(12, 16, 20, 0.52) 0%,
-      rgba(12, 16, 20, 0.28) 55%,
-      rgba(12, 16, 20, 0) 100%);
+      color-mix(in srgb, var(--surface) 88%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 52%, transparent) 55%,
+      color-mix(in srgb, var(--surface) 0%, transparent) 100%);
 }
 .player.nocover .lyric-back::before { background: none; }
 .lyric-back[hidden] { display: none; }
@@ -593,7 +596,7 @@ button:disabled { cursor: default; }
   padding: 6px 10px;
   border-radius: var(--radius-s);
   background: var(--accent);
-  color: var(--cover-text);
+  color: var(--on-accent);
   font: inherit;
   font-size: 12px;
   white-space: nowrap;
@@ -745,7 +748,7 @@ button:disabled { cursor: default; }
 }
 .range-seek { flex: 1 1 auto; min-width: 0; }
 
-/* ---------- 提示 ---------- */
+/* 提示：走主题纸面 + 墨字，不是一个黑气泡 */
 .toast {
   position: absolute;
   left: 50%;
@@ -755,8 +758,10 @@ button:disabled { cursor: default; }
   max-width: 78%;
   padding: 8px 14px;
   border-radius: 999px;
-  background: rgba(22, 26, 30, 0.82);
-  color: #FFFDF7;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--pop-shadow);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
