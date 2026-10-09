@@ -134,7 +134,8 @@
       list: list,
       uid: list + '|' + id,
       title: title,
-      artist: author || String(t.group || '').trim() || (mode === '在线' ? '在线音乐' : '本地音乐'),
+      /* 只放真歌手（author）：拿不到就空。绝不用 group 冒充（来源重做）。 */
+      artist: author,
       author: author,
       url: url,
       source: mode === '在线' ? 'online' : 'local',
@@ -316,6 +317,41 @@
     var m = /^imp:(\d+)$/.exec(String(id || ''));
     return m ? '歌单 ' + m[1] : String(id || '');
   }
+
+  /* 歌单名压缩（切换条展示用）：罐头歌单叫「Can_0201喜欢的音乐」→ 显示「Can_0201」。
+   * 规则可预期：先去掉「喜欢的音乐 / 的歌单 / 歌单」这类后缀，标点归一，
+   * 仍超过 8 字就截断加省略号。完整名放 title 悬停。自动名「歌单 3」归一成编号。 */
+  function compressListName(name) {
+    var raw = String(name == null ? '' : name).trim();
+    if (!raw) return '';
+    var auto = /^(?:歌单|单曲|本地文件)\s+(\d+)$/.exec(raw);
+    if (auto) return auto[1];
+    var s = raw.replace(/\s*(?:的)?(?:喜欢的音乐|喜欢的歌曲|喜欢的歌|喜欢的单曲|的歌单|歌单)$/, '').trim();
+    if (!s) s = raw;
+    s = s.replace(/[，、]/g, ',').replace(/[。]/g, '.').replace(/[：]/g, ':').replace(/\s+/g, ' ').trim();
+    if (s.length > 8) s = s.slice(0, 8) + '…';
+    return s;
+  }
+
+  /* 切换条上显示的列表名：本地 →「本地」；有名字 → 压缩名；没有 → 编号。 */
+  function listDisplayName(l) {
+    if (!l) return '';
+    if (l.id === 'local') return '本地';
+    var name = String(l.name || '').trim();
+    var shown = compressListName(name);
+    if (shown) return shown;
+    return String(l.id || '').replace(/^imp:/, '');
+  }
+
+  /* 曲目的「来源」名 = 它所属列表的名字（本地 →「本地」）。列表没了就退回默认名。 */
+  function sourceName(t) {
+    var id = listOf(t);
+    var l = findList(id);
+    if (l && l.name) return l.name;
+    if (id === 'local') return '本地';
+    if (id) return defaultListName(id);
+    return t.mode === '在线' ? '在线' : '本地';
+  }
   function nextImportId() {
     var max = 0;
     for (var i = 0; i < state.lists.length; i++) {
@@ -425,7 +461,9 @@
 
   var saveChain = Promise.resolve();
   function savePlaylist() {
-    var payload = { tracks: state.tracks.map(toStoredTrack) };
+    /* detached 曲目（删列表时被豁免、只为播完当前那首的运行时条目）不回写盘：
+     * 否则下次启动会按它的 list 把已删列表重建出来。 */
+    var payload = { tracks: state.tracks.filter(function (t) { return !t.detached; }).map(toStoredTrack) };
     saveChain = saveChain.then(function () {
       return apiPostJson(ENDPOINT.playlist, payload).then(function (res) {
         if (!res.ok) console.warn('[player] playlist 写入失败', res.status);
@@ -608,15 +646,11 @@
   /* ============================================================
      渲染
      ============================================================ */
-  /* 元信息行：专辑 / 歌手 / 来源。后端暂无 album 字段，拿不到就整段省略，
-   * 不硬编、不显示空标签（R3）。 */
+  /* 元信息行（罐头指定）：来源 = 这首歌所属歌单名，格式「来源·<歌单名>」，
+   * 用间隔点。本地列表 →「来源·本地」。不再吃 group（v1 遗留），也不再显示专辑
+   * （后端无此字段，硬留只会多一个空标签）。 */
   function metaLine(t) {
-    var parts = [];
-    var album = String((t.raw && t.raw.album) || '').trim();
-    if (album) parts.push('专辑 ' + album);
-    var src = String(t.group || '').trim() || (t.mode === '在线' ? '在线音乐' : '本地音乐');
-    parts.push('来源 ' + src);
-    return parts.join(' · ');
+    return '来源·' + sourceName(t);
   }
 
   function renderTrack() {
@@ -637,7 +671,7 @@
     $('trackArtist').textContent = t.author || '';
     $('trackMeta').textContent = metaLine(t);
     $('ciTitle').textContent = t.title;
-    $('ciArtist').textContent = t.author || t.artist;
+    $('ciArtist').textContent = t.author || '';
     var d = trackDuration(t);
     seek.max = String(d || 0);
     $('durTime').textContent = d ? fmtTime(d) : '--:--';
@@ -650,7 +684,7 @@
     var html = '';
     for (var i = 0; i < state.lists.length; i++) {
       var l = state.lists[i];
-      var label = l.id === 'local' ? '本地' : String(l.id).replace(/^imp:/, '');
+      var label = listDisplayName(l);
       var active = l.id === state.activeList;
       html += '<button class="list-tab' + (active ? ' is-active' : '') + '" type="button" role="tab"' +
         ' aria-selected="' + (active ? 'true' : 'false') + '" data-list="' + esc(l.id) + '"' +
@@ -692,8 +726,8 @@
           '<span class="q-cover"></span>' +
           '<span class="q-meta">' +
             '<span class="q-title">' + esc(t.title) + '</span>' +
-            /* 队列第二行：有歌手显歌手；没有就把 group 当来源显示（R3） */
-            '<span class="q-artist">' + esc(t.author || (t.group ? '来自 ' + t.group : t.mode)) + '</span>' +
+            /* 队列第二行：有歌手显歌手，没有就留空（不让 group 再冒充） */
+            '<span class="q-artist">' + esc(t.author || '') + '</span>' +
           '</span>' +
           /* 正在播放指示：行内 SVG（不走 <use>，否则选择器进不了 shadow tree，条形动画不会生效） */
           '<span class="q-eq"><svg viewBox="0 0 24 24" aria-hidden="true">' +
@@ -1358,6 +1392,7 @@
   var moreTargetUid = null;
   var morePop = $('morePop');
   var importPop = $('importPop');
+  var listPop = $('listPop');
   var importNote = $('importNote');
   var importBusy = false;
 
@@ -1366,8 +1401,10 @@
   function closePops() {
     morePop.hidden = true;
     importPop.hidden = true;
+    if (listPop) listPop.hidden = true;
     $('importBtn').setAttribute('aria-expanded', 'false');
     moreTargetUid = null;
+    suppressTabId = '';
   }
 
   function placePop(pop, anchor) {
@@ -1408,10 +1445,12 @@
   });
 
   /* 顶部歌单切换条 */
+  var suppressTabId = '';   // 长按弹删除浮层后，紧随释放的 click 不当作切列表
   if (listTabs) {
     listTabs.addEventListener('click', function (e) {
       var tab = e.target.closest('.list-tab');
       if (!tab) return;
+      if (suppressTabId && tab.getAttribute('data-list') === suppressTabId) { suppressTabId = ''; return; }
       var id = tab.getAttribute('data-list');
       if (!id || id === state.activeList) return;
       renaming = false;
@@ -1424,6 +1463,27 @@
     listTabs.addEventListener('dblclick', function (e) {
       var tab = e.target.closest('.list-tab.is-active');
       if (tab) startRename();
+    });
+    // 右键导入列表 → 删除确认（轻量浮层，不用模态）
+    listTabs.addEventListener('contextmenu', function (e) {
+      var tab = e.target.closest('.list-tab');
+      if (!tab) return;
+      var id = tab.getAttribute('data-list');
+      if (!id || id === 'local') return;   // 本地不可删，不弹
+      e.preventDefault();
+      openListPop(tab);
+    });
+    // 长按导入列表 → 同上（移动端手感）
+    listTabs.addEventListener('pointerdown', function (e) {
+      var tab = e.target.closest('.list-tab');
+      if (!tab) return;
+      var id = tab.getAttribute('data-list');
+      if (!id || id === 'local') return;
+      cancelListPress();
+      listPressTimer = setTimeout(function () { listPressTimer = 0; openListPop(tab); }, 520);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave', 'pointermove'].forEach(function (ev) {
+      listTabs.addEventListener(ev, cancelListPress);
     });
   }
 
@@ -1457,6 +1517,71 @@
   }
   function cancelRename() { renaming = false; renderQueue(); }
   if ($('renameBtn')) $('renameBtn').addEventListener('click', function (e) { e.stopPropagation(); startRename(); });
+
+  /* ---------- 歌单删除（长按 / 右键导入列表，拍板 4）---------- */
+  var listPressTimer = 0;
+  var listDeleteTarget = null;
+  function cancelListPress() {
+    if (listPressTimer) { clearTimeout(listPressTimer); listPressTimer = 0; }
+  }
+  function openListPop(tab) {
+    if (!tab) return;
+    var id = tab.getAttribute('data-list');
+    if (!id || id === 'local') return;
+    var l = findList(id);
+    if (!l) return;
+    listDeleteTarget = id;
+    var title = $('listPopTitle');
+    if (title) title.textContent = '删除「' + (l.name || defaultListName(id)) + '」？';
+    closePops();
+    placePop(listPop, tab);
+    suppressTabId = id;   // 紧随长按释放的 click 不当作切列表
+  }
+  /* 删除一个导入列表：删元数据 + 删该列表下所有曲目条目。
+   * 正在播的那首被删时：继续播完，只把列表从切换条拿掉 —— 办法是**豁免当前曲目**
+   * （在 state.tracks 里给它打 detached 标记、保留运行时条目；否则 currentTrack() 找不到它，
+   * 标题/进度/歌词会崩）。detached 条目不回写盘（见 savePlaylist），下次启动不会把已删列表重建。
+   * 本地列表不可删（它是固定文件夹的投影）。 */
+  function deleteList(id) {
+    id = String(id || '');
+    if (!id || id === 'local') { toast('本地列表不可删除'); return false; }
+    var l = findList(id);
+    if (!l) return false;
+    var keepUid = state.currentUid;
+    var dropped = 0;
+    state.tracks = state.tracks.filter(function (t) {
+      if (t.list !== id) return true;
+      if (t.uid === keepUid) { t.detached = true; return true; }   // 豁免正在播的那首
+      dropped++;
+      return false;
+    });
+    state.lists = state.lists.filter(function (x) { return x.id !== id; });
+    saveLists();
+    if (state.activeList === id) {
+      state.activeList = findList('local') ? 'local' : (state.lists[0] ? state.lists[0].id : 'local');
+    }
+    savePlaylist();   // 全量回写（detached 条目不落盘）
+    renderQueue();
+    renderTrack();
+    renderProgress();
+    persistNow();
+    toast('已删除歌单「' + (l.name || defaultListName(id)) + '」' + (dropped ? '，' + dropped + ' 首' : ''));
+    return true;
+  }
+  if (listPop) {
+    $('listDeleteBtn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var id = listDeleteTarget;
+      listDeleteTarget = null;
+      closePops();
+      if (id) deleteList(id);
+    });
+    $('listCancelBtn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      listDeleteTarget = null;
+      closePops();
+    });
+  }
 
   /* 删除：先本地移除（即时反馈），再叫后端删列表 + 清 media/lyrics；失败回滚 */
   $('removeBtn').addEventListener('click', function () {
@@ -1589,6 +1714,20 @@
       }
       var list = isPlaylist ? (res.body.tracks || []) : (res.body.track ? [res.body.track] : []);
       var targetId = isPlaylist ? newImportList('歌单') : resolveImportTarget('单曲');
+      /* 歌单真名（netease 官方接口给的 meta.name）：写进列表元数据，切换条显示压缩名。
+       * 后端取不到时 meta 缺失，列表保持自动名「歌单 N」（切换条退回编号）。 */
+      if (isPlaylist) {
+        var meta = res.body.meta;
+        var metaName = meta && String(meta.name || '').trim();
+        if (metaName) {
+          var nl = findList(targetId);
+          if (nl) {
+            nl.name = metaName;
+            if (meta.creator) nl.creator = String(meta.creator).trim();
+            saveLists();
+          }
+        }
+      }
       var added = mergeTracks(list, targetId);
       afterImport(added, isPlaylist ? '在线歌单' : '在线单曲');
       var input = $('linkInput');
@@ -1670,12 +1809,74 @@
     }).then(function () { importBusy = false; });
   }
 
+  /* ---------- 歌手补齐（拍板 3，一次性全量）----------
+   * 旧数据（有 searchKey、无 author）逐首走 music/search 取首条 author 写回。
+   * 串行/≤3 并发 + 节流；单项失败不中断；幂等（已有 author 跳过）；带进度。
+   * 只在用户点「补全歌手」时跑，**不**开机自动跑。 */
+  var backfilling = false;
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function backfillTargets() {
+    var out = [];
+    for (var i = 0; i < state.tracks.length; i++) {
+      var t = state.tracks[i];
+      if (String(t.author || '').trim()) continue;                    // 幂等：已有歌手跳过
+      if (String((t.raw && t.raw.searchKey) || '').trim()) out.push(t);
+    }
+    return out;
+  }
+  function backfillArtists() {
+    if (backfilling) return Promise.resolve();
+    var targets = backfillTargets();
+    if (!targets.length) { toast('歌手已齐，无需补全'); setNote('歌手已补全'); return Promise.resolve(); }
+    backfilling = true;
+    var btn = $('backfillBtn');
+    if (btn) btn.disabled = true;
+    var cursor = 0, done = 0, ok = 0;
+    setNote('补全歌手 0/' + targets.length + '…');
+    toast('开始补全 ' + targets.length + ' 首的歌手');
+
+    function worker() {
+      if (cursor >= targets.length) return Promise.resolve();
+      var t = targets[cursor++];
+      var key = String((t.raw && t.raw.searchKey) || '').trim();
+      var server = String((t.raw && t.raw.searchServer) || 'netease');
+      return apiGetJson(ENDPOINT.search + '?keyword=' + encodeURIComponent(key) + '&server=' + encodeURIComponent(server))
+        .then(function (res) {
+          if (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) {
+            for (var j = 0; j < res.body.results.length; j++) {
+              var a = res.body.results[j] && String(res.body.results[j].author || '').trim();
+              if (a) { t.author = a; t.artist = a; if (t.raw) t.raw.author = a; ok++; break; }
+            }
+          }
+        })
+        .catch(function () { /* 单项失败不中断整体 */ })
+        .then(function () {
+          done++;
+          setNote('补全歌手 ' + done + '/' + targets.length + '…');
+          if (done % 25 === 0) savePlaylist();   // 中途落盘，防打断丢进度
+          return sleep(80).then(worker);         // 节流
+        });
+    }
+    var runners = [];
+    for (var k = 0; k < 3; k++) runners.push(worker());   // ≤3 并发
+    return Promise.all(runners).then(function () {
+      backfilling = false;
+      if (btn) btn.disabled = false;
+      savePlaylist();
+      renderQueue();
+      renderTrack();
+      setNote('歌手补全完成：' + ok + '/' + targets.length);
+      toast('歌手补全完成：' + ok + '/' + targets.length);
+    });
+  }
+
   importPop.addEventListener('click', function (e) {
     var item = e.target.closest('[data-import]');
     if (item) {
       var kind = item.getAttribute('data-import');
       if (kind === 'file') importLocalFiles();
       else if (kind === 'folder') pickLocalFolder();
+      else if (kind === 'backfill') backfillArtists();
       return;
     }
     if (e.target.closest('#linkAddBtn')) {

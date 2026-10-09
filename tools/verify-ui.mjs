@@ -98,6 +98,10 @@ let fixtureMode = 'main';
 let persistedPlaylist = null;
 /* 播放状态（跨文档）：POST 落盘，GET 取回 */
 let playbackState = null;
+/* 搜索请求计数（测歌手补齐的次数 / 幂等） */
+let searchHits = 0;
+/* 歌单真名夹具：导入歌单时假后端附带 meta.name（模拟后端问网易云官方接口） */
+const PLAYLIST_META = { name: 'Can_0201喜欢的音乐', creator: 'Can_0201', cover: '', trackCount: 905 };
 
 /* ---------- 主题夹具 ---------- */
 const THEME_VARS = {
@@ -172,6 +176,7 @@ const server = http.createServer((req, res) => {
     fixtureMode = u.searchParams.get('mode') || 'main';
     persistedPlaylist = null;
     playbackState = null;
+    searchHits = 0;
     return json(res, 200, { ok: true, mode: fixtureMode });
   }
   if (p === API + '/api/playback-state') {
@@ -216,13 +221,15 @@ const server = http.createServer((req, res) => {
     return text(res, 200, ':root{' + Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') + ';}', 'text/css; charset=utf-8');
   }
   if (p === API + '/widget/api/music/search') {
+    searchHits++;
     const kw = u.searchParams.get('keyword') || '';
     return json(res, 200, { ok: true, results: [{ id: `netease:${770000 + kw.length}`, title: `命中 ${kw}`, author: '搜索歌手', url: goUrl(770000 + kw.length), pic: '', lrc: 'http://mock/lrc/' + encodeURIComponent(kw) }], host: 'mock', total: 1 });
   }
   if (p === API + '/widget/api/music/playlist') {
     const id = u.searchParams.get('id') || '0';
     const tracks = Array.from({ length: 5 }, (_, i) => ({ id: `netease:${id}${i}`, title: `歌单曲目 ${i + 1}`, author: '测试', url: goUrl(`${id}${i}`), pic: '', lrc: '' }));
-    return json(res, 200, { ok: true, tracks, host: 'mock' });
+    const server = u.searchParams.get('server') || 'netease';
+    return json(res, 200, { ok: true, tracks, host: 'mock', ...(server === 'netease' ? { meta: PLAYLIST_META } : {}) });
   }
   if (p === API + '/widget/api/import-file') {
     const src = u.searchParams.get('path') || '';
@@ -263,7 +270,7 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox', '--disable-gpu', '--autoplay-policy=no-user-gesture-required', '--force-device-scale-factor=1']
 });
 
-const report = { selfCheck: [], wiring: {}, darkFallback: {}, runtimeErrors: [], expectedProbes: [], assertions: [], refine: [], narrowSelfCheck: [], theme: {} };
+const report = { selfCheck: [], wiring: {}, four: {}, darkFallback: {}, runtimeErrors: [], expectedProbes: [], assertions: [], refine: [], narrowSelfCheck: [], theme: {} };
 
 /* 断言登记：不通过就退非零，结果里逐条列出 */
 function assert(name, ok, detail) {
@@ -578,6 +585,181 @@ for (const [name, w, h, file] of CASES) {
   await page.screenshot({ path: path.join(outDir, 'list-imported-465x930-dark.png') });
 
   report.wiring = w;
+  await page.close();
+}
+
+/* ============ 2b) 四项改造：来源重做 / 真名压缩 / 歌手补齐 / 歌单可删 ============ */
+{
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await page.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(800);
+
+  const w2 = {};
+  const metaText = () => page.$eval('#trackMeta', (e) => e.textContent);
+  const tabInfo2 = () => page.$$eval('#listTabs .list-tab', (els) => els.map((e) => ({ list: e.getAttribute('data-list'), label: e.textContent.trim(), title: e.getAttribute('title') })));
+
+  // ---- (a) 元信息行：本地曲目 →「来源·本地」
+  await clickTab(page, 'local');
+  await sleep(200);
+  await page.evaluate(() => {
+    if (window.hana && window.hana.resources) window.hana.resources.pick = () => Promise.resolve({ resources: [{ path: '/Users/fake/Music' }] });
+  });
+  await page.evaluate(() => document.getElementById('localPickBtn').click());
+  await sleep(700);
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(400);
+  w2.localMeta = await metaText();
+  assert('meta-source-local', w2.localMeta === '来源·本地', w2.localMeta);
+  await page.screenshot({ path: path.join(outDir, 'source-local-465x930-light.png') });
+
+  // ---- (b) 元信息行：在线曲目 →「来源·<歌单名>」（间隔点格式）
+  await clickTab(page, 'imp:1');
+  await sleep(250);
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(400);
+  w2.onlineMeta = await metaText();
+  assert('meta-source-format', w2.onlineMeta.indexOf('来源·') === 0 && w2.onlineMeta.length > 3, w2.onlineMeta);
+  await page.screenshot({ path: path.join(outDir, 'source-online-465x930-light.png') });
+
+  // ---- (c) 队列第二行：没有 artist 就留空（不让 group 冒充）
+  await clickTab(page, 'imp:2');
+  await sleep(250);
+  w2.queueArtists = await page.$$eval('#queueList .q-row .q-artist', (els) => els.map((e) => e.textContent.trim()));
+  assert('queue-artist-empty-when-none',
+    w2.queueArtists.length > 0 && w2.queueArtists.every((a) => a === ''),
+    JSON.stringify(w2.queueArtists));
+
+  // ---- (d) 歌手补齐：searchKey 曲目补 author，且幂等
+  const hitsBefore = searchHits;
+  await page.evaluate(() => document.querySelector('[data-import="backfill"]').click());
+  let filled = 0;
+  for (let i = 0; i < 60; i++) {
+    await sleep(150);
+    filled = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('#queueList .q-row')];
+      return rows.filter((r) => r.querySelector('.q-title').textContent.startsWith('搜索曲目') && r.querySelector('.q-artist').textContent.trim()).length;
+    });
+    if (filled >= 3) break;
+  }
+  w2.backfill = { searchHitsDelta: searchHits - hitsBefore, filledRows: filled };
+  assert('backfill-fills-artist', filled === 3 && searchHits - hitsBefore === 3, JSON.stringify(w2.backfill));
+  await page.screenshot({ path: path.join(outDir, 'backfill-465x930-light.png') });
+
+  // 幂等：再跑一次，不再发起搜索
+  const hits2 = searchHits;
+  await page.evaluate(() => document.querySelector('[data-import="backfill"]').click());
+  await sleep(700);
+  w2.backfillIdempotent = { searchHitsDelta: searchHits - hits2 };
+  assert('backfill-idempotent', searchHits - hits2 === 0, JSON.stringify(w2.backfillIdempotent));
+
+  // ---- (e) 歌单真名：导入歌单后切换条显示压缩名、title 是完整名
+  await page.evaluate(() => {
+    document.getElementById('importBtn').click();
+    document.getElementById('linkInput').value = 'https://music.163.com/#/playlist?id=888';
+    document.getElementById('linkAddBtn').click();
+  });
+  await sleep(700);
+  const afterImport = await tabInfo2();
+  const imported = afterImport.find((t) => t.title === PLAYLIST_META.name);
+  w2.realName = { tabs: afterImport, imported };
+  assert('list-realname-compressed',
+    !!imported && imported.label === 'Can_0201' && imported.title === 'Can_0201喜欢的音乐',
+    JSON.stringify(imported));
+  await page.screenshot({ path: path.join(outDir, 'list-realname-465x930-light.png') });
+
+  // ---- (f) 长按导入列表 → 弹删除浮层（不误切列表），取消后无变化
+  await clickTab(page, 'imp:2');
+  await sleep(200);
+  const tabsBeforePress = (await tabInfo2()).map((t) => t.list).join(',');
+  await page.evaluate(() => {
+    const tab = document.querySelector('#listTabs .list-tab[data-list="imp:2"]');
+    tab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+  await sleep(700);
+  const popAfterPress = await page.evaluate(() => ({
+    open: !document.getElementById('listPop').hidden,
+    title: document.getElementById('listPopTitle').textContent,
+    activeList: document.querySelector('#listTabs .list-tab.is-active').getAttribute('data-list')
+  }));
+  await page.evaluate(() => {
+    const tab = document.querySelector('#listTabs .list-tab[data-list="imp:2"]');
+    tab.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+  await page.evaluate(() => document.getElementById('listCancelBtn').click());
+  await sleep(200);
+  const popClosed = await page.evaluate(() => document.getElementById('listPop').hidden);
+  w2.longPress = { popAfterPress, popClosed, tabsUnchanged: (await tabInfo2()).map((t) => t.list).join(',') === tabsBeforePress };
+  assert('list-longpress-opens-pop',
+    popAfterPress.open === true && popAfterPress.title.indexOf('删除') === 0 && popAfterPress.activeList === 'imp:2',
+    JSON.stringify(w2.longPress));
+  assert('list-longpress-cancel', popClosed === true && w2.longPress.tabsUnchanged === true, JSON.stringify(w2.longPress));
+
+  // ---- (g) 右键删除「正在播的那首」所在的列表：播放不中断，列表从切换条消失
+  await clickTab(page, 'imp:1');
+  await sleep(250);
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(900);
+  const before = await page.evaluate(() => ({
+    playing: document.getElementById('player').getAttribute('data-playing'),
+    title: document.getElementById('trackTitle').textContent,
+    paused: document.getElementById('audio').paused,
+    rows: document.querySelectorAll('#queueList .q-row').length,
+    activeList: document.querySelector('#listTabs .list-tab.is-active').getAttribute('data-list'),
+    currentUid: (document.querySelector('#queueList .q-row.is-current') || {}).getAttribute
+      ? document.querySelector('#queueList .q-row.is-current').getAttribute('data-uid') : ''
+  }));
+  await page.evaluate(() => {
+    const tab = document.querySelector('#listTabs .list-tab[data-list="imp:1"]');
+    tab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  });
+  await sleep(250);
+  const popTitle = await page.$eval('#listPopTitle', (e) => e.textContent);
+  await page.screenshot({ path: path.join(outDir, 'list-delete-confirm-465x930-light.png') });
+  await page.evaluate(() => document.getElementById('listDeleteBtn').click());
+  await sleep(700);
+  const after = await page.evaluate(() => ({
+    playing: document.getElementById('player').getAttribute('data-playing'),
+    title: document.getElementById('trackTitle').textContent,
+    paused: document.getElementById('audio').paused,
+    activeList: document.querySelector('#listTabs .list-tab.is-active').getAttribute('data-list'),
+    tabs: [...document.querySelectorAll('#listTabs .list-tab')].map((e) => e.getAttribute('data-list'))
+  }));
+  w2.deletePlaying = { before, popTitle, after };
+  assert('list-delete-while-playing',
+    before.playing === '1' && before.paused === false && before.rows === 20 &&
+    before.activeList === 'imp:1' && String(before.currentUid).indexOf('imp:1|') === 0 &&
+    after.playing === '1' && after.paused === false && after.title === before.title &&
+    after.tabs.indexOf('imp:1') < 0 && after.activeList === 'local',
+    JSON.stringify(w2.deletePlaying));
+  assert('list-delete-confirm-title', popTitle.indexOf('删除') === 0, popTitle);
+
+  // 被删列表的曲目不再出现；其余列表不受影响
+  const remaining = await tabInfo2();
+  const perList = {};
+  for (const t of remaining) {
+    await clickTab(page, t.list);
+    await sleep(150);
+    perList[t.list] = await rowCount(page);
+  }
+  w2.afterDelete = { tabs: remaining.map((t) => t.list), perList };
+  assert('list-delete-others-intact',
+    remaining.some((t) => t.list === 'imp:2') && perList['imp:2'] === 6 &&
+    remaining.every((t) => t.list !== 'imp:1'),
+    JSON.stringify(w2.afterDelete));
+
+  // 本地列表不可删（右键不弹浮层）
+  await page.evaluate(() => {
+    const tab = document.querySelector('#listTabs .list-tab[data-list="local"]');
+    tab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  });
+  await sleep(150);
+  const localPopOpen = await page.evaluate(() => !document.getElementById('listPop').hidden);
+  assert('list-local-not-deletable', localPopOpen === false, String(localPopOpen));
+
+  report.four = w2;
   await page.close();
 }
 
@@ -925,7 +1107,7 @@ const wiringOk =
   report.wiring.rename.headerTitle === '我的歌单' && report.wiring.rename.tabTitle === '我的歌单' &&
   report.darkFallback.changed === true;
 const migrationOk = report.migration && report.migration.idempotent === true &&
-  report.migration.firstTabs.map((t) => t.label).join(',') === '本地,1,2,3,4' &&
+  report.migration.firstTabs.map((t) => t.label).join(',') === '本地,本地音乐,鸣潮,在线音乐,未分类' &&
   report.migration.firstCounts.per['local'] === 0 &&
   report.migration.firstCounts.per['imp:1'] === 3 &&
   report.migration.firstCounts.per['imp:2'] === 4 &&
@@ -947,6 +1129,7 @@ console.log(JSON.stringify({
   lifecycleOk,
   theme: report.theme,
   wiring: report.wiring,
+  four: report.four,
   migration: report.migration,
   lifecycle: report.lifecycle,
   darkFallback: report.darkFallback,

@@ -91,7 +91,24 @@
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-folder"></use></svg>
             <span>本地文件夹</span>
           </button>
+          <button class="pop-item" data-import="backfill" id="backfillBtn" type="button">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-user"></use></svg>
+            <span>补全歌手</span>
+          </button>
           <p class="pop-note" id="importNote"></p>
+        </div>
+
+        <!-- 歌单删除确认（长按 / 右键切换条上的导入列表） -->
+        <div class="pop pop-list" id="listPop" hidden>
+          <p class="pop-title" id="listPopTitle"></p>
+          <button class="pop-item" id="listDeleteBtn" type="button">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-trash"></use></svg>
+            <span>删除歌单</span>
+          </button>
+          <button class="pop-item" id="listCancelBtn" type="button">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-close"></use></svg>
+            <span>取消</span>
+          </button>
         </div>
       </section>
     </section>
@@ -203,10 +220,11 @@
   </symbol>
   <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5.6v11.2M7.6 12.6 12 17l4.4-4.4"/></symbol>
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M5 19h3.2L18.6 8.6a2.26 2.26 0 0 0-3.2-3.2L5 15.8z"/><path d="M14.4 6.6l3 3"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M12 11.4a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4z"/><path d="M5.1 19.4a6.9 6.9 0 0 1 13.8 0"/></symbol>
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131549";</script>
+<script>window.__HANA_BUILD = "1003131550";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

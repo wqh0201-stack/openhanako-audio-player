@@ -21,7 +21,26 @@ const app = {
 };
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hap-be-'));
-const ctx = { dataDir, logger: { warn() {}, info() {}, error() {} }, resources: {}, storage: { global: {} }, tools: {} };
+
+/* 网络探针：playlist 路由会先问 Meting 节点拿曲目、再（仅 netease）问网易云官方
+ * 拿歌单真名。这里把 ctx.network.fetch 换成可控的假实现，按 URL 分流，并记录调用。 */
+let netCalls = [];
+const netFetch = async (url) => {
+  netCalls.push(url);
+  if (url.includes('music.163.com/api/v6/playlist/detail')) {
+    return {
+      ok: true,
+      json: async () => ({
+        code: 200,
+        playlist: { name: 'Can_0201喜欢的音乐', creator: { nickname: 'Can_0201' }, coverImgUrl: 'http://c/x.jpg', trackCount: 905 }
+      })
+    };
+  }
+  // Meting 节点：回一个最小可用的曲目数组
+  return { ok: true, json: async () => ([{ id: '1', title: 't', author: 'a', url: 'http://node/1', pic: '', lrc: '' }]) };
+};
+
+const ctx = { dataDir, logger: { warn() {}, info() {}, error() {} }, resources: {}, storage: { global: {} }, tools: {}, network: { fetch: netFetch } };
 registerRoutes(app, { ctx, state: {} });
 
 const handler = (method, p) => {
@@ -30,6 +49,7 @@ const handler = (method, p) => {
   return hit[2];
 };
 const POST_PLAYLIST = handler('POST', '/widget/api/playlist');
+const GET_PLAYLIST = handler('GET', '/widget/api/music/playlist');
 const DELETE_TRACK = handler('DELETE', '/api/track');
 const GET_PLAYBACK = handler('GET', '/api/playback-state');
 const POST_PLAYBACK = handler('POST', '/api/playback-state');
@@ -102,6 +122,25 @@ check('playback-roundtrip', got.body.ok === true && got.body.state && got.body.s
 /* 7) 非法播放状态被拒 */
 const bad = await POST_PLAYBACK(fakeC({ json: null }));
 check('playback-reject-invalid', bad.status === 400, JSON.stringify(bad));
+
+/* 8) 导入歌单：netease 时附带官方真名（meta.name） */
+netCalls = [];
+let plRes = await GET_PLAYLIST(fakeC({ query: { id: '12881021', server: 'netease' } }));
+check('playlist-meta-netease',
+  plRes.body.ok === true && plRes.body.tracks.length === 1 &&
+  plRes.body.meta && plRes.body.meta.name === 'Can_0201喜欢的音乐' && plRes.body.meta.creator === 'Can_0201',
+  JSON.stringify(plRes.body));
+check('playlist-meta-netease-fetched',
+  netCalls.some((u) => u.includes('music.163.com/api/v6/playlist/detail?id=12881021')),
+  JSON.stringify(netCalls));
+
+/* 9) 非 netease：不取真名（meta 缺省），也不打网易云 */
+netCalls = [];
+plRes = await GET_PLAYLIST(fakeC({ query: { id: '12881021', server: 'tencent' } }));
+check('playlist-meta-skip-non-netease',
+  plRes.body.ok === true && plRes.body.meta === undefined &&
+  !netCalls.some((u) => u.includes('music.163.com')),
+  JSON.stringify({ body: plRes.body, netCalls }));
 
 fs.rmSync(dataDir, { recursive: true, force: true });
 
