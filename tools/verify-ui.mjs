@@ -1113,9 +1113,13 @@ let ambient = {};
     /linear-gradient/.test(scrimFade) &&
     (scrimFade.match(/(?:px|%)/g) || []).length >= 2,
     JSON.stringify({ scrimLeft: ambient.dark.scrimLeft, scrimTop: ambient.dark.scrimTop, sm: scrimFade.slice(0, 90) }));
-  assert('lyric-scrim-starts-at-seam',
-    scrimFade.indexOf(String(Math.round(parseFloat(ambient.dark.seam) - band * 0.5))) !== -1,
-    JSON.stringify({ seam: ambient.dark.seam, band, sm: scrimFade.slice(0, 90) }));
+  /* 遮罩「满罩点」必须落在歌词列起点 --content-x 上（不再锚接缝）——
+   * 歌词永远在满罩区，列随面板移动也跟得住。 */
+  const scrimx = [...scrimFade.matchAll(/(-?[\d.]+)px/g)].map((m) => parseFloat(m[1]));
+  const scrimOpaqueAt = scrimx.length ? scrimx[scrimx.length - 1] : null;
+  assert('lyric-scrim-opaque-at-column-start',
+    scrimOpaqueAt !== null && Math.abs(scrimOpaqueAt - ambient.dark.contentX) <= 2,
+    JSON.stringify({ contentX: ambient.dark.contentX, scrimOpaqueAt, sm: scrimFade.slice(0, 90) }));
   assert('ambient-nocover-fallback',
     ambient.nocover.nocover === true && ambient.nocover.polarity === 'none' && ambient.nocover.ambientColor === null,
     JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, c: ambient.nocover.ambientColor }));

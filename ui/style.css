@@ -428,21 +428,22 @@ button:disabled { cursor: default; }
 /* 歌词薄纱：只罩阅读列。左缘在「过渡带」（--fade-w 宽）里从 0 淡入，
  * 与封面右缘的淡出对齐/镜像 —— 两边在同一个带里均匀交汇。
  * 歌词与频谱共用，歌词关闭时也不许消失（R4）。 */
-/* 歌词薄纱：满屏固定（高到顶、右到右），只做横向淡入 —— 与封面右缘淡出配对。
- * 位置只跟封面走，不跟歌词列；歌词列移动时这层不动，永不露生色块。
- * 注意：必须 inset:0（不能 top:--lyric-top）——否则顶边会在封面上切出一条横线。 */
+/* 歌词薄纱：满屏一层（inset:0）—— 无上下边，不会在封面上切出横线；
+ * 不跟歌词列滚动，也不退化成色块。只在左缘做一段 --band 宽的淡入，
+ * 且「淡入终点 = 歌词列起点 --content-x」→ 歌词永远落在满罩区，
+ * 不管列怎么随面板移动。歌词与频谱共用，歌词关闭时也不许消失（R4）。 */
 .lyric-scrim {
   position: absolute;
   inset: 0;
   z-index: 2;
   background: var(--lyric-scrim);
-  /* 从接缝 -band/2 透明→接缝 +band/2 满，中间连续插值（离散多段 stop 会出竖纹）。 */
+  /* 透明 → 满，终点落在 --content-x；中间连续插值（离散多段 stop 会出竖纹）。 */
   -webkit-mask-image: linear-gradient(90deg,
-      transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
+      transparent calc(var(--content-x, 34%) - var(--band, 180px)),
+      #000 var(--content-x, 34%));
   mask-image: linear-gradient(90deg,
-      transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
+      transparent calc(var(--content-x, 34%) - var(--band, 180px)),
+      #000 var(--content-x, 34%));
   pointer-events: none;
 }
 /* 歌词 ⇄ 频谱：由显示态切换。呼出时有一道淡入+轻微位移（可打断，只动 opacity/transform）。
