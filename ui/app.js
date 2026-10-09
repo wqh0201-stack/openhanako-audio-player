@@ -279,15 +279,21 @@
   var LOCALDIR_KEY = 'player-local-dir';
   var memStore = {};
 
-  function storeGet(key) {
+  /* 读存储，返回 { ok, value }：ok=false 表示这次**没读到**（宿主未就绪 / 超时 / 报错）。
+   * 存储走宿主桥（v2 应用态存储经宿主代调 server），刚 reload 时桥可能还没应答，
+   * 所以超时给宽（5s）；调用方据此避免拿「默认值」覆盖盘上的真实数据。 */
+  function storeRead(key) {
     var st = hanaStorage();
     var fallback = Object.prototype.hasOwnProperty.call(memStore, key) ? memStore[key] : null;
-    if (!st) return Promise.resolve(fallback);
-    return Promise.resolve(st.get(key, { timeoutMs: 1500 })).then(function (raw) {
+    if (!st) return Promise.resolve({ ok: false, value: fallback });
+    return Promise.resolve(st.get(key, { timeoutMs: 5000 })).then(function (raw) {
       var v = unwrapStored(raw);
       if (v !== null && v !== undefined) memStore[key] = v;
-      return v === undefined ? fallback : v;
-    }).catch(function () { return fallback; });
+      return { ok: true, value: v === undefined ? null : v };
+    }).catch(function () { return { ok: false, value: fallback }; });
+  }
+  function storeGet(key) {
+    return storeRead(key).then(function (r) { return r.value; });
   }
   function storeSet(key, value) {
     memStore[key] = value;
@@ -2591,48 +2597,61 @@
     }
   }
 
+  /* 列表名快照：只在真名确实变了才重渲染 */
+  function listNamesKey() {
+    var out = [];
+    for (var i = 0; i < state.lists.length; i++) out.push(state.lists[i].id + '=' + (state.lists[i].name || ''));
+    return out.join('|');
+  }
+
   function boot() {
     renderAll();
     applyLayout();
 
-    Promise.all([
-      waitForHana(2000),
-      loadPlaylist().catch(function (e) {
-        state.loadError = e && e.message ? e.message : String(e);
-        console.warn('[player] playlist 读取失败', e);
-        return null;
-      }),
-      loadPlaybackState(),
-      storeGet(LISTS_KEY),
-      storeGet(LOCALDIR_KEY),
-      storeGet(SPLIT_KEY)
-    ]).then(function (results) {
+    /* boot() 跑在 app.js（defer）里，早于 sdk.js（module）——那时 window.hana 还没有，
+     * hanaStorage() 为 null。所以必须先等宿主 SDK 落地再读存储；否则永远读回 null，
+     * 而回写默认名会把用户改过的歌单名覆盖回「歌单 N」（改名不持久化的根因）。 */
+    waitForHana(2000).then(function () {
+      return Promise.all([
+        loadPlaylist().catch(function (e) {
+          state.loadError = e && e.message ? e.message : String(e);
+          console.warn('[player] playlist 读取失败', e);
+          return null;
+        }),
+        loadPlaybackState()
+      ]);
+    }).then(function (results) {
+      var tracks = results[0];
+      var pb = results[1];
       applyHostTheme();
-      var tracks = results[1];
-      var pb = results[2];
-      var savedLists = results[3];
-      var dir = results[4];
-      var savedSplit = results[5];
-      if (dir) state.localDir = String(dir);
-      if (typeof savedSplit === 'number' && savedSplit > 0 && savedSplit < 1) setSplit(savedSplit, false);
-
+      /* 先用派生名把列表立起来：首屏不等存储读取（宿主桥没应答时不至于卡住） */
       if (tracks) {
-        var needsAssign = migrateLists(tracks, savedLists);
-        applyTracks(tracks);
-        if (needsAssign) savePlaylist();  // 迁移结果回写（幂等：再跑不改结构）
-        saveLists();                       // 列表元数据（顺序 + 原始名）落盘
+        var needsAssign = migrateLists(tracks, null);
+        applyTracks(tracks);                             // 先落 state.tracks
+        if (needsAssign) savePlaylist();                 // 再回写（savePlaylist 读的是 state.tracks）
       } else {
         state.lists = [{ id: 'local', name: '本地' }];
       }
       // 恢复当前列表
       if (pb && pb.activeList && findList(pb.activeList)) state.activeList = pb.activeList;
       else if (!findList(state.activeList)) state.activeList = 'local';
-
       restorePlayback(pb);
       if (!tracks) toast('列表加载失败，请稍后重试');
-      // 本地固定文件夹：开机扫一次（没设过就不扫，等用户选）
-      if (state.localDir) syncLocalFolder(false);
       if (params.get('assert') === '1') setTimeout(runSelfCheck, 60);
+      /* 再读存储：读到就套用真名 / 本地目录 / 分隔比例。
+       * 读不到（宿主没应答）绝不回写默认值 —— 那会把盘上的真名覆盖掉。 */
+      return Promise.all([storeRead(LISTS_KEY), storeRead(LOCALDIR_KEY), storeRead(SPLIT_KEY)]);
+    }).then(function (reads) {
+      var listsRead = reads[0], dirRead = reads[1], splitRead = reads[2];
+      if (dirRead.value) { state.localDir = String(dirRead.value); syncLocalFolder(false); }
+      var sp = splitRead.value;
+      if (typeof sp === 'number' && sp > 0 && sp < 1) setSplit(sp, false);
+      if (listsRead.ok && state.tracks.length) {
+        var before = listNamesKey();
+        if (migrateLists(state.tracks, listsRead.value)) savePlaylist();
+        saveLists();
+        if (before !== listNamesKey()) renderAll();
+      }
     });
   }
 

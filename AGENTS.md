@@ -111,10 +111,14 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
 - 第二轮（四项拍板 + 拖进/拖出生命周期修复）：`docs/player-ui/REFINE-DONE-LISTS-2.md`
 - 第三轮（来源重做 + 歌单真名 + 歌手补齐 + 歌单可删）：`docs/player-ui/REFINE-DONE-SOURCES.md`（**未部署**，等审）
 - 第四轮（封面环境色：读封面右缘像素 → 竖向渐变铺满 + 歌词两态薄纱 + 封面右缘 mask）：
-  `docs/player-ui/REFINE-DONE-AMBIENT.md`（**未部署**，等审）；深色封面夹具由
+  `docs/player-ui/REFINE-DONE-AMBIENT.md`；深色封面夹具由
   `node tools/make-fixture-covers.mjs` 生成
+- 第五轮（动效复审修复 + 频谱真律动）：`docs/player-ui/REFINE-DONE-MOTION-2.md`（**已部署**，构建号 1003131565）。
+  要点：歌词/频谱交叉淡入淡出、队列退场（含矮卡整页交叉）、指针悬停不再重置自动回归；
+  频谱接真音频需**同源媒体** → `music/go` 改分片流式代理（原理见知识库
+  `20-资料/Web Audio 频谱反应-同源媒体与CORS陷阱.md`）
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 43/43 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 环境色两态/兜底）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 56/56 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
 - 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
 
 > 注：早期 `docs/REFACTOR-BRIEF.md` 里的「PV / 唱盘 / 主题面板」等要求已被 2026-10-08 的
