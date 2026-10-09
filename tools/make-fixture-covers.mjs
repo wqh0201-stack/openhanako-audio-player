@@ -93,3 +93,31 @@ fs.mkdirSync(outDir, { recursive: true });
 const out = path.join(outDir, 'demo-cover-dark.png');
 fs.writeFileSync(out, encodePNG(W, H, buf));
 console.log('wrote', out, `${W}x${H}`, fs.statSync(out).size, 'bytes');
+
+/* ---------- 浅色封面：晨雾。竖版卡下封面贴左裁切，屏上可见的是「左侧一条」，
+ * 所以这张必须整张都浅（含左缘），才能稳定走「浅纱 + 墨字」支路。 ---------- */
+seed = 20261010;
+const buf2 = Buffer.alloc(W * H * 3);
+const LTOP = [236, 232, 224], LBOT = [206, 214, 220];
+const LGLOW = { x: 0.30, y: 0.40, r: 0.55, c: [24, 18, 12] };   // 柔和暖雾（不是暗块）
+for (let y = 0; y < H; y++) {
+  const t = y / (H - 1);
+  for (let x = 0; x < W; x++) {
+    const u = x / (W - 1);
+    let r = LTOP[0] + (LBOT[0] - LTOP[0]) * t;
+    let g = LTOP[1] + (LBOT[1] - LTOP[1]) * t;
+    let b = LTOP[2] + (LBOT[2] - LTOP[2]) * t;
+    const dx = u - LGLOW.x, dy = t - LGLOW.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const k = Math.max(0, 1 - d / LGLOW.r) ** 2;
+    r -= LGLOW.c[0] * k; g -= LGLOW.c[1] * k; b -= LGLOW.c[2] * k;
+    const n = (rnd() - 0.5) * 7;
+    const i = (y * W + x) * 3;
+    buf2[i] = Math.max(0, Math.min(255, Math.round(r + n)));
+    buf2[i + 1] = Math.max(0, Math.min(255, Math.round(g + n)));
+    buf2[i + 2] = Math.max(0, Math.min(255, Math.round(b + n)));
+  }
+}
+const out2 = path.join(outDir, 'demo-cover-light.png');
+fs.writeFileSync(out2, encodePNG(W, H, buf2));
+console.log('wrote', out2, `${W}x${H}`, fs.statSync(out2).size, 'bytes');

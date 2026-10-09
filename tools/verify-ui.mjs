@@ -32,6 +32,7 @@ const COVER_SQUARE_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover-squa
 /* 深色封面夹具：右缘确实深，用来验证「深底 → 浅字」那条分支。
  * 由 tools/make-fixture-covers.mjs 生成（纯 Node 手写 PNG，可复现）。 */
 const COVER_DARK_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover-dark.png');
+const COVER_LIGHT_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover-light.png');
 fs.mkdirSync(outDir, { recursive: true });
 
 /* ---------- 假音频：30 秒静音 WAV（走 URL，不走 data URL） ----------
@@ -52,6 +53,7 @@ const WAV_URL = `${API}/_fixture/audio.wav`;
 const COVER = `${API}/_fixture/cover.png`;
 const COVER_SQUARE = `${API}/_fixture/cover-square.png`;
 const COVER_DARK = `${API}/_fixture/cover-dark.png`;
+const COVER_LIGHT = `${API}/_fixture/cover-light.png`;
 const goUrl = (id) => `${API}/widget/api/music/go/${id}?server=netease`;
 
 /* ---------- 假播放列表（多歌单：本地为空 + 两个导入歌单） ----------
@@ -69,9 +71,10 @@ function makeTracks() {
       pic: i % 5 === 0 ? COVER : ''
     });
   }
-  out[0].pic = COVER_SQUARE;   // 方形封面（右缘上浅下深，走「浅纱+墨字」）
+  out[0].pic = COVER_SQUARE;   // 方形封面（右缘上浅下深）
   out[1].pic = COVER;          // 横幅封面
   out[2].pic = COVER_DARK;     // 深色封面（右缘极深，走「深纱+纸字」）
+  out[4].pic = COVER_LIGHT;    // 真·浅底封面（整张浅，走「浅纱+墨字」）
   for (let i = 0; i < 3; i++) {
     out.push({
       id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: goUrl(900000 + i),
@@ -220,6 +223,10 @@ const server = http.createServer((req, res) => {
   if (p === API + '/_fixture/cover-dark.png') {
     res.setHeader('content-type', 'image/png');
     return fs.createReadStream(COVER_DARK_FILE).pipe(res);
+  }
+  if (p === API + '/_fixture/cover-light.png') {
+    res.setHeader('content-type', 'image/png');
+    return fs.createReadStream(COVER_LIGHT_FILE).pipe(res);
   }
   if (p === API + '/_fixture/audio.wav') return serveAudio(req, res);
   // 假主题样式表（真实宿主同款端点 /api/apps/theme.css，不需要 surface session）
@@ -932,11 +939,17 @@ let ambient = {};
     document.querySelectorAll('#queueList .q-row')[idx].querySelector('.q-hit').click();
   }, i);
 
-  // ① 浅底封面（方形，右缘上浅下深）→ 浅纱 + 墨字
-  await playRow(0);
+  // ① 真·浅底封面（整张浅）→ 浅纱 + 墨字
+  await playRow(4);
   await sleep(950);
   ambient.light = await page.evaluate(AMBIENT_PROBE);
   await page.screenshot({ path: path.join(outDir, 'ambient-light-465x930.png') });
+
+  // ①b 方形封面（可见段上浅下深）→ 不论择哪态纱，字必须可读（对比度断言）
+  await playRow(0);
+  await sleep(950);
+  ambient.mixed = await page.evaluate(AMBIENT_PROBE);
+  await page.screenshot({ path: path.join(outDir, 'ambient-mixed-465x930.png') });
 
   // ② 深底封面 → 深纱 + 纸字
   await playRow(2);
@@ -967,6 +980,12 @@ let ambient = {};
   assert('ambient-gradient-written:light',
     ambient.light.hasGradient === true && ambient.light.polarity === 'light' && ambient.light.stopCount >= 12,
     JSON.stringify({ p: ambient.light.polarity, n: ambient.light.stopCount, g: ambient.light.hasGradient }));
+  /* 方形封面的可见段上浅下深 —— 不绑死在某一极性上（算法按对比度择优）。
+   * 真正要保的是「不论选哪态纱，字都可读」。 */
+  assert('ambient-mixed-picks-readable',
+    ambient.mixed.hasGradient === true && ambient.mixed.stopCount >= 12 &&
+    ambient.mixed.contrastMid.current >= 4.5 && ambient.mixed.contrastWorst.current >= 3.0,
+    JSON.stringify({ p: ambient.mixed.polarity, mid: ambient.mixed.contrastMid, worst: ambient.mixed.contrastWorst }));
   assert('ambient-gradient-written:dark',
     ambient.dark.hasGradient === true && ambient.dark.polarity === 'dark' && ambient.dark.firstStopLum < 0.1,
     JSON.stringify({ p: ambient.dark.polarity, first: ambient.dark.firstStopLum, n: ambient.dark.stopCount }));

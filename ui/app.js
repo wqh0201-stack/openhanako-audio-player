@@ -596,6 +596,7 @@
   var coverProbeToken = 0;     // 切歌竞态：过期结果丢弃
   var ambientSegs = null;      // 最近一次取色结果（竖向色标）
   var ambientCache = {};       // pic → 色标（或 null=失败），同一封面不重复取色
+  var stagePic = '';           // 当前舞台封面（取色需要它 + 尺寸/布局）
 
   /* 竖向色标 → 渐变。色标映射到封面「实际显示的那一段高度」上，两端外延
    * 铺满：否则 contain 的 letterbox 会把渐变整体拉伸，封面右缘上下角对不上。 */
@@ -607,7 +608,11 @@
     var rgb = function (c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; };
     var stops = [rgb(ambientSegs[0]) + ' 0%'];
     var t0 = 0, t1 = 1;
-    if (h > 0 && coverAR > 0) {
+    /* 色标映射到封面实际占的高度。
+     * 宽窗：contain 完整显示，高度=min(h, w/AR)，两端外延铺满（letterbox 不拉伸渐变）。
+     * 竖版卡：封面满高（cover），占满整舞台高，色标就铺满 0~100%。 */
+    var wide = player.getAttribute('data-layout') === 'wide';
+    if (wide && h > 0 && coverAR > 0) {
       var ch = Math.min(h, (sceneEl.clientWidth || 0) / coverAR);
       t0 = Math.max(0, (h - ch) / 2 / h);
       t1 = 1 - t0;
@@ -699,9 +704,13 @@
   }
 
   /* 单独一张带 crossOrigin 的小图取像素（与画幅探测分开：非 CORS 封面也要量得出画幅） */
-  function probeAmbient(pic, token) {
-    if (Object.prototype.hasOwnProperty.call(ambientCache, pic)) {
-      applyAmbient(ambientCache[pic]);
+  function probeAmbient(pic, token, frac) {
+    var f = (typeof frac === 'number' && frac > 0 && frac <= 1) ? frac : 1;
+    /* 缓存键带布局 + 可见比例（量化到 2%）——
+     * 竖版卡不同画幅的可见右缘不同，不能拿一份结果跨画幅复用。 */
+    var pkey = pic + (player.getAttribute('data-layout') === 'wide' ? '|w' : '|n' + Math.round(f * 50));
+    if (Object.prototype.hasOwnProperty.call(ambientCache, pkey)) {
+      applyAmbient(ambientCache[pkey]);
       return;
     }
     var img = new Image();
@@ -709,7 +718,7 @@
     function done(segs) {
       if (settled) return;
       settled = true;
-      ambientCache[pic] = segs || null;
+      ambientCache[pkey] = segs || null;
       if (token !== coverProbeToken) return;
       applyAmbient(segs);
     }
@@ -722,8 +731,14 @@
         var ctx = cv.getContext('2d');
         ctx.drawImage(img, 0, 0, SW, SH);
         var data = ctx.getImageData(0, 0, SW, SH).data;
-        /* 只取封面右缘一条竖带（约右 8%~28% 宽），逐段水平平均 → 竖向色标 */
-        var x0 = Math.round(SW * 0.72), x1 = Math.round(SW * 0.92);
+        /* 采样带落在封面的「可见右缘」上：
+         *  · 宽窗 contain 完整显示 → 右缘≈图片右缘（frac≈1）
+         *  · 竖版卡 cover 贴左载切 → 屏上只露左侧一条（方形≈38%、横幅≈14%），
+         *    取色必须落在可见范围内，否则环境色会与封面接缝对不上。
+         * 带位取 [frac-14%, frac-2%]，夹在 [0,1]。 */
+        var fx1 = Math.max(0.02, f - 0.02);
+        var fx0 = Math.max(0, fx1 - 0.14);
+        var x0 = Math.round(SW * fx0), x1 = Math.max(x0 + 1, Math.round(SW * fx1));
         var segs = [];
         for (var s = 0; s < AMBIENT_SEGMENTS; s++) {
           var y0 = Math.floor(s * SH / AMBIENT_SEGMENTS);
@@ -756,16 +771,37 @@
     var h = sceneEl.clientHeight;
     if (!(w > 0) || !(h > 0)) return;
     var wide = player.getAttribute('data-layout') === 'wide';
-    var coverW = coverAR > 0 ? Math.min(w, h * coverAR) : w;
-    var lo = wide ? 0.30 : 0.22;
-    var hi = wide ? 0.66 : 0.36;
-    var x = Math.max(w * lo, Math.min(coverW + 18, w * hi));
-    /* 右缘淡出宽度：跟封面显示宽走，夹在 28~140px，窄封面也不会整张糊掉 */
+    var coverW, x;
+    if (wide) {
+      /* 宽窗：封面按画幅完整显示（contain），右列起点贴其右缘 */
+      coverW = coverAR > 0 ? Math.min(w, h * coverAR) : w;
+      x = Math.max(w * 0.30, Math.min(coverW + 18, w * 0.66));
+    } else {
+      /* 竖版卡（矮卡 / 长卡）：封面是固定宽的左列，缩放到满高（cover，超出裁边）。
+       * 「封面顶着、播放区上下也顶着」—— 不再 contain 居中留白。列宽夹在
+       * 132~248px，窄到 312 时也不至于把右侧歌词挤没。 */
+      coverW = Math.max(132, Math.min(248, w * 0.44));
+      x = coverW + 14;
+    }
+    /* 右缘淡出宽度：跟封面列宽走，夹在 28~140px，窄封面也不会整张糊掉 */
     var fade = Math.max(28, Math.min(140, coverW * 0.24));
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
     player.style.setProperty('--cover-fade-a', Math.round(Math.max(0, coverW - fade)) + 'px');
     player.style.setProperty('--cover-fade-b', Math.round(coverW) + 'px');
     player.style.setProperty('--content-x', Math.round(x) + 'px');
+    /* 环境色取色：采样带要落在封面「屏上可见的右缘」上。
+     *  · 宽窗 contain 完整显示 → 可见右缘≈图右缘（frac≈1）
+     *  · 竖版卡 cover 贴左载切 → 屏上只露左侧一条：方形≈38%、横幅≈14%，
+     *    按 coverW / 封面自然宽（= h*AR）算可见比例。
+     * 尺寸/布局/画幅都齐了才触发（probeCover 量到 AR 后会回过来调这里）。 */
+    if (stagePic) {
+      var visFrac = 1;
+      if (!wide && coverAR > 0) {
+        var naturalW = h * coverAR;   // 封面按满高缩放后的自然宽
+        if (naturalW > 0) visFrac = Math.max(0.06, Math.min(1, coverW / naturalW));
+      }
+      probeAmbient(stagePic, coverProbeToken, visFrac);
+    }
     renderAmbientGradient();
     measureLyricTop();
   }
@@ -796,7 +832,7 @@
     img.onload = function () {
       if (token !== coverProbeToken) return;
       coverAR = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
-      updateStageMetrics();
+      updateStageMetrics();   /* 尺寸齐了再由它触发取色（带可见右缘比例） */
     };
     img.onerror = function () {
       if (token !== coverProbeToken) return;
@@ -804,12 +840,11 @@
       updateStageMetrics();
     };
     img.src = withSession(pic);
-    /* 环境色：另一张带 crossOrigin 的小图取像素 */
-    probeAmbient(pic, token);
   }
   function applyCovers() {
     var t = currentTrack();
     var pic = t && t.pic ? t.pic : '';
+    stagePic = pic;
     /* 呈现层标记：无封面时走「纸面留白」兜底（只切 CSS 变量，不动业务） */
     player.classList.toggle('nocover', !pic);
     $('cover').style.backgroundImage = coverStageImage(pic);

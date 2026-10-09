@@ -384,6 +384,16 @@ button:disabled { cursor: default; }
   -webkit-mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
   mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
 }
+/* 矮卡 / 长卡：封面贴左、缩放到满高（cover，超出裁边）——
+ * 「封面顶着、播放区上下也顶着」，不再 contain 居中留白。
+ * 列宽由 JS 按舞台宽写入 --cover-w。宽窗维持 contain 完整显示。 */
+.player[data-layout="compact"] .cover,
+.player[data-layout="long"] .cover {
+  right: auto;
+  width: var(--cover-w, 46%);
+  background-size: cover;
+  background-position: left center;
+}
 .player.nocover .cover {
   background-image: var(--cover-fallback);
   background-size: cover;
@@ -495,22 +505,20 @@ button:disabled { cursor: default; }
 .lyric-line {
   margin: 0;
   padding: 8px 7%;
-  font-size: 13px;
-  line-height: 1.62;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--lyric-far);
   transition: color 0.25s ease, font-size 0.25s ease;
   overflow-wrap: anywhere;
 }
-.lyric-line.is-near { color: var(--lyric-near); font-size: 15px; }
+.lyric-line.is-near { color: var(--lyric-near); font-size: 14px; }
 .lyric-line.is-current {
   color: var(--lyric-current);
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 600;
-  line-height: 1.55;
+  line-height: 1.5;
 }
-.player[data-layout="long"] .lyric-line.is-current { font-size: 24px; }
-.player[data-layout="wide"] .lyric-line.is-current { font-size: 26px; }
-.player[data-layout="wide"] .lyric-line.is-near { font-size: 16px; }
+/* 字号不再按布局放大：全布局统一（罐头要求「统一调小」） */
 .lyric-line.lyric-empty {
   text-align: center;
   color: var(--lyric-far);
