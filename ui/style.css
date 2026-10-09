@@ -91,8 +91,10 @@
   --veil-ink: #14171C;
   --on-veil-ink: #2A2622;
   --on-veil-paper: #F2F6FA;
-  --veil-paper-a: 0.48;
-  --veil-ink-a: 0.54;
+  --veil-paper-a: 0.34;
+  --veil-ink-a: 0.42;
+  /* 歌词字自带一点点反差阴影，可读性不再全交在一层厚纱上 */
+  --lyric-shadow: 0 1px 2px color-mix(in srgb, var(--veil-paper) 72%, transparent);
   /* 在线曲目有 pic 时由 JS 写入 url(...)；没有就只剩兜底 */
   --cover-image: none;
   /* 兜底：主题色 + 极淡斜纹纹理，不是彩色糊渐变，也不硬编码山景 */
@@ -120,15 +122,13 @@
       color-mix(in srgb, var(--veil-paper) 78%, transparent) 0%,
       color-mix(in srgb, var(--veil-paper) 40%, transparent) 52%,
       color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
-  /* 歌词薄纱（竖向）：上下淡出、中部够厚 —— 透出底色但不把封面色相压死。
+  /* 歌词薄纱：不再是一块铺满的矩形。改成以歌词列中心向外渐隐的橢圆柔光，
+   * 四边都淡到 0 —— 不再有「黑砖」的硬边。极淡，字主要靠阴影保可读。
    * 歌词关闭时它不许消失 —— 频谱也压在它上面（R4）。 */
-  --lyric-scrim: linear-gradient(180deg,
-      color-mix(in srgb, var(--veil-paper) 0%, transparent) 0%,
-      color-mix(in srgb, var(--veil-paper) 44%, transparent) 12%,
-      color-mix(in srgb, var(--veil-paper) 55%, transparent) 42%,
-      color-mix(in srgb, var(--veil-paper) 55%, transparent) 74%,
-      color-mix(in srgb, var(--veil-paper) 32%, transparent) 94%,
-      color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
+  --lyric-scrim: radial-gradient(ellipse 72% 58% at 50% 50%,
+      color-mix(in srgb, var(--veil-paper) 34%, transparent) 0%,
+      color-mix(in srgb, var(--veil-paper) 18%, transparent) 55%,
+      transparent 82%);
   /* 滚动条条子颜色（轨道透明） */
   --sb-color: color-mix(in srgb, var(--hk-text) 34%, transparent);
   /* 当前歌词：强调色往墨色压，压到在浅纱上仍看得清 */
@@ -145,17 +145,15 @@
       color-mix(in srgb, var(--veil-paper) 80%, transparent) 0%,
       color-mix(in srgb, var(--veil-paper) 42%, transparent) 52%,
       color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
-  --lyric-scrim: linear-gradient(180deg,
-      color-mix(in srgb, var(--veil-paper) 0%, transparent) 0%,
-      color-mix(in srgb, var(--veil-paper) 44%, transparent) 12%,
-      color-mix(in srgb, var(--veil-paper) 55%, transparent) 42%,
-      color-mix(in srgb, var(--veil-paper) 55%, transparent) 74%,
-      color-mix(in srgb, var(--veil-paper) 32%, transparent) 94%,
-      color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
+  --lyric-scrim: radial-gradient(ellipse 72% 58% at 50% 50%,
+      color-mix(in srgb, var(--veil-paper) 34%, transparent) 0%,
+      color-mix(in srgb, var(--veil-paper) 18%, transparent) 55%,
+      transparent 82%);
   --lyric-current: color-mix(in srgb, var(--hk-accent) 46%, var(--on-veil-ink));
   --lyric-near: color-mix(in srgb, var(--on-veil-ink) 75%, transparent);
   --lyric-far: color-mix(in srgb, var(--on-veil-ink) 50%, transparent);
   --sb-color: color-mix(in srgb, var(--on-veil-ink) 34%, transparent);
+  --lyric-shadow: 0 1px 2px color-mix(in srgb, var(--veil-paper) 78%, transparent);
 }
 
 /* 深底封面：深纱 + 纸字（可读 > 还原度） */
@@ -166,17 +164,15 @@
       color-mix(in srgb, var(--veil-ink) 66%, transparent) 0%,
       color-mix(in srgb, var(--veil-ink) 32%, transparent) 52%,
       color-mix(in srgb, var(--veil-ink) 0%, transparent) 100%);
-  --lyric-scrim: linear-gradient(180deg,
-      color-mix(in srgb, var(--veil-ink) 0%, transparent) 0%,
-      color-mix(in srgb, var(--veil-ink) 50%, transparent) 12%,
-      color-mix(in srgb, var(--veil-ink) 60%, transparent) 42%,
-      color-mix(in srgb, var(--veil-ink) 60%, transparent) 74%,
-      color-mix(in srgb, var(--veil-ink) 36%, transparent) 94%,
-      color-mix(in srgb, var(--veil-ink) 0%, transparent) 100%);
+  --lyric-scrim: radial-gradient(ellipse 72% 58% at 50% 50%,
+      color-mix(in srgb, var(--veil-ink) 40%, transparent) 0%,
+      color-mix(in srgb, var(--veil-ink) 22%, transparent) 55%,
+      transparent 82%);
   --lyric-current: color-mix(in srgb, var(--hk-accent) 44%, var(--on-veil-paper));
   --lyric-near: color-mix(in srgb, var(--on-veil-paper) 82%, transparent);
   --lyric-far: color-mix(in srgb, var(--on-veil-paper) 52%, transparent);
   --sb-color: color-mix(in srgb, var(--on-veil-paper) 38%, transparent);
+  --lyric-shadow: 0 1px 3px color-mix(in srgb, var(--veil-ink) 55%, transparent);
 }
 
 /* 无封面兜底态：没有封面要压，顶部与歌词遮罩都不需要。
@@ -275,6 +271,31 @@ button:disabled { cursor: default; }
 }
 .icon-sm { width: 15px; height: 15px; }
 
+/* 按钮按压反馈（motion 6）：按下立即缩一点，松手回弹。
+ * 只动 transform（不影响布局），~100ms ease-out。 */
+.icon-btn,
+.text-btn,
+.queue-btn,
+.pop-item,
+.pop-go,
+.back-btn,
+.list-tab,
+.q-row,
+.play-btn {
+  transition: transform 0.1s ease-out, background-color 0.16s ease, color 0.16s ease;
+}
+.icon-btn:active,
+.text-btn:active,
+.queue-btn:active,
+.pop-item:active,
+.pop-go:active,
+.back-btn:active,
+.list-tab:active,
+.q-row:active { transform: scale(0.96); }
+/* 播放键（48px 圆钮）给一点弹性回弹 */
+.play-btn { transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.12s ease; }
+.play-btn:active { transform: scale(0.92); }
+
 /* transport 字形：设计稿的 ▶/⏸/⏮/⏭ 是实心字形，不是线框 */
 .play-btn .icon { fill: currentColor; stroke-width: 2.4; }
 #prevBtn .icon,
@@ -325,48 +346,37 @@ button:disabled { cursor: default; }
   pointer-events: none;
 }
 
-/* 环境色层（最底）：封面右缘像素 → 竖向渐变，铺满整个舞台到最右缘。
- * JS 取色成功后写 --ambient-gradient；取不到就退回纸面兜底（--cover-fallback）。 */
+/* 背景层（最底）：同一张封面的模糊放大副本，铺满整个舞台到最右缘（网易式）。
+ * 有封面就常驻（取色成功与否都显示）；无封面才退回纸面兜底。
+ * 纯 CSS background —— 跨源封面也能用，不吃 CORS，取色失败也不影响背景观感。
+ * 采样取色仍保留，但只用来定字色极性（data-ambient），不再拿它画背景。 */
 .stage-ambient {
   position: absolute;
   inset: 0;
   z-index: 0;
   background-color: var(--hk-surface);
-  background-image: var(--ambient-gradient, var(--cover-fallback));
+  background-image: var(--cover-fallback);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   pointer-events: none;
 }
 
-/* 封面晕开层（R2）：同一张封面的模糊放大副本。
- * 现在是「取色失败时的兜底层」：取色成功（.ambient-ok）就收起，让环境色渐变接管。
- * 纯 CSS —— 跨源封面没有 CORS 时 canvas 取像素会 taint，这条退路必须有。
- * transform: scale 是为了把 blur 边缘的透明采样区推出画面。 */
+/* 封面晕开层 = 主背景：同一张封面的模糊放大副本。
+ * 模糊要够、放大把模糊边缘推出画面，做出连续的「氛围底」，不再是一块块色阶。
+ * 不再叠把颜色洗白的厚纸色蒙层 —— 可读性靠歌词那侧的一层薄纱（见 .lyric-scrim）。 */
 .cover-haze {
   position: absolute;
-  inset: -14%;
+  inset: -16%;
   z-index: 0;
-  background-color: var(--hk-surface);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  filter: blur(34px) saturate(1.08);
-  transform: scale(1.18);
+  filter: blur(52px) saturate(1.22);
+  transform: scale(1.28);
   pointer-events: none;
 }
-.cover-haze::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  /* 取色失败时没有「已知底色」，只能压一层主题纸面保字可读 */
-  background: linear-gradient(180deg,
-      color-mix(in srgb, var(--hk-surface) 58%, transparent) 0%,
-      color-mix(in srgb, var(--hk-surface) 38%, transparent) 52%,
-      color-mix(in srgb, var(--hk-surface) 62%, transparent) 100%);
-}
-.player.nocover .cover-haze,
-.player.ambient-ok .cover-haze { display: none; }
+.player.nocover .cover-haze { display: none; }
 
 /* 封面本体贴着左边，按高度完整显示（contain：高度优先填满舞台，
  * 容器比画幅窄时退化成按宽适配）—— 永不裁头砍脚（R2）。
@@ -407,7 +417,7 @@ button:disabled { cursor: default; }
   background-position: center;
 }
 
-/* 歌词薄纱：只罩阅读列（从标题块下方到底），竖向上下淡出 + 中部可读。
+/* 歌词薄纱：只罩阅读列，橢圆柔光四边渐隐（不再是一块硬边矩形）。
  * 歌词与频谱共用，歌词关闭时也不许消失（R4）。 */
 .lyric-scrim {
   position: absolute;
@@ -417,13 +427,20 @@ button:disabled { cursor: default; }
   right: 0;
   z-index: 2;
   background: var(--lyric-scrim);
-  /* 左缘别切一刀：横向羽化 28px，让它从封面色里长出来 */
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 28px);
-  mask-image: linear-gradient(90deg, transparent 0, #000 28px);
   pointer-events: none;
 }
+/* 歌词 ⇄ 频谱：由显示态切换。呼出时有一道淡入+轻微位移（可打断，只动 opacity/transform）。
+ * 无歌词（data-haslyrics=0）时无论开关都出频谱（没词可显）。 */
 .player[data-lyrics="0"] .lyric-wrap { display: none; }
 .player[data-lyrics="1"] .spectrum { display: none; }
+.player[data-haslyrics="0"] .lyric-wrap { display: none; }
+.player[data-haslyrics="0"] .spectrum { display: flex; }
+.player[data-lyrics="1"][data-haslyrics="0"] .spectrum { display: flex; }
+.lyric-wrap.is-anim { animation: lyricIn 0.3s ease both; }
+@keyframes lyricIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
 
 /* 标题块常驻右侧内容列上方（R3）：大标题 / 副标题 / 元信息行。
  * padding-top 让出顶部 44px：聊天卡右上 100×40 是宿主安全区，
@@ -505,59 +522,42 @@ button:disabled { cursor: default; }
 .lyric-line {
   margin: 0;
   padding: 8px 7%;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.7;
   color: var(--lyric-far);
-  transition: color 0.25s ease, font-size 0.25s ease;
+  /* 只过渡颜色/字重/透明度 —— 不拿 font-size 做过渡（会重排、会 jank） */
+  text-shadow: var(--lyric-shadow);
+  transition: color 0.25s ease, opacity 0.25s ease;
   overflow-wrap: anywhere;
 }
-.lyric-line.is-near { color: var(--lyric-near); font-size: 14px; }
+.lyric-line.is-near { color: var(--lyric-near); }
 .lyric-line.is-current {
   color: var(--lyric-current);
-  font-size: 19px;
   font-weight: 600;
   line-height: 1.5;
 }
-/* 字号不再按布局放大：全布局统一（罐头要求「统一调小」） */
+/* 3 行聚焦（仅 long / compact）：非邻行淡到几乎不可见；滚动浏览时全部显形。
+ * 统一由 opacity 驱动，不逐行改字号。 */
+.player[data-layout="long"] .lyrics .lyric-line,
+.player[data-layout="compact"] .lyrics .lyric-line {
+  opacity: 0.16;
+}
+.player[data-layout="long"] .lyrics .lyric-line.is-current,
+.player[data-layout="long"] .lyrics .lyric-line.is-near,
+.player[data-layout="compact"] .lyrics .lyric-line.is-current,
+.player[data-layout="compact"] .lyrics .lyric-line.is-near {
+  opacity: 1;
+}
+.player[data-layout="long"] .lyrics.is-browsing .lyric-line,
+.player[data-layout="compact"] .lyrics.is-browsing .lyric-line {
+  opacity: 1;
+}
 .lyric-line.lyric-empty {
   text-align: center;
   color: var(--lyric-far);
   font-size: 13px;
   padding-top: 14px;
 }
-
-.lyric-back {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--hk-surface);
-  border: 1px solid var(--hk-hairline);
-  box-shadow: var(--hk-pop-shadow);
-  color: var(--hk-text);
-  font-size: 12px;
-  white-space: nowrap;
-}
-/* 恢复跟随：只压住「返回」按钮那一小块，用主题纸色，不碰整行 */
-.lyric-back::before {
-  content: '';
-  position: absolute;
-  inset: -16px -22px -18px;
-  z-index: -1;
-  border-radius: 999px;
-  background: radial-gradient(ellipse at center,
-      color-mix(in srgb, var(--hk-surface) 88%, transparent) 0%,
-      color-mix(in srgb, var(--hk-surface) 52%, transparent) 55%,
-      color-mix(in srgb, var(--hk-surface) 0%, transparent) 100%);
-}
-.player.nocover .lyric-back::before { background: none; }
-.lyric-back[hidden] { display: none; }
 
 /* ============================================================
    播放队列
@@ -1141,9 +1141,16 @@ button:disabled { cursor: default; }
 .player[data-layout="compact"] .scene,
 .player[data-layout="compact"] .queue { flex: 1 1 auto; }
 .player[data-layout="compact"] .queue { border-top: 0; }
+/* 队列页呼出/收回：从右滑入 + 淡入（可打断，只动 transform/opacity）。
+ * display 不能过渡 → 用 .is-entering/.is-leaving 状态类 + 延迟卸载（见 app.js）。 */
 .player[data-layout="compact"][data-page="play"] .queue { display: none; }
 .player[data-layout="compact"][data-page="queue"] .scene { display: none; }
 .player[data-layout="compact"] .queue-topline { display: flex; }
+.player[data-layout="compact"][data-page="queue"] .queue.is-anim { animation: queueIn 0.26s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes queueIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
 
 /* ============================================================
    布局三 · 宽窗：舞台在左，队列从右侧浮层打开
@@ -1176,6 +1183,10 @@ button:disabled { cursor: default; }
   z-index: 6;
 }
 .player[data-layout="wide"][data-drawer="0"] .queue { display: none; }
+/* 抽屉浮出：从右滑入 + 淡入；遮罩同步淡入（可打断） */
+.player[data-layout="wide"][data-drawer="1"] .queue.is-anim { animation: queueIn 0.28s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.drawer-scrim { animation: fadeIn 0.24s ease both; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* 截图模式（?shot=1）：冻结动画/过渡，保证自检图确定性 */
 body.is-shot *,
@@ -1184,6 +1195,23 @@ body.is-shot *::after {
   animation: none !important;
   transition: none !important;
   scroll-behavior: auto !important;
+}
+
+/* 降低动效偏好：关位移/缩放，只留淡入淡出（apple-design） */
+@media (prefers-reduced-motion: reduce) {
+  .player[data-layout="compact"][data-page="queue"] .queue.is-anim,
+  .player[data-layout="wide"][data-drawer="1"] .queue.is-anim,
+  .lyric-wrap.is-anim,
+  .drawer-scrim,
+  .play-btn:active,
+  .icon-btn:active,
+  .text-btn:active,
+  .queue-btn:active,
+  .pop-item:active,
+  .pop-go:active,
+  .back-btn:active,
+  .list-tab:active,
+  .q-row:active { animation: none !important; transform: none !important; }
 }
 .player[data-layout="wide"] #drawerCloseBtn { display: inline-flex; }
 

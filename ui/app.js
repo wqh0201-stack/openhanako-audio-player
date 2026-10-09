@@ -508,7 +508,6 @@
   var lyrics = $('lyrics');
   var lyricWrap = $('lyricWrap');
   var lyricScrim = $('lyricScrim');
-  var lyricBack = $('lyricBack');
   var drawerScrim = $('drawerScrim');
   var seek = $('seek');
   var vol = $('vol');
@@ -583,46 +582,16 @@
   }
 
   /* ============================================================
-     环境色（封面右缘取色）
-     目标：整块舞台跟着封面颜色铺满到最右缘，封面右缘柔和「化」进背景。
-     做法：把封面画进小 canvas，只取右缘一条竖带逐段水平平均，得到竖向
-     色标 → linear-gradient 写进 --ambient-gradient，由 .stage-ambient 消费。
-     网易云封面带 CORS（access-control-allow-origin: *），所以
-     crossOrigin='anonymous' + getImageData 能拿到像素、不 taint；
-     非 CORS / 解码失败会抛异常 → 静默退回模糊副本/纸面，不白屏不刷错误。
+     环境色（封面取色 → 定字色极性）
+     背景已改为「封面模糊铺底」（.cover-haze 常驻，纯 CSS，不吃 CORS）。
+     这里只取封面右缘像素，算 WCAG 对比度，择优写 data-ambient=light|dark
+     决定歌词字色/阴影的深浅。取色失败 / 无封面 → 退回主题极性，背景不受影响。
      ============================================================ */
   var AMBIENT_SEGMENTS = 12;   // 竖向分段数
   var coverAR = 0;             // 封面画幅比（只读自然尺寸，不碰 canvas）
   var coverProbeToken = 0;     // 切歌竞态：过期结果丢弃
-  var ambientSegs = null;      // 最近一次取色结果（竖向色标）
   var ambientCache = {};       // pic → 色标（或 null=失败），同一封面不重复取色
   var stagePic = '';           // 当前舞台封面（取色需要它 + 尺寸/布局）
-
-  /* 竖向色标 → 渐变。色标映射到封面「实际显示的那一段高度」上，两端外延
-   * 铺满：否则 contain 的 letterbox 会把渐变整体拉伸，封面右缘上下角对不上。 */
-  function renderAmbientGradient() {
-    var sceneEl = $('scene');
-    if (!ambientSegs || !sceneEl) return;
-    var n = ambientSegs.length;
-    var h = sceneEl.clientHeight;
-    var rgb = function (c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; };
-    var stops = [rgb(ambientSegs[0]) + ' 0%'];
-    var t0 = 0, t1 = 1;
-    /* 色标映射到封面实际占的高度。
-     * 宽窗：contain 完整显示，高度=min(h, w/AR)，两端外延铺满（letterbox 不拉伸渐变）。
-     * 竖版卡：封面满高（cover），占满整舞台高，色标就铺满 0~100%。 */
-    var wide = player.getAttribute('data-layout') === 'wide';
-    if (wide && h > 0 && coverAR > 0) {
-      var ch = Math.min(h, (sceneEl.clientWidth || 0) / coverAR);
-      t0 = Math.max(0, (h - ch) / 2 / h);
-      t1 = 1 - t0;
-    }
-    for (var i = 0; i < n; i++) {
-      stops.push(rgb(ambientSegs[i]) + ' ' + (t0 + (t1 - t0) * (i / (n - 1))) * 100 + '%');
-    }
-    stops.push(rgb(ambientSegs[n - 1]) + ' 100%');
-    player.style.setProperty('--ambient-gradient', 'linear-gradient(180deg, ' + stops.join(', ') + ')');
-  }
 
   /* 在「浅纱+墨字」与「深纱+纸字」两态里择优：按每条色标算合成后的对比度，
    * 取最差段位的对比度为主评分（最差都看得清才算数），整体均值为辅。
@@ -674,23 +643,18 @@
   }
 
   function applyAmbient(segs) {
-    ambientSegs = (segs && segs.length) ? segs : null;
-    if (!ambientSegs) {
-      /* 取色失败 / 无封面：收起渐变，退回模糊副本或纸面 */
-      player.classList.remove('ambient-ok');
-      player.style.removeProperty('--ambient-gradient');
+    /* 背景已改为「封面模糊铺底」（.cover-haze 常驻），不再用采样画渐变。
+     * 采样只用来定字色极性（data-ambient=light|dark）。
+     * 取色失败 / 无封面 → 退回主题极性；背景不受影响（CSS background 不吃 CORS）。 */
+    if (!segs || !segs.length) {
       player.setAttribute('data-ambient', player.classList.contains('nocover') ? 'none' : themePolarity());
       return;
     }
-    renderAmbientGradient();
-    player.setAttribute('data-ambient', ambientPolarity(ambientSegs));
-    player.classList.add('ambient-ok');
+    player.setAttribute('data-ambient', ambientPolarity(segs));
   }
 
-  /* 取色还没回来时的临时态：先退回模糊副本，出结果再换渐变（不白屏） */
+  /* 取色还没回来时的临时态：先按主题极性亮字，出结果再校正 */
   function applyAmbientPending() {
-    player.classList.remove('ambient-ok');
-    player.style.removeProperty('--ambient-gradient');
     if (!player.classList.contains('nocover')) player.setAttribute('data-ambient', themePolarity());
   }
 
@@ -802,7 +766,6 @@
       }
       probeAmbient(stagePic, coverProbeToken, visFrac);
     }
-    renderAmbientGradient();
     measureLyricTop();
   }
   /* 歌词阅读列必须从标题块下方开始，否则歌名/歌手/元信息会与歌词行叠字。
@@ -1038,9 +1001,12 @@
   }
 
   function renderLyrics() {
+    var has = state.lyricLines.length > 0;
+    player.setAttribute('data-haslyrics', has ? '1' : '0');
     var html = '';
-    if (!state.lyricLines.length) {
-      html = '<p class="lyric-line lyric-empty">暂无歌词</p>';
+    if (!has) {
+      /* 无词不再显示「暂无歌词」—— 改由频谱接管（motion 5） */
+      html = '';
     } else {
       for (var i = 0; i < state.lyricLines.length; i++) {
         html += '<p class="lyric-line" data-i="' + i + '">' + esc(state.lyricLines[i].text) + '</p>';
@@ -1107,25 +1073,34 @@
     if (state.follow) centerCurrentLine(instant);
   }
 
+  /* 歌词跟随：滚完停 3s 自动回归（motion 2）。
+   * 去掉「回到当前歌词」按钮 —— 不再需要手动回。
+   * 定时器在交互进行中不触发；每次滚动/指针交互重置计时。 */
+  var followTimer = 0;
+  function clearFollowTimer() { if (followTimer) { clearTimeout(followTimer); followTimer = 0; } }
+  function scheduleResume() {
+    clearFollowTimer();
+    if (state.follow) return;   // 本来就跟着，不需要回归
+    followTimer = setTimeout(function () { followTimer = 0; resumeFollow(); }, 3000);
+  }
   function pauseFollow() {
-    if (!state.follow) return;
-    state.follow = false;
-    lyricBack.hidden = false;
+    lyrics.classList.add('is-browsing');   // 3 行聚焦：滚动时全部行显形
+    if (state.follow) state.follow = false;
+    scheduleResume();
   }
   function resumeFollow() {
+    clearFollowTimer();
     state.follow = true;
-    lyricBack.hidden = true;
+    lyrics.classList.remove('is-browsing');
     centerCurrentLine(false);
-    persistState();
   }
 
   lyricWrap.addEventListener('wheel', pauseFollow, { passive: true });
   lyricWrap.addEventListener('touchstart', pauseFollow, { passive: true });
-  lyricWrap.addEventListener('pointerdown', function (e) {
-    if (e.target.closest('.lyric-back')) return;
-    pauseFollow();
-  });
-  lyricBack.addEventListener('click', resumeFollow);
+  lyricWrap.addEventListener('touchmove', function () { scheduleResume(); }, { passive: true });
+  lyricWrap.addEventListener('pointerdown', pauseFollow);
+  lyricWrap.addEventListener('pointermove', function () { if (!state.follow) scheduleResume(); });
+  lyrics.addEventListener('scroll', function () { if (!state.follow) scheduleResume(); }, { passive: true });
 
   /* LRC：[mm:ss.xx] 行级时间戳，一行可带多个 */
   function parseLrc(text) {
@@ -1467,7 +1442,8 @@
     if (changed) {
       lyricIndex = -1;
       state.follow = true;
-      lyricBack.hidden = true;
+      clearFollowTimer();
+      if (lyrics) lyrics.classList.remove('is-browsing');
     }
     state.playing = true;
     state.needsResume = false;
@@ -1573,16 +1549,38 @@
     if (state.lyrics) {
       sizeLyricPad();
       updateLyricIndex(true);
+      pulseLyricAnim();   // 显隐过渡（motion 4）
     }
     persistState();
   });
+
+  /* 歌词显隐过渡：显时给 .lyric-wrap 加 .is-anim 触发淡入+位移（motion 4） */
+  function pulseLyricAnim() {
+    if (!lyricWrap) return;
+    lyricWrap.classList.remove('is-anim');
+    void lyricWrap.offsetWidth;
+    lyricWrap.classList.add('is-anim');
+  }
+
+  /* 队列呼出/收回：进加 .is-anim 触发滑入动画（motion 1）。
+   * display 由 data-page/data-drawer 控制，动画挂在新出现的元素上。 */
+  function pulseQueueAnim() {
+    var q = $('queue');
+    if (!q) return;
+    q.classList.remove('is-anim');
+    // 强制回流后重加，保证连点同一方向也能重放
+    void q.offsetWidth;
+    q.classList.add('is-anim');
+  }
 
   $('queueBtn').addEventListener('click', function () {
     var layout = player.getAttribute('data-layout');
     if (layout === 'wide') {
       state.drawer = !state.drawer;
+      if (state.drawer) pulseQueueAnim();
     } else if (layout === 'compact') {
       state.page = state.page === 'play' ? 'queue' : 'play';
+      if (state.page === 'queue') pulseQueueAnim();
     }
     renderChrome();
     persistState();

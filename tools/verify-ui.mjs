@@ -75,6 +75,7 @@ function makeTracks() {
   out[1].pic = COVER;          // 横幅封面
   out[2].pic = COVER_DARK;     // 深色封面（右缘极深，走「深纱+纸字」）
   out[4].pic = COVER_LIGHT;    // 真·浅底封面（整张浅，走「浅纱+墨字」）
+  out[5] = { id: 'netease:900099', name: '无词纯音乐', url: goUrl(900099), mode: '在线', dur: 0, group: '在线音乐', list: 'imp:1', pic: COVER };  // 无歌词曲目（假后端对其返回空 LRC）
   for (let i = 0; i < 3; i++) {
     out.push({
       id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: goUrl(900000 + i),
@@ -205,8 +206,14 @@ const server = http.createServer((req, res) => {
   }
   if (p === API + '/widget/api/lrc/load') return json(res, 404, { ok: false, error: 'not found' });
   if (p === API + '/widget/api/lrc/save') return json(res, 200, { ok: true, filename: 'x.lrc' });
-  if (p === API + '/widget/api/music/lrc') return text(res, 200, lrcFor('fixture'), 'text/plain; charset=utf-8');
-  if (p === API + '/widget/api/music/lrc-proxy') return text(res, 200, lrcFor('proxy'), 'text/plain; charset=utf-8');
+  if (p === API + '/widget/api/music/lrc') {
+    const id = u.searchParams.get('id') || '';
+    if (id === '900099') return text(res, 200, '', 'text/plain; charset=utf-8');  // 无词纯音乐
+    return text(res, 200, lrcFor('fixture'), 'text/plain; charset=utf-8');
+  }
+  if (p === API + '/widget/api/music/lrc-proxy') {
+    return text(res, 200, lrcFor('proxy'), 'text/plain; charset=utf-8');
+  }
   if (p === API + '/widget/api/music/ttml') return text(res, 404, 'not in amll-db');
   if (p === API + '/widget/api/music/song') {
     const id = u.searchParams.get('id') || '0';
@@ -604,6 +611,74 @@ for (const [name, w, h, file] of CASES) {
   await page.close();
 }
 
+/* ============ 2c) 动效（BRIEF-MOTION）：隐现/3行聚焦/频谱兜底/按压 ============ */
+const motion = {};
+{
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await sleep(800);
+  await clickTab(page, 'imp:1');
+  await sleep(300);
+  // 有歌词：3 行聚焦 —— 非邻行 opacity 应明显低于当前行
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(900);
+  motion.focus = await page.evaluate(() => {
+    const cur = document.querySelector('.lyric-line.is-current');
+    const near = document.querySelector('.lyric-line.is-near');
+    const far = [...document.querySelectorAll('.lyric-line')].find((e) => !e.classList.contains('is-current') && !e.classList.contains('is-near'));
+    const op = (e) => e ? +parseFloat(getComputedStyle(e).opacity).toFixed(2) : null;
+    return { cur: op(cur), near: op(near), far: op(far), layout: document.getElementById('player').getAttribute('data-layout') };
+  });
+  assert('motion-three-line-focus',
+    motion.focus.layout !== 'wide' && motion.focus.cur > motion.focus.far && motion.focus.near > motion.focus.far && motion.focus.far <= 0.3,
+    JSON.stringify(motion.focus));
+
+  // 歌词跟随 3s 自动回归：滚动（wheel）后停 3.4s 应回到跟随（is-browsing 消失）
+  motion.follow = await page.evaluate(async () => {
+    const wrap = document.getElementById('lyricWrap');
+    const ls = document.getElementById('lyrics');
+    wrap.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 60));
+    const browsingNow = ls.classList.contains('is-browsing');
+    await new Promise((r) => setTimeout(r, 3400));
+    return { browsingNow, browsingAfter: ls.classList.contains('is-browsing') };
+  });
+  assert('motion-follow-auto-resume',
+    motion.follow.browsingNow === true && motion.follow.browsingAfter === false,
+    JSON.stringify(motion.follow));
+
+  // 无歌词 → 自动出频谱（不再显「暂无歌词」）
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#queueList .q-row')];
+    const t = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('无词'));
+    if (t) t.querySelector('.q-hit').click();
+  });
+  await sleep(900);
+  motion.nolyr = await page.evaluate(() => ({
+    haslyrics: document.getElementById('player').getAttribute('data-haslyrics'),
+    specShown: getComputedStyle(document.getElementById('spectrum')).display !== 'none',
+    emptyShown: !!document.querySelector('#lyrics .lyric-empty')
+  }));
+  assert('motion-spectrum-when-no-lyrics',
+    motion.nolyr.haslyrics === '0' && motion.nolyr.specShown === true && motion.nolyr.emptyShown === false,
+    JSON.stringify(motion.nolyr));
+
+  // 按钮按压：:active 样式存在（scale）—— 检查样式表里确实写了
+  motion.press = await page.evaluate(() => {
+    const el = document.getElementById('playBtn');
+    const cs = getComputedStyle(el).transitionProperty || '';
+    return { trans: cs };
+  });
+  assert('motion-press-feedback',
+    /transform/.test(motion.press.trans),
+    JSON.stringify(motion.press));
+
+  report.motion = motion;
+  await page.close();
+}
+
 /* ============ 2b) 四项改造：来源重做 / 真名压缩 / 歌手补齐 / 歌单可删 ============ */
 {
   await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
@@ -854,7 +929,12 @@ assert('theme-accent-on-highlight',
    对比度用 :root 的 --veil-* 独立算一遍（不是读 app 的内部状态）：
    字色先按自身 alpha 合成到薄纱上，再与薄纱后的背景算 WCAG 比。
    阈值：中部（歌词真正落的那段）≥ 4.5；最差段位（极端封面）≥ 3.0（大字）。 */
-const AMBIENT_PROBE = () => {
+/* 背景已从「采样渐变」改为「封面模糊铺底」：
+   - 底图 = .cover-haze（封面模糊放大，常驻）；取色只用来定字色极性 data-ambient。
+   - 采样只用于对比度闸门；这里独立算：拖当前封面到 canvas，取「屏上可见带」均色
+     作为背景基色（模糊保持均色不变，所以均色是可信近似），再合成纱 → 与字色算 WCAG 比。
+   断言：底图存在且带封面 url、不是 12 段纯色渐变（防回退）、无封面/取色失败优雅退回。 */
+const AMBIENT_PROBE = async () => {
   const player = document.getElementById('player');
   const scene = document.getElementById('scene');
   const ambient = document.getElementById('stageAmbient');
@@ -862,9 +942,6 @@ const AMBIENT_PROBE = () => {
   const scrim = document.getElementById('lyricScrim');
   const cover = document.getElementById('cover');
   const pcs = getComputedStyle(player);
-  const grad = pcs.getPropertyValue('--ambient-gradient').trim();
-  const toRGB = (s) => { const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(s || ''); return m ? [+m[1], +m[2], +m[3]] : null; };
-  const stops = (grad.match(/rgb\(\d+,\s*\d+,\s*\d+\)/g) || []).map(toRGB);
   const hex = (s) => { const m = /^#([0-9a-f]{6})$/i.exec(String(s || '').trim()); if (!m) return null; const v = parseInt(m[1], 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
   const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
   const ratio = (a, b) => { const la = lum(a), lb = lum(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); };
@@ -877,40 +954,79 @@ const AMBIENT_PROBE = () => {
     const el = document.querySelector(sel);
     if (!el) return null;
     const s = getComputedStyle(el).color;
-    /* Chrome 对 color-mix 结果会序列化成 color(srgb …)，两种都得认 */
     let m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\)/.exec(s);
     if (m) return { rgb: [+m[1], +m[2], +m[3]], a: m[4] === undefined ? 1 : +m[4], raw: s };
     m = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)/.exec(s);
     if (m) return { rgb: [+m[1] * 255, +m[2] * 255, +m[3] * 255], a: m[4] === undefined ? 1 : +m[4], raw: s };
     return null;
   };
-  const mid = stops.length ? stops[Math.floor(stops.length / 2)] : null;
-  let worst = null;
-  for (const s of stops) {
-    const b = veil ? over(veil, s, va) : null;
-    if (b && (!worst || lum(b) < lum(worst))) worst = b;
+
+  // 可见带均色（竖向卡：封面贴左载切 → 只露左边一条；宽窗：整张）
+  let baseBands = [];
+  const coverBg = getComputedStyle(cover).backgroundImage;
+  const um = /url\("?([^")]+)"?\)/.exec(coverBg || '');
+  const coverHasUrl = !!um;
+  if (um) {
+    baseBands = await new Promise((resolve) => {
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => {
+        try {
+          const W = 40, H = 30;
+          const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+          const cx = cv.getContext('2d');
+          cx.drawImage(im, 0, 0, W, H);
+          const d = cx.getImageData(0, 0, W, H).data;
+          const wide = player.getAttribute('data-layout') === 'wide';
+          const ar = im.naturalHeight > 0 ? im.naturalWidth / im.naturalHeight : 1;
+          const h = scene.clientHeight, w = scene.clientWidth;
+          const nw = h * ar;
+          const coverW = parseFloat(pcs.getPropertyValue('--cover-w')) || w * 0.44;
+          let visFrac = 1;
+          if (!wide && nw > 0) visFrac = Math.max(0.06, Math.min(1, coverW / nw));
+          const x1 = Math.max(1, Math.round(W * visFrac));
+          const bands = [];
+          for (let s = 0; s < 3; s++) {
+            const y0 = Math.floor(s * H / 3), y1 = Math.floor((s + 1) * H / 3);
+            let r = 0, g = 0, b = 0, n = 0;
+            for (let y = y0; y < y1; y++) for (let x = 0; x < x1; x++) { const i = (y * W + x) * 4; r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+            bands.push([r / n, g / n, b / n]);
+          }
+          resolve(bands);
+        } catch (e) { resolve([]); }
+      };
+      im.onerror = () => resolve([]);
+      im.src = um[1];
+    });
   }
-  const midBg = (mid && veil) ? over(veil, mid, va) : null;
-  const contrastAt = (sel, bg) => {
+
+  const contrastAt = (sel, base) => {
     const t = textRGB(sel);
-    if (!t || !bg) return null;
+    if (!t || !base || !veil) return null;
+    const bg = over(veil, base, va);
     return +ratio(over(t.rgb, bg, t.a), bg).toFixed(2);
   };
+  const midBase = baseBands.length ? baseBands[1] : null;
+  let worstBase = null;
+  for (const b of baseBands) { if (!worstBase || lum(b) < lum(worstBase)) worstBase = b; }
+
   const sb = scene.getBoundingClientRect();
   const ab = ambient.getBoundingClientRect();
+  const hb = haze.getBoundingClientRect();
   const cb = scrim.getBoundingClientRect();
+  const hazeBg = getComputedStyle(haze).backgroundImage || '';
   return {
     polarity: pol,
     nocover: player.classList.contains('nocover'),
-    ambientOk: player.classList.contains('ambient-ok'),
-    hasGradient: /linear-gradient/.test(grad),
-    stopCount: stops.length,
-    firstStopLum: stops.length ? +lum(stops[0]).toFixed(3) : null,
-    midStopLum: mid ? +lum(mid).toFixed(3) : null,
+    isGradientBackdrop: /linear-gradient/.test(hazeBg),
+    hazeShown: getComputedStyle(haze).display !== 'none',
+    hazeHasCover: /url\(/.test(hazeBg),
+    hazeFilter: getComputedStyle(haze).filter,
     scene: [Math.round(sb.width), Math.round(sb.height)],
     ambient: [Math.round(ab.width), Math.round(ab.height)],
+    hazeBox: [Math.round(hb.width), Math.round(hb.height)],
     ambientBg: getComputedStyle(ambient).backgroundImage.slice(0, 48),
-    haze: getComputedStyle(haze).display,
+    coverHasUrl,
     scrim: getComputedStyle(scrim).display,
     scrimTop: Math.round(cb.top - sb.top),
     scrimLeft: Math.round(cb.left - sb.left),
@@ -920,8 +1036,8 @@ const AMBIENT_PROBE = () => {
     fadeA: pcs.getPropertyValue('--cover-fade-a').trim(),
     fadeB: pcs.getPropertyValue('--cover-fade-b').trim(),
     coverMask: (getComputedStyle(cover).maskImage || getComputedStyle(cover).webkitMaskImage || '').slice(0, 48),
-    contrastMid: { current: contrastAt('.lyric-line.is-current', midBg), near: contrastAt('.lyric-line.is-near', midBg) },
-    contrastWorst: { current: contrastAt('.lyric-line.is-current', worst), near: contrastAt('.lyric-line.is-near', worst) },
+    contrastMid: { current: contrastAt('.lyric-line.is-current', midBase), near: contrastAt('.lyric-line.is-near', midBase) },
+    contrastWorst: { current: contrastAt('.lyric-line.is-current', worstBase), near: contrastAt('.lyric-line.is-near', worstBase) },
     textColor: { current: (textRGB('.lyric-line.is-current') || {}).raw || null, near: (textRGB('.lyric-line.is-near') || {}).raw || null }
   };
 };
@@ -977,25 +1093,26 @@ let ambient = {};
   ambient.fail = await page.evaluate(AMBIENT_PROBE);
   await page.screenshot({ path: path.join(outDir, 'ambient-fail-465x930.png') });
 
-  assert('ambient-gradient-written:light',
-    ambient.light.hasGradient === true && ambient.light.polarity === 'light' && ambient.light.stopCount >= 12,
-    JSON.stringify({ p: ambient.light.polarity, n: ambient.light.stopCount, g: ambient.light.hasGradient }));
+  assert('backdrop-haze-shown-with-cover:light',
+    ambient.light.hazeShown === true && ambient.light.hazeHasCover === true && ambient.light.isGradientBackdrop === false,
+    JSON.stringify({ shown: ambient.light.hazeShown, url: ambient.light.hazeHasCover, grad: ambient.light.isGradientBackdrop }));
+  /* 防回退：底图不许再是「12 段纯色渐变」（那会出硬色阶/黑块） */
+  assert('backdrop-not-banded-gradient',
+    ambient.light.isGradientBackdrop === false && ambient.dark.isGradientBackdrop === false &&
+    /blur/.test(ambient.light.hazeFilter || ''),
+    JSON.stringify({ lg: ambient.light.isGradientBackdrop, dg: ambient.dark.isGradientBackdrop, f: ambient.light.hazeFilter }));
   /* 方形封面的可见段上浅下深 —— 不绑死在某一极性上（算法按对比度择优）。
    * 真正要保的是「不论选哪态纱，字都可读」。 */
   assert('ambient-mixed-picks-readable',
-    ambient.mixed.hasGradient === true && ambient.mixed.stopCount >= 12 &&
     ambient.mixed.contrastMid.current >= 4.5 && ambient.mixed.contrastWorst.current >= 3.0,
     JSON.stringify({ p: ambient.mixed.polarity, mid: ambient.mixed.contrastMid, worst: ambient.mixed.contrastWorst }));
-  assert('ambient-gradient-written:dark',
-    ambient.dark.hasGradient === true && ambient.dark.polarity === 'dark' && ambient.dark.firstStopLum < 0.1,
-    JSON.stringify({ p: ambient.dark.polarity, first: ambient.dark.firstStopLum, n: ambient.dark.stopCount }));
+  assert('backdrop-haze-shown-with-cover:dark',
+    ambient.dark.hazeShown === true && ambient.dark.polarity === 'dark',
+    JSON.stringify({ p: ambient.dark.polarity, shown: ambient.dark.hazeShown }));
   assert('ambient-fills-scene',
     ambient.dark.ambient[0] === ambient.dark.scene[0] && ambient.dark.ambient[1] === ambient.dark.scene[1] &&
-    ambient.dark.ambientBg.indexOf('linear-gradient') >= 0,
-    JSON.stringify({ a: ambient.dark.ambient, s: ambient.dark.scene, bg: ambient.dark.ambientBg }));
-  assert('ambient-replaces-haze',
-    ambient.dark.ambientOk === true && ambient.dark.haze === 'none',
-    JSON.stringify({ ok: ambient.dark.ambientOk, haze: ambient.dark.haze }));
+    ambient.dark.hazeBox[0] >= ambient.dark.scene[0] && ambient.dark.hazeBox[1] >= ambient.dark.scene[1],
+    JSON.stringify({ a: ambient.dark.ambient, s: ambient.dark.scene, hz: ambient.dark.hazeBox }));
   assert('ambient-dark-lyric-readable',
     ambient.dark.contrastMid.current >= 4.5 && ambient.dark.contrastMid.near >= 4.5 &&
     ambient.dark.contrastWorst.current >= 3.0 && ambient.dark.contrastWorst.near >= 3.0,
@@ -1014,12 +1131,13 @@ let ambient = {};
     JSON.stringify({ left: ambient.dark.scrimLeft, x: ambient.dark.contentX, top: ambient.dark.scrimTop, lyricTop: ambient.dark.lyricTop }));
   assert('ambient-nocover-fallback',
     ambient.nocover.nocover === true && ambient.nocover.polarity === 'none' &&
-    ambient.nocover.hasGradient === false && ambient.nocover.ambientBg.indexOf('linear-gradient') >= 0,
-    JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, g: ambient.nocover.hasGradient, bg: ambient.nocover.ambientBg }));
+    ambient.nocover.hazeShown === false && ambient.nocover.ambientBg.indexOf('linear-gradient') >= 0,
+    JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, haze: ambient.nocover.hazeShown, bg: ambient.nocover.ambientBg }));
+  /* 取色失败：背景不受影响（底图是 CSS background），字仍可读，不白屏 */
   assert('ambient-extract-failure-graceful',
-    ambient.fail.hasGradient === false && ambient.fail.haze !== 'none' && ambient.fail.ambientOk === false &&
+    ambient.fail.hazeShown === true && ambient.fail.hazeHasCover === true &&
     ambient.fail.ambient[0] > 0 && ambient.fail.ambient[1] > 0,
-    JSON.stringify({ g: ambient.fail.hasGradient, haze: ambient.fail.haze, ok: ambient.fail.ambientOk, a: ambient.fail.ambient }));
+    JSON.stringify({ haze: ambient.fail.hazeShown, url: ambient.fail.hazeHasCover, a: ambient.fail.ambient }));
 
   report.ambient = ambient;
   await page.close();
@@ -1057,8 +1175,8 @@ for (const [name, w, h, file] of [['312x494', 312, 494, 'index.html'], ['465x930
   await sleep(300);
   const off = await page.evaluate(AMBIENT_PROBE);
   assert('ambient-dark-lyricsoff-scrim-stays',
-    off.scrim !== 'none' && off.hasGradient === true && off.polarity === 'dark',
-    JSON.stringify({ scrim: off.scrim, g: off.hasGradient, p: off.polarity }));
+    off.scrim !== 'none' && off.hazeShown === true && off.polarity === 'dark',
+    JSON.stringify({ scrim: off.scrim, haze: off.hazeShown, p: off.polarity }));
   await page.screenshot({ path: path.join(outDir, 'ambient-dark-465x930-lyrics-off.png') });
   await page.close();
 }
