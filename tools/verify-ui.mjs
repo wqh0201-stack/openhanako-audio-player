@@ -393,6 +393,8 @@ for (const [name, w, h, file] of CASES) {
   w.tabs = await tabLabels(page);
   w.activeList = await activeTab(page);
   // 本地页：没设文件夹 → 引导（不是空白）
+  await clickTab(page, 'local');
+  await sleep(250);
   w.localGuide = await page.evaluate(() => ({
     rows: document.querySelectorAll('#queueList .q-row').length,
     hasPickBtn: !!document.getElementById('localPickBtn'),
@@ -829,6 +831,101 @@ const motion = {};
     w2.queueArtists.length > 0 && w2.queueArtists.every((a) => a === ''),
     JSON.stringify(w2.queueArtists));
 
+  // ---- (c2) 我的喜欢：红心加入 / 切换条出现「我的喜欢」/ 跨列表同曲同亮 / 取消不动原歌单
+  const favState = () => page.evaluate(() => ({
+    onRows: [...document.querySelectorAll('#queueList .q-row .q-fav.is-on')].length,
+    total: document.querySelectorAll('#queueList .q-row .q-fav').length,
+    tabs: [...document.querySelectorAll('#listTabs .list-tab')].map((e) => e.getAttribute('data-list'))
+  }));
+  // imp:2 首行点亮红心
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-fav').click());
+  await sleep(250);
+  w2.favAfterAdd = await favState();
+  assert('fav-row-toggles-on',
+    w2.favAfterAdd.onRows === 1 && w2.favAfterAdd.tabs.indexOf('fav') >= 0,
+    JSON.stringify(w2.favAfterAdd));
+
+  // 切到「我的喜欢」：只收到那一首，元信息行显示「来源·我的喜欢」
+  await clickTab(page, 'fav');
+  await sleep(250);
+  w2.favList = { rows: await rowCount(page), first: (await rowTitles(page))[0] };
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(350);
+  w2.favMeta = await metaText();
+  assert('fav-list-collects-and-labels',
+    w2.favList.rows === 1 && w2.favMeta === '来源·我的喜欢',
+    JSON.stringify({ rows: w2.favList.rows, meta: w2.favMeta }));
+  await page.screenshot({ path: path.join(outDir, 'fav-465x930-light.png') });
+
+  // 跨列表同亮：imp:1 与 imp:2 各有一首同 id（在线曲目 1 = netease:900000）。
+  // 在 imp:2 点亮后，切到 imp:1 同名 id 那颗心也应亮 —— 证明红心按稳定 id 判，不按 uid。
+  await clickTab(page, 'imp:1');
+  await sleep(250);
+  const crossFav = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#queueList .q-row')].find((r) => r.getAttribute('data-id') === 'netease:900000');
+    return { found: !!row, on: !!(row && row.querySelector('.q-fav.is-on')), onRows: document.querySelectorAll('#queueList .q-fav.is-on').length };
+  });
+  w2.favCrossList = crossFav;
+  assert('fav-state-by-stable-id-cross-list', crossFav.found === true && crossFav.on === true, JSON.stringify(crossFav));
+
+  // 取消喜欢：从「我的喜欢」移出，原歌单那份纹丝不动
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-fav').click());
+  await sleep(250);
+  const afterUnfav = await page.evaluate(() => ({
+    onRowsImp1: document.querySelectorAll('#queueList .q-fav.is-on').length,
+    rowsImp1: document.querySelectorAll('#queueList .q-row').length
+  }));
+  await clickTab(page, 'fav');
+  await sleep(250);
+  const favAfterUnfav = await page.evaluate(() => document.querySelectorAll('#queueList .q-row').length);
+  w2.favUnfav = { afterUnfav, favRows: favAfterUnfav };
+  assert('fav-unfav-keeps-original-list',
+    afterUnfav.onRowsImp1 === 0 && afterUnfav.rowsImp1 === 20 && favAfterUnfav === 0,
+    JSON.stringify(w2.favUnfav));
+
+  // 「我的喜欢」不可删：长按不弹删除浮层
+  await page.evaluate(() => {
+    const tab = document.querySelector('#listTabs .list-tab[data-list="fav"]');
+    tab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+  await sleep(700);
+  const favPopOpen = await page.evaluate(() => !document.getElementById('listPop').hidden);
+  await page.evaluate(() => {
+    const tab = document.querySelector('#listTabs .list-tab[data-list="fav"]');
+    tab.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+  assert('fav-not-deletable', favPopOpen === false, String(favPopOpen));
+  await clickTab(page, 'imp:2');
+  await sleep(200);
+
+  // ---- (c3) 播放页红心（曲名下方 meta 旁）：跟着当前曲换，点亮后同步到队列行
+  await clickTab(page, 'imp:1');
+  await sleep(200);
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(350);
+  const stageFavBefore = await page.evaluate(() => ({
+    hidden: document.getElementById('stageFavBtn').hidden,
+    pressed: document.getElementById('stageFavBtn').getAttribute('aria-pressed')
+  }));
+  await page.evaluate(() => document.getElementById('stageFavBtn').click());
+  await sleep(300);
+  const stageFavAfter = await page.evaluate(() => ({
+    pressed: document.getElementById('stageFavBtn').getAttribute('aria-pressed'),
+    on: document.getElementById('stageFavBtn').classList.contains('is-on'),
+    rowOn: document.querySelectorAll('#queueList .q-fav.is-on').length
+  }));
+  w2.stageFav = { before: stageFavBefore, after: stageFavAfter };
+  assert('stage-fav-toggles-and-syncs-row',
+    stageFavBefore.hidden === false && stageFavBefore.pressed === 'false' &&
+    stageFavAfter.on === true && stageFavAfter.pressed === 'true' && stageFavAfter.rowOn === 1,
+    JSON.stringify(w2.stageFav));
+  // 心收回（不留侧效给后续用例）
+  await page.evaluate(() => document.getElementById('stageFavBtn').click());
+  await sleep(250);
+  // 回到 imp:2（(d) 补全歌手针对的就是这个列表里的 searchKey 曲目）
+  await clickTab(page, 'imp:2');
+  await sleep(200);
+
   // ---- (d) 歌手补齐：searchKey 曲目补 author，且幂等
   const hitsBefore = searchHits;
   await page.evaluate(() => document.querySelector('[data-import="backfill"]').click());
@@ -1108,6 +1205,36 @@ const AMBIENT_PROBE = async () => {
     })(),
     seam: pcs.getPropertyValue('--seam').trim(),
     band: pcs.getPropertyValue('--band').trim(),
+    /* 舞台底部渐隐带（.scene::after）：两层 —— 主体化进环境色 + 最底一截羽化到控制条色 */
+    blend: (() => {
+      const cs = getComputedStyle(scene, '::after');
+      const bg = cs.backgroundImage || '';
+      return {
+        h: Math.round(parseFloat(cs.height) || 0),
+        layers: bg.split(/,\s*(?=linear-gradient\()/).map((s) => s.slice(0, 160)),
+        size: (cs.backgroundSize || '').slice(0, 80)
+      };
+    })(),
+    surfaceRGB: hex(rs.getPropertyValue('--hk-surface')),
+    /* .frame 的背景色 = 圆角处露出来的颜色（.player 满铺盖住其余部分）——
+     * 必须是卡面色 --hk-surface，不能是页面色 --hk-bg。 */
+    frameBg: (() => {
+      const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(getComputedStyle(document.querySelector('.frame')).backgroundColor || '');
+      return m ? [+m[1], +m[2], +m[3]] : null;
+    })(),
+    /* 顶部圆角：卡片壳自己补（宿主只在独立窗里裁）。顺手把 data-shell 切成 window 再读一次，
+     * 不用额外开页（开页会写 playback-state，撞后面的生命周期用例）。 */
+    corners: (() => {
+      const read = () => {
+        const cs = getComputedStyle(player);
+        return { tl: parseFloat(cs.borderTopLeftRadius) || 0, bl: parseFloat(cs.borderBottomLeftRadius) || 0 };
+      };
+      const card = read();
+      document.body.setAttribute('data-shell', 'window');
+      const win = read();
+      document.body.setAttribute('data-shell', 'card');
+      return { card, win };
+    })(),
     coverMask: (getComputedStyle(cover).maskImage || getComputedStyle(cover).webkitMaskImage || '').slice(0, 120),
     scrimMask: (getComputedStyle(scrim).maskImage || getComputedStyle(scrim).webkitMaskImage || '').slice(0, 120),
     lyricsTextAlign: getComputedStyle(document.getElementById('lyrics')).textAlign,
@@ -1189,6 +1316,35 @@ let ambient = {};
   assert('ambient-dark-color-applied',
     ambient.dark.ambientOk === true && ambient.dark.polarity === 'dark',
     JSON.stringify({ p: ambient.dark.polarity, ok: ambient.dark.ambientOk }));
+  /* 底部渐隐：单层，末端必须是环境色（封面主色）—— 不能拿主题面色在底边上刷一道：
+   * 「深色封面 + 浅色主题」时后者就是那道很重的奶白晕（封面近黑、控制条暖白）。
+   * 高度也必须跟舞台走，不再是死 72px（矮卡/方块布局不被吃掉一大块）。
+   * 底边到控制条是硬切（2026-10-09 罐头拍板）—— 曾试过最底补 18px 羽化，真机上判为不行，已撤。 */
+  {
+    const stopsOf = (s) => [...String(s).matchAll(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g)]
+      .map((m) => [+m[1], +m[2], +m[3]]);
+    const layers = ambient.dark.blend.layers || [];
+    const main = stopsOf(layers[layers.length - 1] || '').slice(-1)[0] || [];
+    const amb = ambient.dark.ambientColor || [];
+    const near = (a, b) => a.length === 3 && b.length === 3 && a.every((v, i) => Math.abs(v - b[i]) <= 2);
+    assert('bottom-blend-dissolves-into-ambient',
+      ambient.dark.ambientOk === true && layers.length === 1 && near(main, amb) &&
+      ambient.dark.blend.h >= 36 && ambient.dark.blend.h <= 72,
+      JSON.stringify({ h: ambient.dark.blend.h, main, amb, layers }));
+  }
+
+  /* 顶部圆角（2026-10-09）：宿主只在独立窗/浏览器视图里把 App 面裁圆，聊天卡片里不裁 ——
+   * App 自己补上，固定 14px（宿主不转发 --radius-chat-surface；只转发 8/6px 那两个，
+   * 比卡片容器那道弧小一半，真机上判为粗糙）。断言：两壳上两角都是这一档、下两角仍直角。
+   * 另断言角上露出的颜色 = 卡面色（--hk-surface），不是页面色。 */
+  assert('top-corners-rounded',
+    ambient.dark.corners.card.tl >= 14 && ambient.dark.corners.card.bl === 0 &&
+    ambient.dark.corners.win.tl >= 14,
+    JSON.stringify(ambient.dark.corners));
+  assert('corner-reveals-card-surface',
+    Array.isArray(ambient.dark.frameBg) && Array.isArray(ambient.dark.surfaceRGB) &&
+    ambient.dark.frameBg.every((v, i) => Math.abs(v - ambient.dark.surfaceRGB[i]) <= 2),
+    JSON.stringify({ frameBg: ambient.dark.frameBg, surface: ambient.dark.surfaceRGB }));
   assert('ambient-fills-scene',
     ambient.dark.ambient[0] === ambient.dark.scene[0] && ambient.dark.ambient[1] === ambient.dark.scene[1],
     JSON.stringify({ a: ambient.dark.ambient, s: ambient.dark.scene }));
@@ -1556,7 +1712,8 @@ const wiringOk =
   report.wiring.rename.headerTitle === '我的歌单' && report.wiring.rename.tabTitle === '我的歌单' &&
   report.darkFallback.changed === true;
 const migrationOk = report.migration && report.migration.idempotent === true &&
-  report.migration.firstTabs.map((t) => t.label).join(',') === '本地,本地音乐,鸣潮,在线音乐,未分类' &&
+  report.migration.firstTabs.map((t) => t.label).join(',') === '我的喜欢,本地,本地音乐,鸣潮,在线音乐,未分类' &&
+  report.migration.firstCounts.per['fav'] === 0 &&
   report.migration.firstCounts.per['local'] === 0 &&
   report.migration.firstCounts.per['imp:1'] === 3 &&
   report.migration.firstCounts.per['imp:2'] === 4 &&

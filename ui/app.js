@@ -171,8 +171,8 @@
   /* ---------- 状态（接口约定的 playback-state 字段） ---------- */
   var state = {
     tracks: [],
-    lists: [],          // [{ id:'local'|'imp:N', name }]，顺序即顶部切换条顺序
-    activeList: 'local',
+    lists: [],          // [{ id:'local'|'fav'|'imp:N', name }]，顺序即顶部切换条顺序
+    activeList: 'fav',  // 全新会话默认落在「我的喜欢」（它排切换条最前，当首页）
     localDir: '',       // 本地固定文件夹绝对路径（空 = 没设过）
     currentUid: '',
     progress: 0,
@@ -320,6 +320,7 @@
   }
   /* 没有保存名字时的默认显示名（元数据丢失时用，避免标题显示 imp:1） */
   function defaultListName(id) {
+    if (id === 'fav') return '我的喜欢';
     if (id === 'local') return '本地';
     var m = /^imp:(\d+)$/.exec(String(id || ''));
     return m ? '歌单 ' + m[1] : String(id || '');
@@ -340,9 +341,10 @@
     return s;
   }
 
-  /* 切换条上显示的列表名：本地 →「本地」；有名字 → 压缩名；没有 → 编号。 */
+  /* 切换条上显示的列表名：我的喜欢 / 本地固定；导入歌单走压缩名，没有名字退编号。 */
   function listDisplayName(l) {
     if (!l) return '';
+    if (l.id === 'fav') return '我的喜欢';
     if (l.id === 'local') return '本地';
     var name = String(l.name || '').trim();
     var shown = compressListName(name);
@@ -368,6 +370,89 @@
     return 'imp:' + (max + 1);
   }
   function saveLists() { storeSet(LISTS_KEY, state.lists); }
+
+  /* ---------- 我的喜欢（fav 固定列表）----------
+   * 判定用**稳定 id**（不是 uid）：同一首歌在不同列表里 uid 不同，用 uid 判会
+   * 出现「在原歌单点过心、切到我的喜欢里心是灭的」。
+   * 加入 = 在 fav 列表里放一份副本；取消 = 只摘掉 fav 那份，原歌单纹丝不动。
+   * 这沿用了现有约定：同一首歌可同时存在于多个列表。 */
+  function favEntryOf(stableId) {
+    var id = String(stableId || '').trim();
+    if (!id) return null;
+    for (var i = 0; i < state.tracks.length; i++) {
+      var t = state.tracks[i];
+      if (t.list === 'fav' && t.id === id) return t;
+    }
+    return null;
+  }
+  function isFav(stableId) { return !!favEntryOf(stableId); }
+
+  function findAnyById(stableId) {
+    var id = String(stableId || '').trim();
+    for (var i = 0; i < state.tracks.length; i++) {
+      if (state.tracks[i].id === id) return state.tracks[i];
+    }
+    return null;
+  }
+
+  function addFav(stableId) {
+    if (favEntryOf(stableId)) return true;
+    var src = findAnyById(stableId);
+    if (!src) return false;
+    ensureList('fav', '我的喜欢');
+    var stored = toStoredTrack(src);   // 借用回写形状，保住 pic/author/lrcUrl/raw 补充字段
+    stored.list = 'fav';
+    state.tracks.push(normalizeTrack(stored));
+    savePlaylist();
+    return true;
+  }
+
+  /* 取消喜欢。若正在播的恰好是 fav 里那份副本，不能直接掋掉指针：
+   *  · 原歌单/其他列表里有同一首歌 → 把播放指针转过去（无缝，不打断）；
+   *  · 确实没有别的副本 → 打 detached（只够播完当前这首，不回写盘，
+   *    下次启动不会把「我的喜欢」里已取消的那首重建）。 */
+  function removeFav(stableId) {
+    var id = String(stableId || '').trim();
+    if (!id) return false;
+    var playingEntry = null;
+    state.tracks = state.tracks.filter(function (t) {
+      if (!(t.list === 'fav' && t.id === id)) return true;
+      if (t.uid === state.currentUid) { playingEntry = t; return true; }   // 暂留
+      return false;
+    });
+    if (playingEntry) {
+      var alt = null;
+      for (var i = 0; i < state.tracks.length; i++) {
+        var x = state.tracks[i];
+        if (x.id === id && x.uid !== playingEntry.uid) { alt = x; break; }
+      }
+      if (alt) {
+        state.currentUid = alt.uid;
+        state.tracks = state.tracks.filter(function (t) { return t.uid !== playingEntry.uid; });
+      } else {
+        playingEntry.detached = true;
+      }
+    }
+    savePlaylist();
+    return false;
+  }
+
+  /* 切换喜欢。返回切换后的状态。 */
+  function toggleFav(stableId) {
+    if (isFav(stableId)) return removeFav(stableId);
+    return addFav(stableId);
+  }
+
+  /* 把一颗红心按当前状态刷成「亮/灭」。按钮可复用（队列行、播放页各一个）。 */
+  function paintFav(btn, t) {
+    if (!btn) return;
+    var on = !!(t && isFav(t.id));
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    var label = on ? '取消喜欢' : '加入我的喜欢';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+  }
 
   /* 每个列表内按 uid 去重（跨列表不去重 —— 同一首歌在两个歌单里是合理的）。
    * 保留首次出现的位置，后出现的同 uid 项并入（补齐 pic/author 之类）。 */
@@ -399,6 +484,8 @@
       if (!String(tracks[i].list || '').trim()) { needsAssign = true; break; }
     }
 
+    /* 「我的喜欢」是固定列表：任何迁移路径下都保证它在，且不可删/不可重命名。
+     * 它排在排序函数的第一位（见下），所以这里只需确保存在。 */
     if (needsAssign) {
       var groupToId = {};
       var ordered = [];
@@ -433,10 +520,14 @@
     }
 
     dedupeWithinLists(tracks);
+    ensureList('fav', '我的喜欢');   // 固定列表，永不缺位
+    /* 切换条顺序：我的喜欢 → 本地 → 导入歌单（imp:N 按编号）。 */
+    var listRank = function (id) { return id === 'fav' ? 0 : (id === 'local' ? 1 : 2); };
     state.lists.sort(function (a, b) {
-      if (a.id === 'local') return -1;
-      if (b.id === 'local') return 1;
-      return listNum(a.id) - listNum(b.id);
+      var ra = listRank(a.id), rb = listRank(b.id);
+      if (ra !== rb) return ra - rb;
+      if (ra === 2) return listNum(a.id) - listNum(b.id);
+      return 0;
     });
     return needsAssign;
   }
@@ -874,21 +965,27 @@
 
   function renderTrack() {
     var t = currentTrack();
+    var favBtn = $('stageFavBtn');
     if (!t) {
       $('trackTitle').textContent = '还没有曲目';
       $('trackArtist').textContent = '用右上角的 ＋ 导入';
       $('trackMeta').textContent = '';
+      paintFav(favBtn, null);
+      if (favBtn) favBtn.hidden = true;   // 没曲目可喜欢，不留孤零零一颗心
       $('ciTitle').textContent = '还没有曲目';
       $('ciArtist').textContent = '';
       seek.max = '0';
       $('durTime').textContent = '--:--';
       applyCovers();
+      syncMediaSession();
       return;
     }
     $('trackTitle').textContent = t.title;
     /* 副标题只放真歌手：拿不到就留空省略，不把来源/分组冒充歌手（R3） */
     $('trackArtist').textContent = t.author || '';
     $('trackMeta').textContent = metaLine(t);
+    paintFav(favBtn, t);
+    if (favBtn) favBtn.hidden = false;
     $('ciTitle').textContent = t.title;
     $('ciArtist').textContent = t.author || '';
     var d = trackDuration(t);
@@ -896,6 +993,7 @@
     $('durTime').textContent = d ? fmtTime(d) : '--:--';
     applyCovers();
     measureLyricTop();
+    syncMediaSession();
   }
 
   function renderListTabs() {
@@ -914,6 +1012,12 @@
 
   /* 列表空时的安静引导（不是空白） */
   function emptyGuide() {
+    if (state.activeList === 'fav') {
+      return '<li class="q-empty q-guide">' +
+        '<p class="q-guide-text">还没有喜欢的歌</p>' +
+        '<p class="q-guide-hint">在队列或播放页点亮红心，就会收到这里</p>' +
+        '</li>';
+    }
     if (state.activeList === 'local') {
       if (!state.localDir) {
         return '<li class="q-empty q-guide">' +
@@ -954,6 +1058,7 @@
           '</svg></span>' +
           '<span class="q-dur">' + (t.dur ? fmtTime(t.dur) : '--:--') + '</span>' +
         '</button>' +
+        '<button class="q-fav' + (isFav(t.id) ? ' is-on' : '') + '" type="button" aria-pressed="' + (isFav(t.id) ? 'true' : 'false') + '" aria-label="' + (isFav(t.id) ? '取消喜欢' : '加入我的喜欢') + '" title="' + (isFav(t.id) ? '取消喜欢' : '加入我的喜欢') + '">' + icon('i-heart') + '</button>' +
         '<button class="q-more" type="button" aria-label="更多操作：' + esc(t.title) + '">' + icon('i-more') + '</button>' +
       '</li>';
     }
@@ -968,7 +1073,7 @@
     var qt = $('queueTitle');
     if (qt && !renaming) qt.textContent = (act && act.name) || '播放队列';
     var rb = $('renameBtn');
-    if (rb) rb.hidden = !(act && act.id !== 'local');
+    if (rb) rb.hidden = !(act && act.id !== 'local' && act.id !== 'fav');
   }
 
   function renderResume() {
@@ -1483,6 +1588,7 @@
     state.progress = audio.currentTime;
     renderProgress();
     updateLyricIndex(true);
+    syncPositionState(true);
   });
 
   audio.addEventListener('timeupdate', function () {
@@ -1490,6 +1596,7 @@
     state.progress = audio.currentTime;
     renderProgress();
     updateLyricIndex(false);
+    syncPositionState();
     persistState();
   });
 
@@ -1498,6 +1605,7 @@
     state.needsResume = false;
     renderPlayState();
     renderResume();
+    msPlayback('playing');
     buildReactive();                 // 首次播放的用户手势里建音频反应链
     if (reactive.ready) startBars();
   });
@@ -1506,6 +1614,7 @@
     if (unloading) return;
     state.playing = false;
     renderPlayState();
+    msPlayback('paused');
     stopBars();                      // 暂停时定格频谱
   });
   audio.addEventListener('ended', function () { onTrackEnd(); });
@@ -1516,6 +1625,116 @@
     renderPlayState();
     toast('播放失败：' + t.title);
   });
+
+  /* ============================================================
+     系统「正在播放」（macOS 控制中心 / 媒体键）
+     宿主是 Electron，Chromium 把 navigator.mediaSession 桥到 macOS 的 MediaRemote：
+     metadata → 面板的标题/歌手/封面，action handler → 面板按钮与键盘媒体键。
+     **没注册 handler 的命令，系统不转发给页面**（按了没反应），所以上一曲/下一曲/
+     进度得显式接上；默认动作只兜播放/暂停。
+     ============================================================ */
+  var mediaSessionApi = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
+
+  function msPlayback(name) {
+    if (!mediaSessionApi) return;
+    try { mediaSessionApi.playbackState = name; } catch (e) {}
+  }
+
+  var lastPosAt = 0;
+  /* 进度：系统靠这条外推进度条；不报的话面板上那条是浏览器默认值，未必对。
+   * 时长未知时报了会抛，所以先判有效时长；节流约 1s，seek/切歌后强制刷。 */
+  function syncPositionState(force) {
+    if (!mediaSessionApi || typeof mediaSessionApi.setPositionState !== 'function') return;
+    var dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    if (!dur) return;
+    var now = Date.now();
+    if (!force && now - lastPosAt < 900) return;
+    var pos = isFinite(audio.currentTime) ? Math.max(0, Math.min(audio.currentTime, dur)) : 0;
+    try {
+      mediaSessionApi.setPositionState({
+        duration: dur,
+        playbackRate: audio.playbackRate > 0 ? audio.playbackRate : 1,
+        position: pos
+      });
+      lastPosAt = now;
+    } catch (e) {}
+  }
+
+  /* 系统面板的封面必须**同源**：跨源图 Chromium 拓不到像素，artwork 会被静默丢掉
+   * （面板退回占位图）。所以经 App 自己的路由代理一次，顺带把网易云封面要成 512。 */
+  function msArtwork(pic) {
+    if (!pic) return [];
+    var proxied = API + '/widget/api/music/cover?size=512&url=' + encodeURIComponent(pic);
+    return [{ src: withSession(proxied), sizes: '512x512', type: 'image/jpeg' }];
+  }
+
+  /* 元数据：只喂真字段，拿不到就不给（宁可空着，也别拿歌单名冒充歌手） */
+  function syncMediaSession() {
+    if (!mediaSessionApi) return;
+    var t = currentTrack();
+    if (!t) {
+      try { mediaSessionApi.metadata = null; } catch (e) {}
+      msPlayback('none');
+      return;
+    }
+    var meta = { title: t.title || '未命名' };
+    if (t.author) meta.artist = t.author;
+    meta.album = sourceName(t);
+    var art = msArtwork(t.pic);
+    if (art.length) meta.artwork = art;
+    try { mediaSessionApi.metadata = new MediaMetadata(meta); } catch (e) {}
+    syncPositionState(true);
+  }
+
+  function msSeekBy(delta) {
+    var dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    var to = Math.max(0, (audio.currentTime || 0) + delta);
+    if (dur) to = Math.min(to, dur);
+    try { audio.currentTime = to; } catch (e) { return; }
+    state.progress = to;
+    renderProgress();
+    updateLyricIndex(true);
+    syncPositionState(true);
+  }
+
+  function msStep(dir) {
+    var i = stepIndex(dir);
+    var vis = visibleTracks();
+    if (i >= 0 && vis[i]) playTrack(vis[i].uid);
+  }
+
+  /* handler 一次性挂上：面板按钮 / 媒体键 → 与页面内控件同一套逻辑 */
+  (function bindMediaSessionActions() {
+    if (!mediaSessionApi || typeof mediaSessionApi.setActionHandler !== 'function') return;
+    function on(name, fn) { try { mediaSessionApi.setActionHandler(name, fn); } catch (e) {} }
+    on('play', function () { if (!currentTrack()) return; audio.play().catch(onAutoplayBlocked); persistNow(); });
+    on('pause', function () { audio.pause(); persistNow(); });
+    on('previoustrack', function () { msStep(-1); });
+    on('nexttrack', function () { msStep(1); });
+    on('stop', function () {
+      audio.pause();
+      try { audio.currentTime = 0; } catch (e) {}
+      state.playing = false;
+      state.progress = 0;
+      renderPlayState();
+      renderProgress();
+      syncPositionState(true);
+      persistNow();
+    });
+    on('seekbackward', function (d) { msSeekBy(-((d && d.seekOffset) || 10)); });
+    on('seekforward', function (d) { msSeekBy((d && d.seekOffset) || 10); });
+    on('seekto', function (d) {
+      if (!d || typeof d.seekTime !== 'number') return;
+      var dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      var to = dur ? Math.min(d.seekTime, dur) : d.seekTime;
+      if (d.fastSeek && typeof audio.fastSeek === 'function') {
+        try { audio.fastSeek(to); } catch (e) { audio.currentTime = to; }
+      } else {
+        try { audio.currentTime = to; } catch (e) { return; }
+      }
+      syncPositionState(true);
+    });
+  })();
 
   function stepIndex(dir) {
     var vis = visibleTracks();
@@ -1829,6 +2048,16 @@
 
   $('backBtn').addEventListener('click', function () { setCompactPage('play'); });
 
+  /* 播放页红心（曲名下方 meta 旁）：点一下切换对当前曲的喜欢。 */
+  if ($('stageFavBtn')) $('stageFavBtn').addEventListener('click', function () {
+    var t = currentTrack();
+    if (!t) return;
+    var nowOn = toggleFav(t.id);
+    renderQueue();
+    renderTrack();
+    toast(nowOn ? '已加入我的喜欢' : '已取消喜欢');
+  });
+
   $('drawerCloseBtn').addEventListener('click', closeDrawer);
 
   function closeDrawer() { setDrawer(false); }
@@ -1872,6 +2101,21 @@
     // 空列表引导按钮（本地页）
     if (e.target.closest('#localPickBtn')) { pickLocalFolder(); return; }
     if (e.target.closest('#localRescanBtn')) { syncLocalFolder(true); return; }
+
+    // 红心：加/取消「我的喜欢」。不改列表归属，只动 fav 那份副本。
+    var favHit = e.target.closest('.q-fav');
+    if (favHit) {
+      e.stopPropagation();
+      var fr = favHit.closest('.q-row');
+      var ft = trackByUid(fr.getAttribute('data-uid'));
+      if (ft) {
+        var nowOn = toggleFav(ft.id);
+        renderQueue();
+        renderTrack();
+        toast(nowOn ? '已加入我的喜欢' : '已取消喜欢');
+      }
+      return;
+    }
 
     var more = e.target.closest('.q-more');
     if (more) {
@@ -1938,7 +2182,7 @@
   var renaming = false;
   function startRename() {
     var l = findList(state.activeList);
-    if (!l || l.id === 'local') return;  // 本地名固定
+    if (!l || l.id === 'local' || l.id === 'fav') return;  // 本地/我的喜欢名固定
     var host = $('queueTitle');
     if (!host || host.querySelector('input')) return;
     renaming = true;
@@ -1974,7 +2218,7 @@
   function openListPop(tab) {
     if (!tab) return;
     var id = tab.getAttribute('data-list');
-    if (!id || id === 'local') return;
+    if (!id || id === 'local' || id === 'fav') return;   // 固定列表不出删除菜单
     var l = findList(id);
     if (!l) return;
     listDeleteTarget = id;
@@ -1992,6 +2236,7 @@
   function deleteList(id) {
     id = String(id || '');
     if (!id || id === 'local') { toast('本地列表不可删除'); return false; }
+    if (id === 'fav') { toast('「我的喜欢」不可删除，逐首取消红心即可'); return false; }
     var l = findList(id);
     if (!l) return false;
     var keepUid = state.currentUid;
@@ -2804,10 +3049,14 @@
     var emoji = /\p{Extended_Pictographic}/u.test(player.textContent);
     add('no-emoji', !emoji, '');
 
-    /* 12. 根容器直角、无外描边/外阴影 */
+    /* 12. 根容器：无外描边/外阴影；顶部两角圆、下两角直角。
+     *     宿主在独立窗里会把 App 面裁圆，卡片里不裁 —— 所以卡片壳自己补上顶部圆角，
+     *     值跟宿主 token 走（body[data-shell] 两条，见 style.css）。 */
     var cs = getComputedStyle(player);
-    add('root-square-no-shadow',
-      cs.borderRadius === '0px' && cs.boxShadow === 'none' &&
+    var topR = parseFloat(cs.borderTopLeftRadius) || 0;
+    var botR = parseFloat(cs.borderBottomLeftRadius) || 0;
+    add('root-corners-and-no-shadow',
+      topR >= 12 && botR === 0 && cs.boxShadow === 'none' &&
       cs.borderTopWidth === '0px' && cs.borderLeftWidth === '0px',
       cs.borderRadius + ' / ' + cs.boxShadow);
 

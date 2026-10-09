@@ -71,7 +71,8 @@
    `~/.hanako/.cache/app-ui-snapshots/`，之后只认快照——**改了文件不会自动生效**，
    要重载 app。
 5. **宿主/沙箱**：不用 `position:fixed`；聊天卡片里右上角 **100×40 CSS px**
-   是宿主控件安全区（别放文字/控件）；最外层容器保持**直角**，不加外圆角/外描边/
+   是宿主控件安全区（别放文字/控件）；**顶部两角要圆**——宿主只在独立窗里把 App 面
+   裁圆（iframe 吃 `--radius-lg`），卡片里不裁，所以卡片壳自己补（见 §6）；无外描边/
    外阴影；**禁 emoji**（用 SVG 线描）；字号**不低于 11px**；颜色走 CSS 变量、不硬编码。
 
 ## 3. 目录
@@ -129,9 +130,26 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
 - 歌单改名不持久化修复：`docs/player-ui/REFINE-DONE-RENAME-PERSIST.md`（**已部署**，构建号 1003131567）。
   根因：`boot()` 早于 `sdk.js` 执行，`window.hana` 未就绪 → 读存储永远 null，
   回写默认名把真名冲掉（详见知识库 `20-资料/Hana App 卡片UI-主题变量与存储接线.md`）
+- 系统「正在播放」接线（macOS 控制中心 / 媒体键）：`ui/app.js` 的 `syncMediaSession()`
+  （挂在 `renderTrack()`）+ `syncPositionState()`（`timeupdate` / `seeked`）+ 一次性
+  `bindMediaSessionActions()`（play/pause/上下曲/seek/stop）。**封面必须同源**：
+  跨源图会被 Chromium 静默丢弃（面板退回占位图），所以加了 `lib/register-routes.js`
+  的 `/widget/api/music/cover` 代理路由，artwork 只吃它。**已部署**，构建号 1003131572
+  （封面 2026-10-09 真机确认）。
+  原理与坑：知识库 `20-资料/macOS 正在播放-Web App 接线（mediaSession）.md`。
+  2026-10-09 真机验收：面板标题/歌手/封面 + 上一曲/下一曲 + 媒体键（F7/F8/⏯）全部可用。
+  仅剩边界：宿主自己出声时的面板归属（音频焦点之争）。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 56/56 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
+- 第六轮（舞台底部渐隐重做 + 顶部圆角，2026-10-09 罐头拍板）：
+  ① `.scene::after` 从「固定 72px 刷主题面色」改成「按舞台高比例 `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，
+     `z-index:1` 只化封面不盖歌词；底边到控制条**硬切**（试过最底补 18px 羽化，真机判为不行，已撤）。
+  ② `.player` 顶部两角自己补圆角（`14px 14px 0 0`，只上两角）—— 宿主只裁独立窗，
+     卡片不裁；`.frame` 底色改 `--hk-surface`，让角上露出卡面色而不是页面色。
+  断言 `bottom-blend-dissolves-into-ambient` / `top-corners-rounded` / `corner-reveals-card-surface`（59/59）。
+  详情 `docs/player-ui/REFINE-DONE-AMBIENT.md` §五-3
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 59/59 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
 - 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
+  §五-3（底部 72px 渐隐）已改（第六轮）：化进环境色 + 硬切底边；顶部圆角一并补上，均待真机复核。
 
 > 注：早期 `docs/REFACTOR-BRIEF.md` 里的「PV / 唱盘 / 主题面板」等要求已被 2026-10-08 的
 > `CONTRACT.md` 取代，以极简版为准。
@@ -149,6 +167,16 @@ SDK 默认已把宿主主题样式表注入页面（`ui/sdk.js` 的 `followHostT
   强调藕荷粉 `#C99AAF` / 文字 `#E1EAF0`·`#9FB1BC`（小截图取色，权威以 `hana.theme` 为准）。
 
 通用：小圆角约 5px；只 SVG 线描图标（禁 emoji）；字号 ≥ 11px；禁左竖线当区块装饰。
+
+**顶部圆角自己补**（2026-10-09 定）：宿主**只在独立窗/浏览器视图**里把 App 面裁圆
+（iframe 吃 `--radius-lg`），**聊天卡片里不裁** —— 所以 `.player` 自己补上两角：
+`border-radius: 14px 14px 0 0`（只上两角，下两角交给宿主窗口/控制条）。
+**14px 是罐头定的**：宿主转发给 App 的圆角 token 只有 `--radius-chat-card` /
+`--radius-chat-card-inner`（8/6px），比卡片容器那道弧小一半，两道叠着看小那道像素步进外露，
+真机上就是「粗糙」；14px 跟容器弧（约 16px）同量级又收一点。
+宿主自己裁得更紧时它的 clip 会盖住我们，不打架。
+（宿主另有 `--corner-radius-scale`，圆角偏好倍数、默认 1；想跟随就写 `calc(14px * var(--corner-radius-scale, 1))`。）
+角上露出的颜色由 `.frame` 的背景给（必须是卡面色 `--hk-surface`；用页面色 `--hk-bg` 会露出一块深一号的补丁）。
 
 **决策（已定）**：自带配色面板已砍，主题**只跟随宿主**（决策 A，删改清单见
 `docs/REFACTOR-BRIEF.md` §4.2）。

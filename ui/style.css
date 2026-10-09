@@ -122,8 +122,6 @@
   /* 封面右缘 mask 淡出的起止位置（px），由 JS 按封面显示宽写入 */
   --cover-fade-a: 100%;
   --cover-fade-b: 100%;
-  /* 封面底部渐隐融入下方面板：跟随歌词开关，关闭时只剩封面 */
-  --cover-blend: linear-gradient(180deg, transparent 0%, var(--hk-surface) 92%);
   /* 右侧内容列起点：JS 按封面实际显示宽算出 px 写进来（--cover-w 同理） */
   --content-x: 34%;
   /* 默认（无 data-ambient / 无封面）：吃主题字色 + 一条轻量顶渐变 */
@@ -235,7 +233,10 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--hk-bg);
+  /* 这一层只在 .player 的圆角处露出来（.player 满铺盖住其余部分）。
+   * 用卡面色 --hk-surface 而不是页面色 --hk-bg —— 角上要接的是宿主卡片面，
+   * 不然会露出一块比卡面深一号的“补丁”（实测差 7 个色阶）。 */
+  background: var(--hk-surface);
 }
 
 /* ---------- 播放器根 ---------- */
@@ -248,12 +249,25 @@ body {
   overflow: hidden;
   background: var(--hk-bg);
   color: var(--hk-text);
-  /* 根容器：直角、无外描边、无外阴影 */
+  /* 根容器：无外描边、无外阴影；顶部圆角见下面那条 .player 覆盖规则 */
   border-radius: 0;
   border: 0;
   box-shadow: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* 顶部圆角：宿主只在独立窗/浏览器视图里把 App 面裁圆（iframe 吃 --radius-lg），
+ * 聊天卡片里不裁 —— 卡片壳得自己补。
+ * 写固定 14px（2026-10-09 罐头定，从 16px 下调）：宿主转发给 App 的圆角 token 只有
+ * --radius-chat-card / --radius-chat-card-inner（8/6px），比卡片容器那道弧小一半，
+ * 两道叠着看小那道像素步进外露 =「粗糙」；14px 跟容器弧同量级又比 16px 收一点。
+ *   · 宿主自己裁得更紧时它的 clip 会盖住我们，不会打架；
+ *   · 宿主另有 --corner-radius-scale（圆角偏好倍数，默认 1）—— 想跟随的话把 14px 换成
+ *     calc(14px * var(--corner-radius-scale, 1))。
+ * 只做上两角；下两角交给宿主窗口 / 控制条。 */
+.player {
+  border-radius: 14px 14px 0 0;
 }
 
 button {
@@ -336,7 +350,7 @@ button:disabled { cursor: default; }
   overflow: hidden;
 }
 
-/* 顶部局部渐变（标题可读底色）；底部渐隐让歌词/频谱融入下方面板 */
+/* 顶部局部渐变（标题可读底色）；底部渐隐把封面下缘「化」进环境色 */
 .scene::before {
   content: "";
   position: absolute;
@@ -348,15 +362,29 @@ button:disabled { cursor: default; }
   background: var(--cover-top-scrim);
   pointer-events: none;
 }
+/* 底部渐隐 = 封面下缘「化」进环境色（与右缘淡出同一套做法），而不是拿主题面色
+ * 在整条底边上刷一层 —— 后者在「深色封面 + 浅色主题」时就是那道很重的奶白晕：
+ * 封面近黑、控制条暖白，72px 的固定带子把底边整条刷白。
+ *   · 颜色吃 --ambient-color（封面主色）：封面区 = 封面在化开，环境色区 = 同色不显；
+ *     取色失败/无封面时退回 --hk-surface（与旧行为一致）。
+ *   · 高度跟舞台走（不再是死 72px）：矮卡/方块布局不会被吃掉一大块。
+ *   · z-index 1：只化封面，不盖歌词/频谱/标题（它们都在 z-index 2/3）。
+ *   · 底边到控制条是**硬切**（2026-10-09 罐头拍板）：控制条自己那条 hairline 还在，
+ *     读起来是有意的面板分界，和 Apple Music 那种「作品结束、面板开始」一致。
+ *     曾试过最底再补 18px 羽化接控制条，真机上判为不行（多一截浅色呼吸），已撤。
+ * 注：不写成 :root 上的 --cover-blend —— var()/color-mix 在【声明所在元素】上求值，
+ * 写在 :root 只会取到那里的值，拿不到 .player 上的 --ambient-color。 */
 .scene::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 72px;
-  z-index: 2;
-  background: var(--cover-blend);
+  height: clamp(36px, 9%, 72px);
+  z-index: 1;
+  background: linear-gradient(180deg,
+      transparent 0%,
+      var(--ambient-color, var(--hk-surface)) 92%);
   pointer-events: none;
 }
 
@@ -507,13 +535,37 @@ button:disabled { cursor: default; }
 .track-artist:empty { display: none; }
 /* 元信息行：专辑 / 歌手 / 来源，拿不到的字段优雅省略（不显空标签） */
 .track-meta {
-  margin: 7px 0 0;
+  margin: 0;
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--cover-text-soft);
   overflow-wrap: anywhere;
 }
 .track-meta:empty { display: none; }
+/* 元信息行 + 播放页红心同一行：红心跟在文字后面，不推挤标题块高度 */
+.track-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+.fav-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: -3px 0;
+  border-radius: var(--radius-s);
+  color: var(--cover-text-soft);
+  opacity: 0.8;
+}
+.fav-btn:hover { background: var(--hk-hover); color: var(--hk-text); opacity: 1; }
+.fav-btn.is-on { color: var(--hk-accent); opacity: 1; }
+.fav-btn.is-on .icon { fill: currentColor; }
+.player[data-bar="tight"] .fav-btn { width: 22px; height: 22px; }
+.player[data-bar="tight"] .fav-btn .icon { width: 16px; height: 16px; }
 
 /* 歌词层：只有它自己的容器滚；阅读列与标题块共用 --content-x。
  * top 让出标题块的高度（--lyric-top，由 JS 量出）——否则歌词行会跟
@@ -740,6 +792,7 @@ button:disabled { cursor: default; }
 }
 .q-guide { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 28px 14px; }
 .q-guide-text { margin: 0; font-size: 13px; color: var(--hk-muted); }
+.q-guide-hint { margin: 0; font-size: 11.5px; color: var(--hk-faint); }
 .q-guide-btn {
   display: inline-flex;
   align-items: center;
@@ -854,6 +907,29 @@ button:disabled { cursor: default; }
 .q-row:hover .q-more,
 .q-more:focus-visible { opacity: 1; }
 .q-more:hover { background: var(--hk-hover); color: var(--hk-text); }
+
+/* 队列行红心：常态半透明（触屏也能找到），悬停/已点亮时全显。点亮走强调色 + 实心。
+ * 实心靠 fill:currentColor 盖在 .icon 的 fill:none 之上（不另写一个图标）。 */
+.q-fav {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-s);
+  color: var(--hk-faint);
+  opacity: 0.5;
+}
+.q-row:hover .q-fav,
+.q-fav:focus-visible,
+.q-fav.is-on { opacity: 1; }
+.q-fav:hover { background: var(--hk-hover); color: var(--hk-text); }
+.q-fav.is-on { color: var(--hk-accent); }
+.q-fav.is-on .icon { fill: currentColor; }
+/* 窄卡：行内容紧，红心仍保留（它是一次点击就能记住的请求），只把触区收小 */
+.player[data-bar="tight"] .q-fav { width: 26px; }
+.player[data-bar="tight"] .q-fav .icon { width: 16px; height: 16px; }
 
 /* ---------- 浮层（行内菜单 / 导入） ---------- */
 .pop {
