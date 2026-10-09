@@ -1278,6 +1278,36 @@ const motion = {};
     s.afterAdd.added === true && s.afterAdd.inFav === true && s.favRows.hasNew === true,
     JSON.stringify({ afterAdd: s.afterAdd, favRows: s.favRows }));
 
+  // 点搜索结果行 = 直接播（不需先加入）；播过的自动进「最近播放」
+  await page.evaluate(() => {
+    window.__playerDebug.openSearch();
+    window.__playerDebug.renderResults([
+      { id: 'netease:770002', title: '点播命中曲', author: '点播歌手', url: '/api/apps/hanako-audio-player/routes/widget/api/music/go/770002?server=netease', pic: '' }
+    ]);
+  });
+  await sleep(200);
+  s.playHit = await page.evaluate(() => ({ hits: document.querySelectorAll('#searchList .search-hit').length }));
+  await page.evaluate(() => document.querySelector('#searchList .search-hit').click());
+  await sleep(600);
+  s.afterPlay = await page.evaluate(() => ({
+    playing: document.getElementById('player').getAttribute('data-playing'),
+    title: document.getElementById('trackTitle').textContent,
+    recentTab: Array.prototype.some.call(document.querySelectorAll('#listTabs .list-tab'), (e) => e.getAttribute('data-list') === 'recent')
+  }));
+  assert('search-hit-plays-directly',
+    s.playHit.hits === 1 && s.afterPlay.playing === '1' && s.afterPlay.title === '点播命中曲' && s.afterPlay.recentTab === true,
+    JSON.stringify({ playHit: s.playHit, afterPlay: s.afterPlay }));
+  // 切到最近播放：刚才点播的那首应在里面
+  await clickTab(page, 'recent');
+  await sleep(300);
+  s.recentList = await page.evaluate(() => ({
+    count: document.querySelectorAll('#queueList .q-row').length,
+    hasPlayed: Array.prototype.some.call(document.querySelectorAll('#queueList .q-title'), (e) => e.textContent === '点播命中曲')
+  }));
+  assert('recent-list-records-played',
+    s.recentList.count >= 1 && s.recentList.hasPlayed === true,
+    JSON.stringify(s.recentList));
+
   // Esc 关闭搜索页（退场动画 290ms 后才 hidden）
   await page.keyboard.press('Escape');
   await sleep(420);
@@ -2015,8 +2045,9 @@ const wiringOk =
   report.wiring.rename.headerTitle === '我的歌单' && report.wiring.rename.tabTitle === '我的歌单' &&
   report.darkFallback.changed === true;
 const migrationOk = report.migration && report.migration.idempotent === true &&
-  report.migration.firstTabs.map((t) => t.label).join(',') === '我的喜欢,本地,本地音乐,鸣潮,在线音乐,未分类' &&
+  report.migration.firstTabs.map((t) => t.label).join(',') === '我的喜欢,最近播放,本地,本地音乐,鸣潮,在线音乐,未分类' &&
   report.migration.firstCounts.per['fav'] === 0 &&
+  report.migration.firstCounts.per['recent'] === 0 &&
   report.migration.firstCounts.per['local'] === 0 &&
   report.migration.firstCounts.per['imp:1'] === 3 &&
   report.migration.firstCounts.per['imp:2'] === 4 &&

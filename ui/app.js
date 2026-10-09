@@ -326,6 +326,7 @@
   /* 没有保存名字时的默认显示名（元数据丢失时用，避免标题显示 imp:1） */
   function defaultListName(id) {
     if (id === 'fav') return '我的喜欢';
+    if (id === 'recent') return '最近播放';
     if (id === 'local') return '本地';
     var m = /^imp:(\d+)$/.exec(String(id || ''));
     return m ? '歌单 ' + m[1] : String(id || '');
@@ -350,6 +351,7 @@
   function listDisplayName(l) {
     if (!l) return '';
     if (l.id === 'fav') return '我的喜欢';
+    if (l.id === 'recent') return '最近播放';
     if (l.id === 'local') return '本地';
     var name = String(l.name || '').trim();
     var shown = compressListName(name);
@@ -448,6 +450,46 @@
     return addFav(stableId);
   }
 
+  /* 「最近播放」：任何来源播过的歌都自动记进去，最近在前。
+   * 按**稳定 id** 去重（同曲不同列表的副本只记一条）；已在则移到最前（重播更新顺序）。
+   * 不是收藏，所以**不看红心**；也不落 detached 的临时条目。
+   * 上限 RECENT_MAX 条，超出丢最旧。写盘交给调用方（playTrack 里已 persistNow）。 */
+  var RECENT_MAX = 100;
+  function recordRecent(t) {
+    if (!t || !t.id) return;
+    ensureList('recent', '最近播放');
+    var id = t.id;
+    var existing = null;
+    for (var i = 0; i < state.tracks.length; i++) {
+      if (state.tracks[i].list === 'recent' && state.tracks[i].id === id) { existing = state.tracks[i]; break; }
+    }
+    if (existing) {
+      // 已在最近播放：若内容有更新（封面/歌手/时长补齐）就刷新，顺序不用改（本来就在最后）。
+      var src = toStoredTrack(t);
+      src.list = 'recent';
+      var fresh = normalizeTrack(src);
+      fresh.uid = existing.uid;
+      var idx = state.tracks.indexOf(existing);
+      if (idx >= 0) state.tracks[idx] = fresh;
+      // 移到该列表末尾（visibleTracks 按 state.tracks 顺序，末尾 = 最新）
+      state.tracks.splice(idx, 1);
+      state.tracks.push(fresh);
+    } else {
+      var stored = toStoredTrack(t);
+      stored.list = 'recent';
+      state.tracks.push(normalizeTrack(stored));
+    }
+    // 超限：从最旧的（recent 里最靠前的）开始丢
+    var recents = [];
+    for (var j = 0; j < state.tracks.length; j++) if (state.tracks[j].list === 'recent') recents.push(j);
+    var over = recents.length - RECENT_MAX;
+    for (var k = 0; k < over; k++) {
+      // 不能丢掉正在播的那首（丢了 currentTrack 会找不到）
+      var dropIdx = recents[k];
+      if (state.tracks[dropIdx] && state.tracks[dropIdx].uid !== state.currentUid) state.tracks.splice(dropIdx, 1);
+    }
+  }
+
   /* 把一颗红心按当前状态刷成「亮/灭」。按钮可复用（队列行、播放页各一个）。 */
   function paintFav(btn, t) {
     if (!btn) return;
@@ -526,12 +568,15 @@
 
     dedupeWithinLists(tracks);
     ensureList('fav', '我的喜欢');   // 固定列表，永不缺位
-    /* 切换条顺序：我的喜欢 → 本地 → 导入歌单（imp:N 按编号）。 */
-    var listRank = function (id) { return id === 'fav' ? 0 : (id === 'local' ? 1 : 2); };
+    ensureList('recent', '最近播放');   // 固定列表，永不缺位
+    /* 切换条顺序：我的喜欢 → 最近播放 → 本地 → 导入歌单（imp:N 按编号）。 */
+    var listRank = function (id) {
+      return id === 'fav' ? 0 : (id === 'recent' ? 1 : (id === 'local' ? 2 : 3));
+    };
     state.lists.sort(function (a, b) {
       var ra = listRank(a.id), rb = listRank(b.id);
       if (ra !== rb) return ra - rb;
-      if (ra === 2) return listNum(a.id) - listNum(b.id);
+      if (ra === 3) return listNum(a.id) - listNum(b.id);
       return 0;
     });
     return needsAssign;
@@ -1024,6 +1069,12 @@
         '<p class="q-guide-hint">在队列或播放页点亮红心，就会收到这里</p>' +
         '</li>';
     }
+    if (state.activeList === 'recent') {
+      return '<li class="q-empty q-guide">' +
+        '<p class="q-guide-text">还没有播放记录</p>' +
+        '<p class="q-guide-hint">播放过的歌会自动收在这里，最近的在最前</p>' +
+        '</li>';
+    }
     if (state.activeList === 'local') {
       if (!state.localDir) {
         return '<li class="q-empty q-guide">' +
@@ -1079,7 +1130,7 @@
     var qt = $('queueTitle');
     if (qt && !renaming) qt.textContent = (act && act.name) || '播放队列';
     var rb = $('renameBtn');
-    if (rb) rb.hidden = !(act && act.id !== 'local' && act.id !== 'fav');
+    if (rb) rb.hidden = !(act && act.id !== 'local' && act.id !== 'fav' && act.id !== 'recent');
   }
 
   /* 把正在播的那首滚进队列可视区中部。切列表 / 切歌时调（罐头拍板）。
@@ -2071,6 +2122,10 @@
     if (!t) return;
     var changed = uid !== state.currentUid;
     state.currentUid = uid;
+    /* 记入「最近播放」（任何来源播的歌都记，最近在前）。
+     * 不记 detached 的临时条目（那是列表被删后只够播完的残体）。
+     * 只在真正换曲时记，同一首重复播不反复重排。 */
+    if (changed && !t.detached) recordRecent(t);
     if (changed && state.mode === 'shuffle') shuffleTrailPush(uid);
     if (changed && !keepProgress) state.progress = 0;
     if (changed) {
@@ -2447,7 +2502,7 @@
   var renaming = false;
   function startRename() {
     var l = findList(state.activeList);
-    if (!l || l.id === 'local' || l.id === 'fav') return;  // 本地/我的喜欢名固定
+    if (!l || l.id === 'local' || l.id === 'fav' || l.id === 'recent') return;  // 本地/我的喜欢/最近播放名固定
     var host = $('queueTitle');
     if (!host || host.querySelector('input')) return;
     renaming = true;
@@ -2483,7 +2538,7 @@
   function openListPop(tab) {
     if (!tab) return;
     var id = tab.getAttribute('data-list');
-    if (!id || id === 'local' || id === 'fav') return;   // 固定列表不出删除菜单
+    if (!id || id === 'local' || id === 'fav' || id === 'recent') return;   // 固定列表不出删除菜单
     var l = findList(id);
     if (!l) return;
     listDeleteTarget = id;
@@ -2502,6 +2557,7 @@
     id = String(id || '');
     if (!id || id === 'local') { toast('本地列表不可删除'); return false; }
     if (id === 'fav') { toast('「我的喜欢」不可删除，逐首取消红心即可'); return false; }
+    if (id === 'recent') { toast('「最近播放」不可删除'); return false; }
     var l = findList(id);
     if (!l) return false;
     var keepUid = state.currentUid;
@@ -2912,11 +2968,13 @@
       var author = String(r.author || '').trim();
       var inList = !!r._inList;
       html += '<li class="search-row" data-i="' + i + '">' +
-        '<span class="q-cover"></span>' +
-        '<span class="q-meta">' +
-          '<span class="q-title">' + esc(title) + '</span>' +
-          '<span class="q-artist">' + esc(author) + '</span>' +
-        '</span>' +
+        '<button class="search-hit" type="button" data-i="' + i + '" aria-label="播放 ' + esc(title) + '">' +
+          '<span class="q-cover"></span>' +
+          '<span class="q-meta">' +
+            '<span class="q-title">' + esc(title) + '</span>' +
+            '<span class="q-artist">' + esc(author) + '</span>' +
+          '</span>' +
+        '</button>' +
         '<button class="search-add' + (inList ? ' is-added' : '') + '" type="button" data-i="' + i + '"' +
           (inList ? ' disabled' : '') + ' aria-label="' + (inList ? '已加入' : '加入曲单') + '">' +
           (inList ? '已加入' : (icon('i-plus', 'icon-sm') + '<span>加入</span>')) +
@@ -3065,9 +3123,11 @@
       var r = hotSongs[i];
       var inList = hotSongInList(r);
       html += '<li class="search-row" data-hot="' + i + '">' +
-        '<span class="q-cover"></span>' +
-        '<span class="q-meta"><span class="q-title">' + esc(String(r.title || '').trim()) + '</span>' +
-        '<span class="q-artist">' + esc(String(r.author || '').trim()) + '</span></span>' +
+        '<button class="search-hit" type="button" data-hot="' + i + '" aria-label="播放 ' + esc(String(r.title || '').trim()) + '">' +
+          '<span class="q-cover"></span>' +
+          '<span class="q-meta"><span class="q-title">' + esc(String(r.title || '').trim()) + '</span>' +
+          '<span class="q-artist">' + esc(String(r.author || '').trim()) + '</span></span>' +
+        '</button>' +
         '<button class="search-add' + (inList ? ' is-added' : '') + '" type="button" data-hot="' + i + '"' +
           (inList ? ' disabled' : '') + ' aria-label="' + (inList ? '已加入' : '加入曲单') + '">' +
           (inList ? '已加入' : (icon('i-plus', 'icon-sm') + '<span>加入</span>')) +
@@ -3290,6 +3350,33 @@
     renderSearchResults();
   }
 
+  /* 点搜索结果/热门行 = 直接播（不需先加入）。
+   * 播完自动进「最近播放」（由 playTrack 里的 recordRecent 负责），
+   * 所以不建永久列表也能在队列里看到它。 */
+  function playSearchHit(r) {
+    if (!r || !r.url) { toast('这首暂无播放地址'); return; }
+    ensureList('recent', '最近播放');
+    var target = 'recent';
+    var id = deriveId(r, r.url);
+    // 若已在某处（含刚刚播过的副本），直接播那一份（保 uid 稳定）
+    var found = null;
+    for (var i = 0; i < state.tracks.length; i++) {
+      if (state.tracks[i].id === id) { found = state.tracks[i]; break; }
+    }
+    if (!found) {
+      var stored = Object.assign({}, r);
+      stored.list = target;
+      var nt = normalizeTrack(stored);
+      state.tracks.push(nt);
+      found = nt;
+    }
+    // 不切激活列表（不打断搜索上下文）；播放本身会由 recordRecent 把它记进最近播放
+    playTrack(found.uid);
+    // 播后刷新一下搜索结果里的「已在列表」状态
+    markSearchInList();
+    renderSearchResults();
+  }
+
   if ($('searchEntryBtn')) $('searchEntryBtn').addEventListener('click', toggleSearch);
   if ($('searchBackBtn')) $('searchBackBtn').addEventListener('click', searchGoBack);
   if ($('searchGoBtn')) $('searchGoBtn').addEventListener('click', doSearch);
@@ -3325,15 +3412,19 @@
   }
   if (searchList) {
     searchList.addEventListener('click', function (e) {
+      var play = e.target.closest('.search-hit');
+      if (play) { playSearchHit(searchResults[Number(play.getAttribute('data-i'))]); return; }
       var btn = e.target.closest('.search-add');
       if (!btn || btn.disabled) return;
       addSearchHit(Number(btn.getAttribute('data-i')));
     });
   }
-  /* 推荐区交互：热门歌曲逐首加；榜单/歌单/电台卡片点开拉列表 */
+  /* 推荐区交互：热门歌曲逐首可播可加；榜单/歌单/电台卡片点开拉列表 */
   function bindDiscover() {
     if (hotListEl) {
       hotListEl.addEventListener('click', function (e) {
+        var play = e.target.closest('.search-hit');
+        if (play) { playSearchHit(hotSongs[Number(play.getAttribute('data-hot'))]); return; }
         var btn = e.target.closest('.search-add');
         if (!btn || btn.disabled) return;
         var i = Number(btn.getAttribute('data-hot'));
