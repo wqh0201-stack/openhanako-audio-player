@@ -515,11 +515,6 @@
   var toastEl = $('toast');
   var audio = $('audio');
 
-  /* 频谱接真音频（Web Audio Analyser）要求媒体以 CORS 取源：读频谱前必须让 <audio>
-   * 带 crossOrigin='anonymous'。网易云 CDN 带 CORS；万一是没有 CORS 的源，error 里会
-   * 退回直连并关掉反应链（见 error 处理器）。 */
-  try { audio.crossOrigin = 'anonymous'; } catch (e) {}
-
   /* ---------- 工具 ---------- */
   function icon(id, cls) {
     return '<svg class="icon ' + (cls || '') + '" aria-hidden="true"><use href="#' + id + '"></use></svg>';
@@ -1051,6 +1046,14 @@
   var reactive = { actx: null, analyser: null, data: null, raf: 0, ready: false, failed: false, building: false };
   var barSmooth = null;
 
+  /* 是否接入真音频反应。**现为 false**。
+   * 根因（实测）：网易云 CDN（music/go 302 跳转的终点）不回 CORS 头
+   * （access-control-allow-origin: null）。跨源媒体一旦接进 createMediaElementSource，
+   * 输出会变成静音；而且图一旦建立不可逆，之后播在线曲会直接变哑。
+   * 要真正启用，得先让音频走**同源**（app 服务端代理 music/go），再把这个开关打开。
+   * 关着时频谱退回 CSS 装饰循环（specPulse）。 */
+  var REACTIVE_ENABLED = false;
+
   function reactiveSupported() {
     return !!(window.AudioContext || window.webkitAudioContext);
   }
@@ -1082,6 +1085,7 @@
   }
 
   function buildReactive() {
+    if (!REACTIVE_ENABLED) return;
     if (reactive.ready || reactive.failed || reactive.building || !reactiveSupported()) return;
     reactive.building = true;
     var AC = window.AudioContext || window.webkitAudioContext;
@@ -1501,17 +1505,6 @@
   audio.addEventListener('error', function () {
     var t = currentTrack();
     if (!t || !t.url) return;
-    /* 带 crossOrigin 取源失败 → 退回直连（放弃音频反应，保留装饰频谱循环）。
-     * 只退一次：摘掉 crossOrigin 后重进本处理器不会再走这一支。 */
-    if (audio.crossOrigin) {
-      reactive.failed = true;
-      player.classList.remove('is-reactive');
-      stopBars();
-      try { audio.removeAttribute('crossorigin'); } catch (e) {}
-      var src = audio.getAttribute('src');
-      if (src) { audio.src = src; try { audio.load(); } catch (e) {} }
-      return;
-    }
     state.playing = false;
     renderPlayState();
     toast('播放失败：' + t.title);
