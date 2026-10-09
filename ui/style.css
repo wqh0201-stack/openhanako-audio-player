@@ -454,17 +454,27 @@ button:disabled { cursor: default; }
       #000 var(--content-x, 34%));
   pointer-events: none;
 }
-/* 歌词 ⇄ 频谱：由显示态切换。呼出时有一道淡入+轻微位移（可打断，只动 opacity/transform）。
- * 无歌词（data-haslyrics=0）时无论开关都出频谱（没词可显）。 */
+/* 歌词 ⇄ 频谱：由显示态切换。无歌词（data-haslyrics=0）时无论开关都出频谱（没词可显）。 */
 .player[data-lyrics="0"] .lyric-wrap { display: none; }
 .player[data-lyrics="1"] .spectrum { display: none; }
 .player[data-haslyrics="0"] .lyric-wrap { display: none; }
 .player[data-haslyrics="0"] .spectrum { display: flex; }
 .player[data-lyrics="1"][data-haslyrics="0"] .spectrum { display: flex; }
-.lyric-wrap.is-anim { animation: lyricIn 0.3s ease both; }
-@keyframes lyricIn {
+
+/* 换层交叉淡入淡出（motion 4）：display 不能过渡，所以过渡期间用 .is-swap-* 把两层
+ * 都强制挂载，结束时 JS 摘类 → 回到上面的 resting display:none（延迟卸载）。
+ * 两层同时在场做交叉，不闪；频谱柱由真音频驱动，换层时动画不重启。 */
+.player[data-lyrics] .lyric-wrap.is-swap-out { display: block; animation: panelOut 0.22s ease both; }
+.player[data-lyrics] .spectrum.is-swap-out { display: flex; animation: panelOut 0.22s ease both; }
+.player[data-lyrics] .lyric-wrap.is-swap-in { animation: panelIn 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.player[data-lyrics] .spectrum.is-swap-in { animation: panelIn 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+@keyframes panelIn {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
+}
+@keyframes panelOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; }
 }
 
 /* 标题块常驻右侧内容列上方（R3）：大标题 / 副标题 / 元信息行。
@@ -919,9 +929,9 @@ button:disabled { cursor: default; }
 .pop-go:hover { filter: brightness(1.06); }
 
 /* ============================================================
-   频谱（R4）：歌词关闭时的替代内容。纯装饰动画，由 data-playing 驱动；
-   不碰 Web Audio / createMediaElementSource —— 接真音频链有把声音变哑的不可逆风险，
-   本期不做真 FFT。暂停时定格成静态均衡器。
+   频谱（R4）：歌词关闭 / 无词时的替代内容。
+   默认是 CSS 装饰循环（specPulse，由 data-playing 驱动，暂停时定格）；
+   接上真音频后（.player.is-reactive）改为 JS 写 transform:scaleY，中心对称缩放。
    ============================================================ */
 .spectrum {
   position: absolute;
@@ -947,6 +957,13 @@ button:disabled { cursor: default; }
   animation-play-state: paused;
 }
 .player[data-playing="1"] .spec-bar { animation-play-state: running; }
+/* 真音频反应：关掉装饰循环，柱高由 JS 写 transform（见 app.js applyBins）。
+ * 改中心对称缩放，保留居中的视觉。 */
+.player.is-reactive .spec-bar {
+  animation: none;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
 @keyframes specPulse {
   from { transform: scaleY(0.32); }
   to   { transform: scaleY(1); }
@@ -1216,6 +1233,27 @@ button:disabled { cursor: default; }
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
 }
+/* 队列退场（延迟卸载）：退场期间把队列拎成绝对覆盖层留在原地滑出，
+ * 舞台同时在下面淡入 —— 两层交叉，不留空档。动画结束由 JS 摘 is-q-leaving。 */
+.player[data-layout="compact"].is-q-leaving[data-page="play"] .queue {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-top: 0;
+  animation: queueOut 0.26s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.player[data-layout="compact"].is-q-leaving[data-page="play"] .scene {
+  animation: sceneIn 0.26s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes queueOut {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+@keyframes sceneIn {
+  from { opacity: 0; transform: translateX(-5%); }
+  to   { opacity: 1; transform: none; }
+}
 
 /* ============================================================
    布局三 · 宽窗：舞台在左，队列从右侧浮层打开
@@ -1252,6 +1290,16 @@ button:disabled { cursor: default; }
 .player[data-layout="wide"][data-drawer="1"] .queue.is-anim { animation: queueIn 0.28s cubic-bezier(0.22, 0.61, 0.36, 1); }
 .drawer-scrim { animation: fadeIn 0.24s ease both; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+/* 抽屉退场（延迟卸载）：队列留在原处滑出、遮罩同步淡出，动画结束由 JS 摘 is-q-leaving */
+.player[data-layout="wide"].is-q-leaving .queue {
+  display: flex;
+  animation: queueOut 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.player[data-layout="wide"].is-q-leaving .drawer-scrim {
+  display: block;
+  animation: fadeOut 0.28s ease both;
+}
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
 
 /* 截图模式（?shot=1）：冻结动画/过渡，保证自检图确定性 */
 body.is-shot *,
@@ -1266,7 +1314,6 @@ body.is-shot *::after {
 @media (prefers-reduced-motion: reduce) {
   .player[data-layout="compact"][data-page="queue"] .queue.is-anim,
   .player[data-layout="wide"][data-drawer="1"] .queue.is-anim,
-  .lyric-wrap.is-anim,
   .drawer-scrim,
   .play-btn:active,
   .icon-btn:active,
@@ -1277,7 +1324,14 @@ body.is-shot *::after {
   .back-btn:active,
   .list-tab:active,
   .q-row:active { animation: none !important; transform: none !important; }
+  /* 换层保留纯淡入淡出（去位移） */
+  .player[data-lyrics] .lyric-wrap.is-swap-in,
+  .player[data-lyrics] .spectrum.is-swap-in { animation: panelFadeIn 0.2s ease both !important; }
+  .player[data-lyrics] .lyric-wrap.is-swap-out,
+  .player[data-lyrics] .spectrum.is-swap-out { animation: panelFadeOut 0.2s ease both !important; }
 }
+@keyframes panelFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes panelFadeOut { from { opacity: 1; } to { opacity: 0; } }
 .player[data-layout="wide"] #drawerCloseBtn { display: inline-flex; }
 
 .drawer-scrim {

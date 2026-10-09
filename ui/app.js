@@ -515,6 +515,11 @@
   var toastEl = $('toast');
   var audio = $('audio');
 
+  /* 频谱接真音频（Web Audio Analyser）要求媒体以 CORS 取源：读频谱前必须让 <audio>
+   * 带 crossOrigin='anonymous'。网易云 CDN 带 CORS；万一是没有 CORS 的源，error 里会
+   * 退回直连并关掉反应链（见 error 处理器）。 */
+  try { audio.crossOrigin = 'anonymous'; } catch (e) {}
+
   /* ---------- 工具 ---------- */
   function icon(id, cls) {
     return '<svg class="icon ' + (cls || '') + '" aria-hidden="true"><use href="#' + id + '"></use></svg>';
@@ -1018,9 +1023,9 @@
     player.setAttribute('data-lyrics', state.lyrics ? '1' : '0');
   }
 
-  /* 频谱（R4）：纯装饰，条形只在 CSS 里动，由 data-playing 驱动。
-   * 不接 Web Audio / createMediaElementSource —— 那是不可逆动作，
-   * AudioContext 一旦 suspended 会把声音变哑，本期不做真 FFT。 */
+  /* 频谱（R4）：歌词关闭 / 无词时的替代内容。
+   * 条形结构一次性建好；真音频可用时由 JS 写 transform:scaleY（见 reactive），
+   * 建链失败则退回 CSS 装饰循环（specPulse，见 style.css）。 */
   function renderSpectrum() {
     var host = $('spectrum');
     if (!host || host.childNodes.length) return;
@@ -1034,9 +1039,104 @@
     host.innerHTML = html;
   }
 
+  /* ============================================================
+     音频反应（真 FFT）：把 <audio> 接进 Web Audio，AnalyserNode 驱动频谱柱。
+     安全设计（防「变哑」）：
+       1) 只在有用户手势（play）且上下文 running 时才建链；
+       2) 一定 connect(destination)，不在别处 disconnect；
+       3) 建链失败 / 拿不到数据 → 保留 CSS 装饰循环，绝不静音、绝不白屏。
+     注意：createMediaElementSource 一旦建立不可逆（声音改走 Web Audio），
+     所以卡在 resume() 成功之后才建。
+     ============================================================ */
+  var reactive = { actx: null, analyser: null, data: null, raf: 0, ready: false, failed: false, building: false };
+  var barSmooth = null;
+
+  function reactiveSupported() {
+    return !!(window.AudioContext || window.webkitAudioContext);
+  }
+
+  function spectrumBars() {
+    var host = $('spectrum');
+    return host ? host.querySelectorAll('.spec-bar') : [];
+  }
+
+  /* 把 64 段频域数据映射到 34 根柱：低频多分几格（对数取样），加平滑免得一格一格跳 */
+  function applyBins(data) {
+    var bars = spectrumBars();
+    var n = bars.length;
+    if (!n || !data) return;
+    if (!barSmooth || barSmooth.length !== n) barSmooth = new Float32Array(n);
+    var bins = data.length;
+    var span = bins * 0.72;   // 高频尾部基本是空的，砍掉
+    for (var i = 0; i < n; i++) {
+      var lo = Math.floor(Math.pow(i / n, 1.6) * span);
+      var hi = Math.max(lo + 1, Math.floor(Math.pow((i + 1) / n, 1.6) * span));
+      var sum = 0, c = 0;
+      for (var k = lo; k < hi && k < bins; k++) { sum += data[k]; c++; }
+      var v = c ? (sum / c) / 255 : 0;
+      barSmooth[i] = barSmooth[i] * 0.7 + v * 0.3;
+      var s = 0.16 + barSmooth[i] * 1.05;
+      if (s > 1) s = 1;
+      bars[i].style.transform = 'scaleY(' + s.toFixed(3) + ')';
+    }
+  }
+
+  function buildReactive() {
+    if (reactive.ready || reactive.failed || reactive.building || !reactiveSupported()) return;
+    reactive.building = true;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var actx;
+    try { actx = new AC(); } catch (e) { reactive.failed = true; reactive.building = false; return; }
+
+    function attach() {
+      if (actx.state !== 'running') return false;
+      try {
+        var srcNode = actx.createMediaElementSource(audio);
+        var an = actx.createAnalyser();
+        an.fftSize = 128;                      // → 64 个频段
+        an.smoothingTimeConstant = 0.82;
+        srcNode.connect(an);
+        an.connect(actx.destination);          // 关键：不接 destination 就没声音
+        reactive.actx = actx;
+        reactive.analyser = an;
+        reactive.data = new Uint8Array(an.frequencyBinCount);
+        reactive.ready = true;
+        reactive.building = false;
+        player.classList.add('is-reactive');   // CSS 关掉装饰循环，交给 JS
+        startBars();
+        return true;
+      } catch (e) { reactive.failed = true; reactive.building = false; return false; }
+    }
+
+    if (actx.state === 'running') { if (attach()) return; }
+    actx.resume().then(function () {
+      if (!attach()) { reactive.failed = true; reactive.building = false; try { actx.close(); } catch (e) {} }
+    }).catch(function () {
+      reactive.failed = true; reactive.building = false;
+      try { actx.close(); } catch (e) {}
+    });
+  }
+
+  function startBars() {
+    if (reactive.raf) return;
+    var bars = spectrumBars();
+    if (!bars.length) return;
+    (function tick() {
+      reactive.raf = requestAnimationFrame(tick);
+      var an = reactive.analyser, data = reactive.data;
+      if (!an || !data || audio.paused) return;   // 暂停时定格
+      try { an.getByteFrequencyData(data); applyBins(data); } catch (e) {}
+    })();
+  }
+
+  function stopBars() {
+    if (reactive.raf) { cancelAnimationFrame(reactive.raf); reactive.raf = 0; }
+  }
+
   function renderLyrics() {
     var has = state.lyricLines.length > 0;
     player.setAttribute('data-haslyrics', has ? '1' : '0');
+    syncPanels(true);   // 可见层若变了，做一次交叉淡入淡出
     var html = '';
     if (!has) {
       /* 无词不再显示「暂无歌词」—— 改由频谱接管（motion 5） */
@@ -1133,7 +1233,10 @@
   lyricWrap.addEventListener('touchstart', pauseFollow, { passive: true });
   lyricWrap.addEventListener('touchmove', function () { scheduleResume(); }, { passive: true });
   lyricWrap.addEventListener('pointerdown', pauseFollow);
-  lyricWrap.addEventListener('pointermove', function () { if (!state.follow) scheduleResume(); });
+  /* 只认触摸/笔：桌面鼠标悬停移动不算「在浏览」，否则 3s 自动回归会被无限重置 */
+  lyricWrap.addEventListener('pointermove', function (e) {
+    if (e.pointerType !== 'mouse' && !state.follow) scheduleResume();
+  });
   lyrics.addEventListener('scroll', function () { if (!state.follow) scheduleResume(); }, { passive: true });
 
   /* LRC：[mm:ss.xx] 行级时间戳，一行可带多个 */
@@ -1384,17 +1487,31 @@
     state.needsResume = false;
     renderPlayState();
     renderResume();
+    buildReactive();                 // 首次播放的用户手势里建音频反应链
+    if (reactive.ready) startBars();
   });
   audio.addEventListener('pause', function () {
     // 卸载逼出的暂停不写回（否则新文档永不续播）
     if (unloading) return;
     state.playing = false;
     renderPlayState();
+    stopBars();                      // 暂停时定格频谱
   });
   audio.addEventListener('ended', function () { onTrackEnd(); });
   audio.addEventListener('error', function () {
     var t = currentTrack();
     if (!t || !t.url) return;
+    /* 带 crossOrigin 取源失败 → 退回直连（放弃音频反应，保留装饰频谱循环）。
+     * 只退一次：摘掉 crossOrigin 后重进本处理器不会再走这一支。 */
+    if (audio.crossOrigin) {
+      reactive.failed = true;
+      player.classList.remove('is-reactive');
+      stopBars();
+      try { audio.removeAttribute('crossorigin'); } catch (e) {}
+      var src = audio.getAttribute('src');
+      if (src) { audio.src = src; try { audio.load(); } catch (e) {} }
+      return;
+    }
     state.playing = false;
     renderPlayState();
     toast('播放失败：' + t.title);
@@ -1583,21 +1700,51 @@
     if (state.lyrics) {
       sizeLyricPad();
       updateLyricIndex(true);
-      pulseLyricAnim();   // 显隐过渡（motion 4）
     }
+    syncPanels(true);   // 歌词/频谱交叉淡入淡出（motion 4）
     persistState();
   });
 
-  /* 歌词显隐过渡：显时给 .lyric-wrap 加 .is-anim 触发淡入+位移（motion 4） */
-  function pulseLyricAnim() {
-    if (!lyricWrap) return;
-    lyricWrap.classList.remove('is-anim');
-    void lyricWrap.offsetWidth;
-    lyricWrap.classList.add('is-anim');
+  /* 歌词 ⇄ 频谱：交叉淡入淡出（motion 4）。
+   * display 不能过渡 → 过渡期间用 .is-swap-* 强制挂载，到时摘类回到 resting 的
+   * display:none（延迟卸载）。两侧同时在场 → 真交叉，不闪；
+   * 频谱柱由真音频驱动（见 reactive），换层时动画不重启。 */
+  var SWAP_MS = 220;
+  var lastPanel = null;   // 'lyric' | 'spectrum'，只在「可见层真的变了」时才过渡
+
+  function syncPanels(animate) {
+    var has = player.getAttribute('data-haslyrics') === '1';
+    var lyricShown = state.lyrics && has;
+    var next = lyricShown ? 'lyric' : 'spectrum';
+    if (lastPanel === next) return;
+    if (lastPanel && animate) swapPanels(lyricShown);
+    lastPanel = next;
   }
 
-  /* 队列呼出/收回：进加 .is-anim 触发滑入动画（motion 1）。
-   * display 由 data-page/data-drawer 控制，动画挂在新出现的元素上。 */
+  function swapPanels(lyricsOn) {
+    var show = lyricsOn ? lyricWrap : $('spectrum');
+    var hide = lyricsOn ? $('spectrum') : lyricWrap;
+    if (!show || !hide) return;
+    // 退场：保持挂载淡出，到时摘类
+    clearTimeout(hide.__swapT);
+    hide.classList.remove('is-swap-in');
+    hide.classList.add('is-swap-out');
+    hide.__swapT = setTimeout(function () {
+      hide.classList.remove('is-swap-out');
+      hide.__swapT = 0;
+    }, SWAP_MS);
+    // 入场：淡入 + 轻微上浮
+    clearTimeout(show.__swapT); show.__swapT = 0;
+    show.classList.remove('is-swap-out');
+    show.classList.remove('is-swap-in');
+    void show.offsetWidth;
+    show.classList.add('is-swap-in');
+  }
+
+  /* 队列呼出/收回：进加 .is-anim 滑入；出加 player.is-q-leaving 滑出，
+   * 动画结束再摘类回到 resting 的 display:none（延迟卸载，可打断）。 */
+  var queueLeaveTimer = 0;
+
   function pulseQueueAnim() {
     var q = $('queue');
     if (!q) return;
@@ -1607,32 +1754,66 @@
     q.classList.add('is-anim');
   }
 
+  function reducedMotion() {
+    try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; }
+  }
+
+  function cancelQueueLeave() {
+    clearTimeout(queueLeaveTimer); queueLeaveTimer = 0;
+    player.classList.remove('is-q-leaving');
+  }
+
+  /* 降级（reduced-motion）：不做延迟卸载，直接卸 */
+  function beginQueueLeave(ms) {
+    if (reducedMotion()) return;
+    player.classList.add('is-q-leaving');
+    clearTimeout(queueLeaveTimer);
+    queueLeaveTimer = setTimeout(function () {
+      player.classList.remove('is-q-leaving');
+      queueLeaveTimer = 0;
+    }, ms);
+  }
+
+  function setDrawer(open) {
+    if (open) {
+      cancelQueueLeave();
+      state.drawer = true;
+      renderChrome();
+      pulseQueueAnim();
+    } else {
+      state.drawer = false;
+      renderChrome();
+      beginQueueLeave(280);   // 同帧内重新挂载，不留中间帧
+    }
+    persistState();
+  }
+
+  function setCompactPage(next) {
+    if (next === 'queue') {
+      cancelQueueLeave();
+      state.page = 'queue';
+      renderChrome();
+      pulseQueueAnim();
+    } else {
+      state.page = 'play';
+      renderChrome();
+      beginQueueLeave(260);
+    }
+    persistState();
+  }
+
   $('queueBtn').addEventListener('click', function () {
     var layout = player.getAttribute('data-layout');
-    if (layout === 'wide') {
-      state.drawer = !state.drawer;
-      if (state.drawer) pulseQueueAnim();
-    } else if (layout === 'compact') {
-      state.page = state.page === 'play' ? 'queue' : 'play';
-      if (state.page === 'queue') pulseQueueAnim();
-    }
-    renderChrome();
-    persistState();
+    if (layout === 'wide') setDrawer(!state.drawer);
+    else if (layout === 'compact') setCompactPage(state.page === 'play' ? 'queue' : 'play');
+    else { renderChrome(); persistState(); }   // long：队列常驻，无抽屉
   });
 
-  $('backBtn').addEventListener('click', function () {
-    state.page = 'play';
-    renderChrome();
-    persistState();
-  });
+  $('backBtn').addEventListener('click', function () { setCompactPage('play'); });
 
   $('drawerCloseBtn').addEventListener('click', closeDrawer);
 
-  function closeDrawer() {
-    state.drawer = false;
-    renderChrome();
-    persistState();
-  }
+  function closeDrawer() { setDrawer(false); }
 
   drawerScrim.addEventListener('click', closeDrawer);
 
@@ -2574,7 +2755,7 @@
     /* 9b. 标题块与歌词/频谱文字不得重叠（舞台重构遗留缺陷） */
     if (shown($('scene'))) {
       var tb = sceneTop.getBoundingClientRect();
-      var band = (state.lyrics ? lyricWrap : $('spectrum')).getBoundingClientRect();
+      var band = (state.lyrics && shown(lyricWrap) ? lyricWrap : $('spectrum')).getBoundingClientRect();
       add('title-not-overlap-content', band.top >= tb.bottom - 1,
         'titleBottom=' + Math.round(tb.bottom) + ' contentTop=' + Math.round(band.top));
     }
@@ -2613,4 +2794,11 @@
     return document.documentElement.getAttribute('data-theme') || 'light';
   }
   window.__playerSelfCheck = runSelfCheck;
+  /* 自检钩子：频谱反应链的可观测状态 + 可直接喂 bins 验证映射（测试用） */
+  window.__playerDebug = {
+    reactive: function () {
+      return { ready: reactive.ready, failed: reactive.failed, state: reactive.actx ? reactive.actx.state : 'none' };
+    },
+    applyBins: applyBins
+  };
 })();

@@ -635,6 +635,26 @@ const motion = {};
     motion.focus.layout !== 'wide' && motion.focus.cur > motion.focus.far && motion.focus.near > motion.focus.far && motion.focus.far <= 0.3,
     JSON.stringify(motion.focus));
 
+  // 换层交叉淡入淡出（motion 4）：切换瞬间两层同时在场（不是 display 硬切）
+  motion.crossfade = await page.evaluate(async () => {
+    const player = document.getElementById('player');
+    const wrap = document.getElementById('lyricWrap');
+    const spec = document.getElementById('spectrum');
+    const wasOn = player.getAttribute('data-lyrics') === '1';
+    document.getElementById('lyricToggle').click();
+    await new Promise((r) => setTimeout(r, 70));
+    const mid = { wrap: getComputedStyle(wrap).display, spec: getComputedStyle(spec).display };
+    await new Promise((r) => setTimeout(r, 240));
+    const settled = { wrap: getComputedStyle(wrap).display, spec: getComputedStyle(spec).display };
+    if ((player.getAttribute('data-lyrics') === '1') !== wasOn) document.getElementById('lyricToggle').click();
+    await new Promise((r) => setTimeout(r, 240));
+    return { mid, settled };
+  });
+  assert('motion-spectrum-crossfade',
+    motion.crossfade.mid.wrap !== 'none' && motion.crossfade.mid.spec !== 'none' &&
+    (motion.crossfade.settled.wrap === 'none' || motion.crossfade.settled.spec === 'none'),
+    JSON.stringify(motion.crossfade));
+
   // 歌词跟随 3s 自动回归：滚动（wheel）后停 3.4s 应回到跟随（is-browsing 消失）
   motion.follow = await page.evaluate(async () => {
     const wrap = document.getElementById('lyricWrap');
@@ -648,6 +668,24 @@ const motion = {};
   assert('motion-follow-auto-resume',
     motion.follow.browsingNow === true && motion.follow.browsingAfter === false,
     JSON.stringify(motion.follow));
+
+  // 鼠标悬停移动不算「浏览」：不应重置 3s 回归（桌面下否则永不回归）
+  motion.followMouse = await page.evaluate(async () => {
+    const wrap = document.getElementById('lyricWrap');
+    const ls = document.getElementById('lyrics');
+    wrap.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 60));
+    for (let i = 0; i < 5; i++) {
+      wrap.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const browsingMid = ls.classList.contains('is-browsing');
+    await new Promise((r) => setTimeout(r, 1600));
+    return { browsingMid, browsingAfter: ls.classList.contains('is-browsing') };
+  });
+  assert('motion-follow-mouse-ignored',
+    motion.followMouse.browsingMid === true && motion.followMouse.browsingAfter === false,
+    JSON.stringify(motion.followMouse));
 
   // 无歌词 → 自动出频谱（不再显「暂无歌词」）
   await page.evaluate(() => {
@@ -665,6 +703,22 @@ const motion = {};
     motion.nolyr.haslyrics === '0' && motion.nolyr.specShown === true && motion.nolyr.emptyShown === false,
     JSON.stringify(motion.nolyr));
 
+  // 真音频反应：把 bins 喂进映射函数，频谱柱应随之变化（真机接音频后走同一条路径）
+  motion.reactive = await page.evaluate(() => {
+    const dbg = window.__playerDebug;
+    const bars = [...document.querySelectorAll('#spectrum .spec-bar')];
+    if (!dbg || typeof dbg.applyBins !== 'function') return { ok: false, reason: 'no-hook' };
+    const before = bars.slice(0, 4).map((b) => b.style.transform || 'none');
+    const data = new Uint8Array(64);
+    for (let i = 0; i < 14; i++) data[i] = 230;
+    dbg.applyBins(data);
+    const after = bars.slice(0, 4).map((b) => b.style.transform || 'none');
+    return { ok: true, count: bars.length, changed: before.join('|') !== after.join('|'), after };
+  });
+  assert('motion-spectrum-reactive',
+    motion.reactive.ok === true && motion.reactive.count > 0 && motion.reactive.changed === true,
+    JSON.stringify(motion.reactive));
+
   // 按钮按压：:active 样式存在（scale）—— 检查样式表里确实写了
   motion.press = await page.evaluate(() => {
     const el = document.getElementById('playBtn');
@@ -674,6 +728,33 @@ const motion = {};
   assert('motion-press-feedback',
     /transform/.test(motion.press.trans),
     JSON.stringify(motion.press));
+
+  // 队列退场（宽窗抽屉）：关闭瞬间仍挂载（is-q-leaving），动画后才卸载
+  {
+    const p2 = await newPage();
+    await p2.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+    await p2.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+    await sleep(700);
+    motion.queueExit = await p2.evaluate(async () => {
+      const player = document.getElementById('player');
+      const q = document.getElementById('queue');
+      document.getElementById('queueBtn').click();   // 打开抽屉
+      await new Promise((r) => setTimeout(r, 380));
+      const opened = { drawer: player.getAttribute('data-drawer'), disp: getComputedStyle(q).display };
+      document.getElementById('queueBtn').click();   // 关闭
+      await new Promise((r) => setTimeout(r, 70));
+      const leaving = { drawer: player.getAttribute('data-drawer'), cls: player.classList.contains('is-q-leaving'), disp: getComputedStyle(q).display };
+      await new Promise((r) => setTimeout(r, 320));
+      const settled = { cls: player.classList.contains('is-q-leaving'), disp: getComputedStyle(q).display };
+      return { opened, leaving, settled };
+    });
+    assert('motion-queue-exit-anim',
+      motion.queueExit.opened.disp !== 'none' && motion.queueExit.leaving.cls === true &&
+      motion.queueExit.leaving.disp !== 'none' && motion.queueExit.settled.cls === false &&
+      motion.queueExit.settled.disp === 'none',
+      JSON.stringify(motion.queueExit));
+    await p2.close();
+  }
 
   report.motion = motion;
   await page.close();
