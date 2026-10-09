@@ -141,9 +141,23 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   仅剩边界：宿主自己出声时的面板归属（音频焦点之争）。
 - 随机播放的「上一曲」修好了（原来也随机到另一首）：随机模式里留一条「听过的路」
   （uid 栈，`shuffleTrail`），上一曲先弹当前再取末尾，走空则退回顺序上一首；
-  下一曲仍随机（罐头要的手感）。栈随 playback-state 快照落盘。**未部署**，
+  下一曲仍随机（罐头要的手感）。栈随 playback-state 快照落盘。**已部署**（随红心那轮带上），
   交接见 `docs/player-ui/SHUFFLE-PREV.md`（只有 `ui/app.js` 一个文件）。
-- 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
+- 红心挪常驻位 / 歌词开关删除 / 自动居中（2026-10-09，**已部署**，构建号 1003131578）：
+  ① 控制条最左那颗「歌词」文字按钮删掉，原位换成红心「喜欢」（`#favBtn`，`.fav-text`）——
+     三种布局常驻，永远够得着（之前只有队列行 + 播放页 meta 两处，队列滚走就点不到）。
+     队列行 / 播放页两处保留。**修了一个真 bug：播放页 `#stageFavBtn` 一直是空标签**
+     （只有外壳没 `icon()`），肉眼看不见 —— 现在 `renderTrack()` 里补 `icon('i-heart')`。
+  ② 未点亮的空心线条改用**撞色 `--hl-accent`**（与歌词当前句高亮同一套），
+     否则在封面上太淡看不见。三处入口共用。
+  ③ **歌词显隐开关整个删除**（`state.lyrics` / `lyricsVisible` / `renderLyricToggle` / 自检里的
+     `lyricToggle` 引用全清）。新逻辑：**有词就显歌词、没词才出频谱**（频谱降为兜底）。
+     `data-lyrics` 保留为常量 `'1'` —— CSS 换层动画以它做命名空间，**别删**。
+  ④ 切列表 / 切歌时用 `centerCurrentInQueue()` 把正在播的那首滚进队列可视区中部。
+     点心/移出等重渲染**不触发**，不抢用户滚动位置。
+  断言：`control-bar-fav-toggles` / `queue-center-on-list-switch` / `stage-fav-toggles-and-syncs-row`
+  （含图标存在性）—— 验收计数升到 **68/68**。
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 68/68 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
 - 第六轮（舞台底部渐隐重做 + 顶部圆角，2026-10-09 罐头拍板）：
   ① `.scene::after` 从「固定 72px 刷主题面色」改成「按舞台高比例 `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，
      `z-index:1` 只化封面不盖歌词；底边到控制条**硬切**（试过最底补 18px 羽化，真机判为不行，已撤）。
@@ -163,6 +177,7 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   断言 `fav-row-toggles-on` / `fav-list-collects-and-labels` / `fav-state-by-stable-id-cross-list` /
   `fav-unfav-keeps-original-list` / `fav-not-deletable` / `stage-fav-toggles-and-syncs-row`。
 - 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 65/65 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
+- 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
 - 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
   §五-3（底部 72px 渐隐）已改（第六轮）：化进环境色 + 硬切底边；顶部圆角一并补上，均待真机复核。
 
