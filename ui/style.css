@@ -558,11 +558,11 @@ button:disabled { cursor: default; }
   height: 26px;
   margin: -3px 0;
   border-radius: var(--radius-s);
-  color: var(--cover-text-soft);
-  opacity: 0.8;
+  color: var(--hl-accent);
+  opacity: 0.75;
 }
-.fav-btn:hover { background: var(--hk-hover); color: var(--hk-text); opacity: 1; }
-.fav-btn.is-on { color: var(--hk-accent); opacity: 1; }
+.fav-btn:hover { background: var(--hk-hover); opacity: 1; }
+.fav-btn.is-on { opacity: 1; }
 .fav-btn.is-on .icon { fill: currentColor; }
 .player[data-bar="tight"] .fav-btn { width: 22px; height: 22px; }
 .player[data-bar="tight"] .fav-btn .icon { width: 16px; height: 16px; }
@@ -908,8 +908,17 @@ button:disabled { cursor: default; }
 .q-more:focus-visible { opacity: 1; }
 .q-more:hover { background: var(--hk-hover); color: var(--hk-text); }
 
-/* 队列行红心：常态半透明（触屏也能找到），悬停/已点亮时全显。点亮走强调色 + 实心。
- * 实心靠 fill:currentColor 盖在 .icon 的 fill:none 之上（不另写一个图标）。 */
+/* ============================================================
+   红心（喜欢）：未点亮 = 撞色描线（与歌词当前句同一套 --hl-accent），
+   点亮 = 实心填充。三处入口共用这套语义：控制条 .fav-text / 队列行 .q-fav / 播放页 .fav-btn。
+   ============================================================ */
+/* 控制条「喜欢」：文字按钮，未点亮用撞色描线（不吃 .text-btn 的 --hk-muted，否则太淡） */
+.fav-text { color: var(--hl-accent); }
+.fav-text:hover { background: var(--hk-hover); color: var(--hl-accent); }
+.fav-text[aria-pressed="true"] { color: var(--hl-accent); }
+.fav-text[aria-pressed="true"] .icon { fill: currentColor; }
+
+/* 队列行红心：常态撞色描线（悬停加深，不抢行内容）；点亮实心 */
 .q-fav {
   flex: 0 0 auto;
   display: inline-flex;
@@ -918,14 +927,13 @@ button:disabled { cursor: default; }
   width: 30px;
   height: 30px;
   border-radius: var(--radius-s);
-  color: var(--hk-faint);
-  opacity: 0.5;
+  color: var(--hl-accent);
+  opacity: 0.55;
 }
 .q-row:hover .q-fav,
 .q-fav:focus-visible,
 .q-fav.is-on { opacity: 1; }
-.q-fav:hover { background: var(--hk-hover); color: var(--hk-text); }
-.q-fav.is-on { color: var(--hk-accent); }
+.q-fav:hover { background: var(--hk-hover); }
 .q-fav.is-on .icon { fill: currentColor; }
 /* 窄卡：行内容紧，红心仍保留（它是一次点击就能记住的请求），只把触区收小 */
 .player[data-bar="tight"] .q-fav { width: 26px; }

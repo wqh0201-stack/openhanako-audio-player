@@ -75,7 +75,7 @@ function makeTracks() {
   out[1].pic = COVER;          // 横幅封面
   out[2].pic = COVER_DARK;     // 深色封面（右缘极深，走「深纱+纸字」）
   out[4].pic = COVER_LIGHT;    // 真·浅底封面（整张浅，走「浅纱+墨字」）
-  out[5] = { id: 'netease:900099', name: '无词纯音乐', url: goUrl(900099), mode: '在线', dur: 0, group: '在线音乐', list: 'imp:1', pic: COVER };  // 无歌词曲目（假后端对其返回空 LRC）
+  out[5] = { id: 'netease:900099', name: '无词纯音乐', url: goUrl(900099), mode: '在线', dur: 0, group: '在线音乐', list: 'imp:1', pic: COVER_DARK };  // 无歌词曲目（假后端对其返回空 LRC）；配深色封面，供「无词 + 深底」验证
   for (let i = 0; i < 3; i++) {
     out.push({
       id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: goUrl(900000 + i),
@@ -486,30 +486,42 @@ for (const [name, w, h, file] of CASES) {
   await sleep(250);
   await page.screenshot({ path: path.join(outDir, 'lyrics-465x930-light.png') });
 
-  // 同一帧紧接关掉歌词：右侧换频谱，蒙层/渐变必须保持在线（R4）
-  await page.evaluate(() => document.getElementById('lyricToggle').click());
-  await sleep(250);
+  // 无词曲目：右侧换频谱，蒙层/渐变必须保持在线（R4）。
+  // 现在歌词显隐不再由按钮控制，而是「有词就显、没词才出频谱」——
+  // 所以这里直接播“无词纯音乐”（夹具里 id 900099，假后端对它回空 LRC）。
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#queueList .q-row')];
+    const target = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('无词纯音乐'));
+    if (target) target.querySelector('.q-hit').click();
+  });
+  await sleep(700);
   w.lyricsoffState = await page.evaluate(() => {
     const cs = (id) => getComputedStyle(document.getElementById(id)).display;
     return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum') };
   });
-  assert('spectrum-swap-scrim-stays',
+  assert('spectrum-takes-over-when-no-lyrics',
     w.lyricsoffState.wrap === 'none' && w.lyricsoffState.scrim !== 'none' && w.lyricsoffState.spec !== 'none',
     JSON.stringify(w.lyricsoffState));
-  await page.screenshot({ path: path.join(outDir, 'lyricsoff-465x930-light.png') });
-  await page.evaluate(() => document.getElementById('lyricToggle').click());
-  await sleep(250);
+  await page.screenshot({ path: path.join(outDir, 'no-lyrics-spectrum-465x930-light.png') });
+  // 切回有词曲目：歌词层回来，频谱让位
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#queueList .q-row')];
+    const target = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('在线曲目'));
+    if (target) target.querySelector('.q-hit').click();
+  });
+  await sleep(700);
+  w.lyricsBackState = await page.evaluate(() => {
+    const cs = (id) => getComputedStyle(document.getElementById(id)).display;
+    return { wrap: cs('lyricWrap'), spec: cs('spectrum') };
+  });
+  assert('lyrics-return-when-track-has-lyrics',
+    w.lyricsBackState.wrap !== 'none' && w.lyricsBackState.spec === 'none',
+    JSON.stringify(w.lyricsBackState));
   await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
   await sleep(400);
   await page.screenshot({ path: path.join(outDir, 'lyrics-1040x780-light.png') });
   await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
   await sleep(400);
-
-  // 歌词开关
-  await page.evaluate(() => document.getElementById('lyricToggle').click());
-  w.lyricsOff = await page.$eval('#player', (e) => e.getAttribute('data-lyrics'));
-  await page.evaluate(() => document.getElementById('lyricToggle').click());
-  w.lyricsOn = await page.$eval('#player', (e) => e.getAttribute('data-lyrics'));
 
   // 下一首（在歌单内）
   await page.evaluate(() => document.getElementById('nextBtn').click());
@@ -637,24 +649,30 @@ const motion = {};
     motion.focus.layout !== 'wide' && motion.focus.cur > motion.focus.far && motion.focus.near > motion.focus.far && motion.focus.far <= 0.3,
     JSON.stringify(motion.focus));
 
-  // 换层交叉淡入淡出（motion 4）：切换瞬间两层同时在场（不是 display 硬切）
+  // 换层（motion 4）：有词曲目 ⇄ 无词曲目 互斥切换，且蒙层/渐变始终在线。
+  // 不再由按钮驱动（按钮已删）——改由「有词/无词曲目」驱动，确定性更强。
   motion.crossfade = await page.evaluate(async () => {
-    const player = document.getElementById('player');
-    const wrap = document.getElementById('lyricWrap');
-    const spec = document.getElementById('spectrum');
-    const wasOn = player.getAttribute('data-lyrics') === '1';
-    document.getElementById('lyricToggle').click();
-    await new Promise((r) => setTimeout(r, 70));
-    const mid = { wrap: getComputedStyle(wrap).display, spec: getComputedStyle(spec).display };
-    await new Promise((r) => setTimeout(r, 240));
-    const settled = { wrap: getComputedStyle(wrap).display, spec: getComputedStyle(spec).display };
-    if ((player.getAttribute('data-lyrics') === '1') !== wasOn) document.getElementById('lyricToggle').click();
-    await new Promise((r) => setTimeout(r, 240));
-    return { mid, settled };
+    const vis = (id) => getComputedStyle(document.getElementById(id)).display;
+    const rows = () => [...document.querySelectorAll('#queueList .q-row')];
+    const pick = (kw) => { const r = rows().find((x) => x.querySelector('.q-title').textContent.startsWith(kw)); if (r) r.querySelector('.q-hit').click(); return !!r; };
+    const has = () => document.getElementById('player').getAttribute('data-haslyrics');
+    // 已经在有词曲目上（上面刚播过）
+    const withLyrics = { wrap: vis('lyricWrap'), scrim: vis('lyricScrim'), spec: vis('spectrum'), has: has() };
+    // 切到无词曲目（“无词纯音乐”，假后端回空 LRC）
+    pick('无词纯音乐');
+    await new Promise((r) => setTimeout(r, 800));
+    const noLyrics = { wrap: vis('lyricWrap'), scrim: vis('lyricScrim'), spec: vis('spectrum'), has: has() };
+    // 再切回有词曲目
+    pick('在线曲目');
+    await new Promise((r) => setTimeout(r, 800));
+    const back = { wrap: vis('lyricWrap'), spec: vis('spectrum'), has: has() };
+    return { withLyrics, noLyrics, back };
   });
-  assert('motion-spectrum-crossfade',
-    motion.crossfade.mid.wrap !== 'none' && motion.crossfade.mid.spec !== 'none' &&
-    (motion.crossfade.settled.wrap === 'none' || motion.crossfade.settled.spec === 'none'),
+  assert('motion-lyric-spectrum-swap',
+    motion.crossfade.withLyrics.wrap !== 'none' && motion.crossfade.withLyrics.spec === 'none' &&
+    motion.crossfade.noLyrics.wrap === 'none' && motion.crossfade.noLyrics.spec !== 'none' &&
+    motion.crossfade.noLyrics.scrim !== 'none' && motion.crossfade.noLyrics.has === '0' &&
+    motion.crossfade.back.wrap !== 'none' && motion.crossfade.back.spec === 'none',
     JSON.stringify(motion.crossfade));
 
   // 歌词跟随 3s 自动回归：滚动（wheel）后停 3.4s 应回到跟随（is-browsing 消失）
@@ -905,7 +923,10 @@ const motion = {};
   await sleep(350);
   const stageFavBefore = await page.evaluate(() => ({
     hidden: document.getElementById('stageFavBtn').hidden,
-    pressed: document.getElementById('stageFavBtn').getAttribute('aria-pressed')
+    pressed: document.getElementById('stageFavBtn').getAttribute('aria-pressed'),
+    // 图标必须在（曾经是空标签导致红心看不见）
+    hasIcon: !!document.querySelector('#stageFavBtn .icon use'),
+    svgW: Math.round((document.querySelector('#stageFavBtn .icon') || {getBoundingClientRect:()=>({width:0})}).getBoundingClientRect().width)
   }));
   await page.evaluate(() => document.getElementById('stageFavBtn').click());
   await sleep(300);
@@ -917,11 +938,60 @@ const motion = {};
   w2.stageFav = { before: stageFavBefore, after: stageFavAfter };
   assert('stage-fav-toggles-and-syncs-row',
     stageFavBefore.hidden === false && stageFavBefore.pressed === 'false' &&
+    stageFavBefore.hasIcon === true && stageFavBefore.svgW >= 11 &&
     stageFavAfter.on === true && stageFavAfter.pressed === 'true' && stageFavAfter.rowOn === 1,
     JSON.stringify(w2.stageFav));
   // 心收回（不留侧效给后续用例）
   await page.evaluate(() => document.getElementById('stageFavBtn').click());
   await sleep(250);
+
+  // ---- (c2b) 控制条常驻红心「喜欢」：点亮 + 与播放页/队列行同步
+  const ctlFavBefore = await page.evaluate(() => ({
+    pressed: document.getElementById('favBtn').getAttribute('aria-pressed'),
+    label: document.getElementById('favBtn').textContent.trim()
+  }));
+  await page.evaluate(() => document.getElementById('favBtn').click());
+  await sleep(250);
+  const ctlFavAfter = await page.evaluate(() => ({
+    pressed: document.getElementById('favBtn').getAttribute('aria-pressed'),
+    on: document.getElementById('favBtn').classList.contains('is-on'),
+    stageOn: document.getElementById('stageFavBtn').classList.contains('is-on'),
+    rowOn: document.querySelectorAll('#queueList .q-fav.is-on').length
+  }));
+  w2.ctlFav = { before: ctlFavBefore, after: ctlFavAfter };
+  assert('control-bar-fav-toggles',
+    ctlFavBefore.pressed === 'false' && ctlFavBefore.label === '喜欢' &&
+    ctlFavAfter.on === true && ctlFavAfter.pressed === 'true' &&
+    ctlFavAfter.stageOn === true && ctlFavAfter.rowOn === 1,
+    JSON.stringify(w2.ctlFav));
+  await page.evaluate(() => document.getElementById('favBtn').click());   // 收回
+  await sleep(250);
+
+  // ---- (c2c) 切回列表自动居中正在播的那首
+  // 播 imp:1 靠后的一首，手动滚到顶，切走再切回 —— 它应被滚回可视区中部。
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll('#queueList .q-row');
+    rows[15].querySelector('.q-hit').click();
+  });
+  await sleep(400);
+  await page.evaluate(() => { document.getElementById('queueList').scrollTop = 0; });
+  await clickTab(page, 'imp:2');
+  await sleep(200);
+  await clickTab(page, 'imp:1');
+  await sleep(350);
+  const centerAfter = await page.evaluate(() => {
+    const list = document.getElementById('queueList');
+    const cur = list.querySelector('.q-row.is-current');
+    if (!cur) return { found: false };
+    const rowMid = cur.offsetTop + cur.offsetHeight / 2 - list.scrollTop;
+    return { found: true, scrolled: list.scrollTop > 0, rowMid: Math.round(rowMid), viewMid: Math.round(list.clientHeight / 2) };
+  });
+  w2.centerOnSwitch = centerAfter;
+  assert('queue-center-on-list-switch',
+    centerAfter.found === true && centerAfter.scrolled === true &&
+    Math.abs(centerAfter.rowMid - centerAfter.viewMid) <= 40,   // 居中容差 40px（半行高量级）
+    JSON.stringify(w2.centerOnSwitch));
+
   // 回到 imp:2（(d) 补全歌手针对的就是这个列表里的 searchKey 曲目）
   await clickTab(page, 'imp:2');
   await sleep(200);
@@ -1069,41 +1139,40 @@ const REFINE_CASES = [
 const accentByTheme = {};
 for (const [name, w, h, file] of REFINE_CASES) {
   for (const theme of ['light', 'dark']) {
+    /* 歌词开/关这条轴已不存（歌词随歌曲有无自动切换），改成
+     * 「有词曲目 / 无词曲目」两种内容，尺寸 × 主题 × 内容 = 12 张。 */
     for (const lyricsOn of [true, false]) {
       const page = await newPage();
       await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
       await page.goto(`${BASE}/${file}?assert=1&shot=1&appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
       await page.evaluate((t) => window.__fixtureTheme(t), theme);
-      // 切到歌单 1，选中有封面 + 有歌词的在线曲目（紧凑布局下队列隐藏，程序化点击仍生效）
+      // 切到歌单 1，按本档需要选「有词」或「无词」曲目
       await clickTab(page, 'imp:1');
       for (let _w = 0; _w < 20 && (await page.$$eval('#queueList .q-row', (e) => e.length)) === 0; _w++) await sleep(100);
       await sleep(200);
-      await page.evaluate(() => {
+      await page.evaluate((wantLyrics) => {
         const rows = [...document.querySelectorAll('#queueList .q-row')];
-        const target = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('在线曲目')) || rows[0];
-        if (target) target.querySelector('.q-hit').click();
-      });
-      await sleep(900);
-      /* 确定性设置歌词开/关：新生命周期会把 lyricsVisible 持久化到共享夹具，
-       * 上一轮的开关状态会被下一个页面继承；只按「当前是否已符合目标」决定是否点，
-       * 避免盲点一次翻转（否则 light 先跑、dark 继承上一轮状态后整体反相）。 */
-      await page.evaluate((want) => {
-        const on = document.getElementById('player').getAttribute('data-lyrics') === '1';
-        if (on !== want) document.getElementById('lyricToggle').click();
+        if (wantLyrics) {
+          const t = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('在线曲目')) || rows[0];
+          if (t) t.querySelector('.q-hit').click();
+        } else {
+          const t = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('无词纯音乐'));
+          if (t) t.querySelector('.q-hit').click();
+        }
       }, lyricsOn);
-      await sleep(250);
+      await sleep(950);
       const shotName = `refine-${name}-${theme}-lyrics-${lyricsOn ? 'on' : 'off'}.png`;
       await page.screenshot({ path: path.join(outDir, shotName) });
       report.refine.push(shotName);
 
-      // R4：歌词 ⇄ 频谱互换，蒙层/渐变保持在线
+      // R4：有词 → 歌词层；无词 → 频谱接管。两种下蒙层/渐变都要在线。
       const swap = await page.evaluate(() => {
         const cs = (id) => getComputedStyle(document.getElementById(id)).display;
-        return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum') };
+        return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum'), has: document.getElementById('player').getAttribute('data-haslyrics') };
       });
       const swapOk = lyricsOn
-        ? (swap.wrap !== 'none' && swap.scrim !== 'none' && swap.spec === 'none')
-        : (swap.wrap === 'none' && swap.scrim !== 'none' && swap.spec !== 'none');
+        ? (swap.wrap !== 'none' && swap.scrim !== 'none' && swap.spec === 'none' && swap.has === '1')
+        : (swap.wrap === 'none' && swap.scrim !== 'none' && swap.spec !== 'none' && swap.has === '0');
       assert(`lyrics-spectrum-swap:${shotName}`, swapOk, JSON.stringify(swap));
 
       // R5：高亮/激活态必须吃主题强调色
@@ -1418,17 +1487,18 @@ for (const [name, w, h, file] of [['312x494', 312, 494, 'index.html'], ['465x930
   await page.evaluate((t) => window.__fixtureTheme(t), 'light');
   await clickTab(page, 'imp:1');
   await sleep(220);
-  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[2].querySelector('.q-hit').click());
-  await sleep(950);
+  // 无词曲目（现在配深色封面）：频谱接管歌词层，蒙层必须保持在线
   await page.evaluate(() => {
-    if (document.getElementById('player').getAttribute('data-lyrics') === '1') document.getElementById('lyricToggle').click();
+    const rows = [...document.querySelectorAll('#queueList .q-row')];
+    const t = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('无词纯音乐'));
+    if (t) t.querySelector('.q-hit').click();
   });
-  await sleep(300);
+  await sleep(950);
   const off = await page.evaluate(AMBIENT_PROBE);
-  assert('ambient-dark-lyricsoff-scrim-stays',
+  assert('ambient-dark-nolyrics-scrim-stays',
     off.scrim !== 'none' && off.ambientOk === true && off.polarity === 'dark',
     JSON.stringify({ scrim: off.scrim, ok: off.ambientOk, p: off.polarity }));
-  await page.screenshot({ path: path.join(outDir, 'ambient-dark-465x930-lyrics-off.png') });
+  await page.screenshot({ path: path.join(outDir, 'ambient-dark-465x930-nolyrics.png') });
   await page.close();
 }
 

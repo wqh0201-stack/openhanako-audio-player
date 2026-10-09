@@ -139,6 +139,10 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   原理与坑：知识库 `20-资料/macOS 正在播放-Web App 接线（mediaSession）.md`。
   2026-10-09 真机验收：面板标题/歌手/封面 + 上一曲/下一曲 + 媒体键（F7/F8/⏯）全部可用。
   仅剩边界：宿主自己出声时的面板归属（音频焦点之争）。
+- 随机播放的「上一曲」修好了（原来也随机到另一首）：随机模式里留一条「听过的路」
+  （uid 栈，`shuffleTrail`），上一曲先弹当前再取末尾，走空则退回顺序上一首；
+  下一曲仍随机（罐头要的手感）。栈随 playback-state 快照落盘。**未部署**，
+  交接见 `docs/player-ui/SHUFFLE-PREV.md`（只有 `ui/app.js` 一个文件）。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
 - 第六轮（舞台底部渐隐重做 + 顶部圆角，2026-10-09 罐头拍板）：
   ① `.scene::after` 从「固定 72px 刷主题面色」改成「按舞台高比例 `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，

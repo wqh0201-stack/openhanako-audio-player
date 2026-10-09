@@ -179,7 +179,6 @@
     volume: 0.8,
     muted: false,
     mode: 'list',
-    lyrics: true,      // 对外字段名 lyricsVisible
     playing: false,
     needsResume: false, // 自动播放被拦时的「继续播放」引导
     follow: true,
@@ -211,8 +210,9 @@
       volume: state.volume,
       muted: !!state.muted,
       mode: state.mode,
-      lyricsVisible: !!state.lyrics,
-      playing: !!state.playing
+      playing: !!state.playing,
+      /* 随机模式的来路：拖进/拖出会整份换文档，不落盘就丢了 */
+      shuffleTrail: shuffleTrail.slice(-SHUFFLE_TRAIL_MAX)
     };
   }
 
@@ -966,11 +966,15 @@
   function renderTrack() {
     var t = currentTrack();
     var favBtn = $('stageFavBtn');
+    var favTextBtn = $('favBtn');
+    /* 播放页红心是空标签（只有外壳），图标得自己塞（只塞一次）。 */
+    if (favBtn && !favBtn.querySelector('use')) favBtn.innerHTML = icon('i-heart');
     if (!t) {
       $('trackTitle').textContent = '还没有曲目';
       $('trackArtist').textContent = '用右上角的 ＋ 导入';
       $('trackMeta').textContent = '';
       paintFav(favBtn, null);
+      paintFav(favTextBtn, null);
       if (favBtn) favBtn.hidden = true;   // 没曲目可喜欢，不留孤零零一颗心
       $('ciTitle').textContent = '还没有曲目';
       $('ciArtist').textContent = '';
@@ -985,6 +989,7 @@
     $('trackArtist').textContent = t.author || '';
     $('trackMeta').textContent = metaLine(t);
     paintFav(favBtn, t);
+    paintFav(favTextBtn, t);
     if (favBtn) favBtn.hidden = false;
     $('ciTitle').textContent = t.title;
     $('ciArtist').textContent = t.author || '';
@@ -1076,6 +1081,22 @@
     if (rb) rb.hidden = !(act && act.id !== 'local' && act.id !== 'fav');
   }
 
+  /* 把正在播的那首滚进队列可视区中部。切列表 / 切歌时调（罐头拍板）。
+   * 为什么不在 renderQueue 里无条件重建后就居中：点心/移出等操作也会重渲染，
+   * 那时不该抢用户的滚动位置。所以只在两个明确时机调。 */
+  function centerCurrentInQueue() {
+    if (!queueList) return;
+    var row = queueList.querySelector('.q-row.is-current');
+    if (!row) return;
+    var rTop = row.offsetTop;
+    var rH = row.offsetHeight;
+    var vH = queueList.clientHeight;
+    var max = queueList.scrollHeight - vH;
+    if (max <= 0) return;   // 内容不滚，无需居中
+    var target = Math.max(0, Math.min(rTop - vH / 2 + rH / 2, max));
+    queueList.scrollTop = target;
+  }
+
   function renderResume() {
     var btn = $('resumeBtn');
     if (btn) btn.hidden = !state.needsResume;
@@ -1122,11 +1143,10 @@
     player.setAttribute('data-playing', state.playing ? '1' : '0');
   }
 
-  function renderLyricToggle() {
-    var btn = $('lyricToggle');
-    btn.setAttribute('aria-pressed', state.lyrics ? 'true' : 'false');
-    btn.title = '歌词显示：' + (state.lyrics ? '开' : '关');
-    player.setAttribute('data-lyrics', state.lyrics ? '1' : '0');
+  /* 歌词不再有用户开关：有词就显、没词才出频谱（见 syncPanels）。
+   * data-lyrics 保留为常量 "1" —— CSS 的换层交叉动画以它做命名空间，别删。 */
+  function renderLyricMode() {
+    player.setAttribute('data-lyrics', '1');
   }
 
   /* 频谱（R4）：歌词关闭 / 无词时的替代内容。
@@ -1290,7 +1310,6 @@
   var lyricGen = 0;
 
   function sizeLyricPad() {
-    if (!state.lyrics) return;
     var h = lyricWrap.clientHeight;
     if (!h) return;
     var pad = Math.max(28, Math.round(h / 2 - 26));
@@ -1299,7 +1318,7 @@
   }
 
   function centerCurrentLine(instant) {
-    if (!state.lyrics || !state.follow) return;
+    if (!state.follow) return;
     var el = lyrics.querySelector('.lyric-line.is-current');
     if (!el) return;
     var target = el.offsetTop - lyrics.offsetTop - lyricWrap.clientHeight / 2 + el.offsetHeight / 2;
@@ -1307,7 +1326,6 @@
   }
 
   function updateLyricIndex(instant) {
-    if (!state.lyrics) return;
     var idx = -1;
     for (var i = 0; i < state.lyricLines.length; i++) {
       if (state.lyricLines[i].t <= state.progress + 0.01) idx = i; else break;
@@ -1736,6 +1754,41 @@
     });
   })();
 
+  /* ============================================================
+     随机播放的「上一曲」：回家的路
+     随机的下一曲是掷骰子，上一曲不是 —— 它得回到**刚听过的那一首**。
+     所以随机模式里留一条「听过的路」（uid 栈，末尾永远是当前曲目）：
+       · 换曲（下一曲 / 自动续播 / 点队列）→ 压栈
+       · 上一曲 → 先弹掉当前，再取新的末尾；路上没有（刚开始、或换了歌单）
+         → 退回顺序上一首，不再随机（再随机一次就是你提的那个毛病）
+     栈随快照落盘，拖进/拖出换文档也还在。
+     ============================================================ */
+  var SHUFFLE_TRAIL_MAX = 50;
+  var shuffleTrail = [];
+
+  function shuffleTrailPush(uid) {
+    if (!uid) return;
+    if (shuffleTrail[shuffleTrail.length - 1] === uid) return;
+    shuffleTrail.push(uid);
+    if (shuffleTrail.length > SHUFFLE_TRAIL_MAX) {
+      shuffleTrail.splice(0, shuffleTrail.length - SHUFFLE_TRAIL_MAX);
+    }
+  }
+
+  /* 往回走一步：返回上一条的 uid，没有来路返回 ''。
+   * 顺带把已不在当前歌单的旧条目弹掉（切歌单后那条路就断了）。 */
+  function shuffleBackUid() {
+    var vis = visibleTracks();
+    var cur = state.currentUid;
+    if (shuffleTrail.length && shuffleTrail[shuffleTrail.length - 1] === cur) shuffleTrail.pop();
+    while (shuffleTrail.length) {
+      var uid = shuffleTrail[shuffleTrail.length - 1];
+      for (var k = 0; k < vis.length; k++) if (vis[k].uid === uid) return uid;
+      shuffleTrail.pop();
+    }
+    return '';
+  }
+
   function stepIndex(dir) {
     var vis = visibleTracks();
     var n = vis.length;
@@ -1744,6 +1797,11 @@
     if (i < 0) return dir >= 0 ? 0 : n - 1;
     if (state.mode === 'shuffle') {
       if (n === 1) return 0;
+      if (dir < 0) {
+        var back = shuffleBackUid();
+        for (var k = 0; k < n; k++) if (vis[k].uid === back) return k;
+        return (i - 1 + n) % n;      // 没有来路：按顺序往回，别随机
+      }
       var j = i;
       while (j === i) j = Math.floor(Math.random() * n);
       return j;
@@ -1808,6 +1866,7 @@
     if (!t) return;
     var changed = uid !== state.currentUid;
     state.currentUid = uid;
+    if (changed && state.mode === 'shuffle') shuffleTrailPush(uid);
     if (changed && !keepProgress) state.progress = 0;
     if (changed) {
       lyricIndex = -1;
@@ -1819,6 +1878,7 @@
     state.needsResume = false;
     renderTrack();
     renderQueue();
+    if (changed) centerCurrentInQueue();   // 切歌时把新曲滚进视野中部（罐头拍板）
     renderProgress();
     renderPlayState();
     renderResume();
@@ -1912,16 +1972,13 @@
     persistState();
   });
 
-  $('lyricToggle').addEventListener('click', function () {
-    state.lyrics = !state.lyrics;
-    lyricIndex = -1;
-    renderLyricToggle();
-    if (state.lyrics) {
-      sizeLyricPad();
-      updateLyricIndex(true);
-    }
-    syncPanels(true);   // 歌词/频谱交叉淡入淡出（motion 4）
-    persistState();
+  $('favBtn').addEventListener('click', function () {
+    var t = currentTrack();
+    if (!t) return;
+    var nowOn = toggleFav(t.id);
+    renderTrack();
+    renderQueue();
+    toast(nowOn ? '已加入我的喜欢' : '已取消喜欢');
   });
 
   /* 歌词 ⇄ 频谱：交叉淡入淡出（motion 4）。
@@ -1933,7 +1990,7 @@
 
   function syncPanels(animate) {
     var has = player.getAttribute('data-haslyrics') === '1';
-    var lyricShown = state.lyrics && has;
+    var lyricShown = has;            // 有词就显歌词；没词才轮到频谱（不再是用户选择）
     var next = lyricShown ? 'lyric' : 'spectrum';
     if (lastPanel === next) return;
     if (lastPanel && animate) swapPanels(lyricShown);
@@ -2147,6 +2204,7 @@
       renaming = false;
       state.activeList = id;
       renderQueue();
+      centerCurrentInQueue();   // 切回该列表时，把正在播的那首滚进视野中部
       renderTrack();
       persistState();
     });
@@ -2775,7 +2833,7 @@
     renderVolume();
     renderMode();
     renderPlayState();
-    renderLyricToggle();
+    renderLyricMode();
     renderLyrics();
     renderSpectrum();
     renderResume();
@@ -2796,11 +2854,15 @@
       if (typeof pb.volume === 'number' && isFinite(pb.volume)) state.volume = Math.max(0, Math.min(1, pb.volume));
       state.muted = !!pb.muted;
       if (pb.mode === 'one' || pb.mode === 'shuffle' || pb.mode === 'list') state.mode = pb.mode;
-      if (typeof pb.lyricsVisible === 'boolean') state.lyrics = pb.lyricsVisible;
+      if (Array.isArray(pb.shuffleTrail)) {
+        shuffleTrail = pb.shuffleTrail
+          .filter(function (x) { return typeof x === 'string' && x; })
+          .slice(-SHUFFLE_TRAIL_MAX);
+      }
     }
     renderVolume();
     renderMode();
-    renderLyricToggle();
+    renderLyricMode();
     audio.volume = state.volume;
     audio.muted = state.muted;
 
@@ -2959,7 +3021,7 @@
     add('host-safe-clear', hits.length === 0, hits.join(','));
 
     /* 5. 播放控制全在容器内 */
-    ['playBtn', 'prevBtn', 'nextBtn', 'modeBtn', 'seek', 'muteBtn', 'lyricToggle', 'queueBtn'].forEach(function (id) {
+    ['playBtn', 'prevBtn', 'nextBtn', 'modeBtn', 'seek', 'muteBtn', 'favBtn', 'queueBtn'].forEach(function (id) {
       var el = $(id);
       add('control-visible:' + id, shown(el) && inside(el.getBoundingClientRect()), '');
     });
@@ -2987,8 +3049,9 @@
       add('topbar-stable-on-scroll', true, 'n/a（同上）');
     }
 
+    var hasLyrics = player.getAttribute('data-haslyrics') === '1';
     /* 7b. 歌词只滚自己：不牵动顶栏、控制条、队列 */
-    if (state.lyrics && shown(lyrics) && lyrics.scrollHeight > lyrics.clientHeight + 1) {
+    if (hasLyrics && shown(lyrics) && lyrics.scrollHeight > lyrics.clientHeight + 1) {
       var topBefore = sceneTop.getBoundingClientRect().top;
       var ctlBefore = $('controls').getBoundingClientRect().top;
       var qBefore = queueList.scrollTop;
@@ -3007,16 +3070,16 @@
     }
 
     /* 8. 歌词不横向溢出 */
-    if (state.lyrics && shown(lyrics)) {
+    if (hasLyrics && shown(lyrics)) {
       add('lyric-no-overflow', lyrics.scrollWidth <= lyrics.clientWidth + 1,
         'lyrics ' + lyrics.scrollWidth + '/' + lyrics.clientWidth);
     } else {
       add('lyric-no-overflow', true, 'n/a（歌词关闭）');
     }
 
-    /* 9. 歌词 ⇄ 频谱互换（R4）：关歌词只换内容层，蒙层/渐变必须保持在线 */
-    if (!state.lyrics) {
-      add('spectrum-swap-when-lyrics-off',
+    /* 9. 无词兜底（R4）：无词只出频谱，蒙层/渐变必须保持在线 */
+    if (!hasLyrics) {
+      add('spectrum-swap-when-no-lyrics',
         !shown(lyricWrap) && shown(lyricScrim) && shown($('spectrum')),
         'wrap=' + getComputedStyle(lyricWrap).display +
         ' scrim=' + getComputedStyle(lyricScrim).display +
@@ -3031,7 +3094,7 @@
     /* 9b. 标题块与歌词/频谱文字不得重叠（舞台重构遗留缺陷） */
     if (shown($('scene'))) {
       var tb = sceneTop.getBoundingClientRect();
-      var band = (state.lyrics && shown(lyricWrap) ? lyricWrap : $('spectrum')).getBoundingClientRect();
+      var band = ((hasLyrics && shown(lyricWrap)) ? lyricWrap : $('spectrum')).getBoundingClientRect();
       add('title-not-overlap-content', band.top >= tb.bottom - 1,
         'titleBottom=' + Math.round(tb.bottom) + ' contentTop=' + Math.round(band.top));
     }
@@ -3062,7 +3125,7 @@
 
     var payload = {
       type: 'self-check',
-      case: [window.innerWidth + 'x' + window.innerHeight, themeLabel(), state.lyrics ? 'lyrics-on' : 'lyrics-off', player.getAttribute('data-layout')].join(' / '),
+      case: [window.innerWidth + 'x' + window.innerHeight, themeLabel(), hasLyrics ? 'lyrics-on' : 'no-lyrics', player.getAttribute('data-layout')].join(' / '),
       passed: checks.filter(function (c) { return !c.ok; }).length === 0,
       checks: checks
     };

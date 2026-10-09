@@ -34,7 +34,7 @@
           <div class="lyrics" id="lyrics"></div>
         </div>
 
-        <!-- 歌词关闭时的替代内容：纯装饰频谱（不接 Web Audio） -->
+        <!-- 无歌词时的兜底内容：纯装饰频谱（有词就显歌词，见 renderLyrics/syncPanels）。 -->
         <div class="spectrum" id="spectrum" aria-hidden="true"></div>
       </div>
 
@@ -131,12 +131,12 @@
           <span class="time" id="durTime">4:44</span>
         </div>
 
-        <!-- 控制条第二行：设计稿节奏 ⟳ ⏮ (⏸) ⏭ 🔊 | ☰ 队列，整行均分间距。
-             「歌词」保留（tab 行砍掉后无处安放），做成与「队列」同一套文字按钮。 -->
+        <!-- 控制条第二行：设计稿节奏 ♡ ⟳ ⏮ (⏸) ⏭ 🔊 | ☰ 队列，整行均分间距。
+             最左是「喜欢」红心（常驻，任何时候够得着），点亮加/取消当前曲。 -->
         <div class="btn-row">
-          <button class="text-btn" id="lyricToggle" type="button" aria-pressed="true" title="歌词显示：开">
-            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-lyric"></use></svg>
-            <span>歌词</span>
+          <button class="text-btn fav-text" id="favBtn" type="button" aria-pressed="false" aria-label="加入我的喜欢" title="加入我的喜欢">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-heart"></use></svg>
+            <span>喜欢</span>
           </button>
 
           <button class="icon-btn" id="modeBtn" type="button"></button>
@@ -229,7 +229,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131576";</script>
+<script>window.__HANA_BUILD = "1003131578";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
