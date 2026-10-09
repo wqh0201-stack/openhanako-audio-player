@@ -55,24 +55,25 @@
       rgba(12, 16, 20, 0) 100%);
   /* 封面底部渐隐融入下方面板：跟随歌词开关，关闭时只剩封面 */
   --cover-blend: linear-gradient(180deg, transparent 0%, var(--surface) 92%);
-  --lyric-scrim: linear-gradient(180deg,
-      rgba(14, 18, 22, 0.28) 0%,
-      rgba(14, 18, 22, 0.44) 42%,
-      rgba(14, 18, 22, 0.56) 100%);
+  /* 歌词阅读列在右：遮罩横向渐变 —— 右侧深、向左渐浅、最左透明，左边留给封面主体 */
+  --lyric-scrim: linear-gradient(90deg,
+      rgba(14, 18, 22, 0) 0%,
+      rgba(14, 18, 22, 0.14) 38%,
+      rgba(14, 18, 22, 0.48) 70%,
+      rgba(14, 18, 22, 0.62) 100%);
+  /* 歌词整体右移的量（左侧留白 = 封面可见区） */
+  --lyric-shift: 11%;
   --lyric-current: rgba(255, 253, 247, 0.97);
   --lyric-near: rgba(255, 253, 247, 0.58);
   --lyric-far: rgba(255, 253, 247, 0.32);
 }
 
-/* 无封面兜底态：文字转主题墨色，蒙层退成极淡纸色 */
+/* 无封面兜底态：文字转主题墨色，遮罩退成纯纸面（无封面就不用压暗） */
 .player.nocover {
   --cover-text: var(--text);
   --cover-text-soft: var(--muted);
   --cover-top-scrim: none;
-  --lyric-scrim: linear-gradient(180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--surface) 72%, transparent) 42%,
-      transparent 100%);
+  --lyric-scrim: none;
   --lyric-current: var(--text);
   --lyric-near: color-mix(in srgb, var(--text) 55%, transparent);
   --lyric-far: color-mix(in srgb, var(--text) 32%, transparent);
@@ -261,10 +262,23 @@ button:disabled { cursor: default; }
   overflow-x: hidden;
   overscroll-behavior: contain;
   text-align: center;
-  scrollbar-width: thin;
+  /* 歌词整体右移：左边留出封面可见区，与右侧遮罩对齐 */
+  padding-left: var(--lyric-shift);
+  /* 滚动条平时藏起来（播放时不打扰），鼠标进歌词区才现身 */
+  scrollbar-width: none;
   /* 首尾淡出：边缘行不硬裁，也避免与曲目信息牌磁上 */
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
+}
+.lyrics::-webkit-scrollbar { width: 0; height: 0; }
+.lyrics:hover { scrollbar-width: thin; }
+.lyrics:hover::-webkit-scrollbar { width: 6px; height: 6px; }
+.lyrics:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 253, 247, 0.34);
+  border-radius: 3px;
+}
+.player.nocover .lyrics:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 22%, transparent);
 }
 .lyric-line {
   margin: 0;
@@ -310,6 +324,19 @@ button:disabled { cursor: default; }
   font-size: 12px;
   white-space: nowrap;
 }
+/* 恢复跟随：只压住「返回」按钮那一小块，不碰整行（否则每句歌词都会顶着深背景） */
+.lyric-back::before {
+  content: '';
+  position: absolute;
+  inset: -16px -22px -18px;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center,
+      rgba(12, 16, 20, 0.52) 0%,
+      rgba(12, 16, 20, 0.28) 55%,
+      rgba(12, 16, 20, 0) 100%);
+}
+.player.nocover .lyric-back::before { background: none; }
 .lyric-back[hidden] { display: none; }
 
 /* ============================================================
@@ -395,13 +422,8 @@ button:disabled { cursor: default; }
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
-.queue-list::-webkit-scrollbar,
-.lyrics::-webkit-scrollbar { width: 6px; height: 6px; }
-.queue-list::-webkit-scrollbar-thumb,
-.lyrics::-webkit-scrollbar-thumb {
-  background: var(--track);
-  border-radius: 3px;
-}
+.queue-list::-webkit-scrollbar { width: 6px; height: 6px; }
+.queue-list::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
 
 .q-row {
   display: flex;
@@ -768,13 +790,15 @@ button:disabled { cursor: default; }
 
 .player[data-layout="wide"] .lyric-wrap {
   left: 24%;
-  right: 12%;
+  right: 8%;
   transition: left 0.22s ease, right 0.22s ease;
 }
 .player[data-layout="wide"][data-drawer="1"] .lyric-wrap {
   left: 8%;
   right: 42%;
 }
+/* 宽窗窄时阅读列本身就很窄，不再额外右移 */
+.player[data-layout="wide"] .lyrics { padding-left: 2%; }
 
 .player[data-layout="wide"] .queue {
   position: absolute;

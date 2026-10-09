@@ -39,7 +39,7 @@ function makeTracks(n) {
   for (let i = 0; i < n; i++) {
     const online = i % 4 === 3;
     out.push(online
-      ? { id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: `/api/apps/hanako-audio-player/routes/widget/api/music/go/${900000 + i}?server=netease`, mode: '在线', dur: 0, group: '在线音乐', pic: '' }
+      ? { id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: `/api/apps/hanako-audio-player/routes/widget/api/music/go/${900000 + i}?server=netease`, mode: '在线', dur: 0, group: '在线音乐', pic: `${API}/_fixture/cover.png` }
       : { id: `fixture-${String(i + 1).padStart(2, '0')}.wav`, name: `本地曲目 ${i + 1}`, url: WAV_URL, mode: '本地', dur: 0, group: '本地音乐' });
   }
   // 前两首给封面图，用来验「有封面」的双态（浅色字 + 顶部渐变）
@@ -240,8 +240,29 @@ for (const [name, w, h, file] of CASES) {
     title: document.getElementById('trackTitle').textContent,
     lyricLines: document.querySelectorAll('#lyrics .lyric-line').length,
     hasEmpty: !!document.querySelector('#lyrics .lyric-empty'),
-    audioPaused: document.getElementById('audio').paused
+    audioPaused: document.getElementById('audio').paused,
+    // 歌词滚动条：平时 scrollbar-width 应为 none（藏起来），靠 :hover 才现身
+    lyricScrollbarWidth: getComputedStyle(document.getElementById('lyrics')).scrollbarWidth,
+    lyricScrolling: document.getElementById('lyrics').scrollHeight > document.getElementById('lyrics').clientHeight
   }));
+  await page.screenshot({ path: path.join(outDir, 'lyrics-465x930-light.png') });
+  // 鼠标悬上去：滚动条应现身（scrollbar-width 从 none 变 thin）
+  await page.hover('#lyrics');
+  await new Promise((r) => setTimeout(r, 200));
+  w.lyricScrollbarOnHover = await page.evaluate(() => getComputedStyle(document.getElementById('lyrics')).scrollbarWidth);
+  await page.mouse.move(2, 2);
+  await new Promise((r) => setTimeout(r, 200));
+  // 同一帧紧接关掉歌词（无遮罩），用于对比遮罩方向
+  await page.evaluate(() => document.getElementById('lyricToggle').click());
+  await new Promise((r) => setTimeout(r, 250));
+  await page.screenshot({ path: path.join(outDir, 'lyricsoff-465x930-light.png') });
+  await page.evaluate(() => document.getElementById('lyricToggle').click());
+  await new Promise((r) => setTimeout(r, 250));
+  await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+  await new Promise((r) => setTimeout(r, 400));
+  await page.screenshot({ path: path.join(outDir, 'lyrics-1040x780-light.png') });
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await new Promise((r) => setTimeout(r, 400));
 
   // 下一首
   await page.evaluate(() => document.getElementById('nextBtn').click());
