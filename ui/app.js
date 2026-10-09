@@ -599,6 +599,41 @@
     function ch(v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
     return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]);
   }
+
+  /* RGB → HSL（h 0~360, s/l 0~1）。 */
+  function toHsl(c) {
+    var r = c[0] / 255, g = c[1] / 255, b = c[2] / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    var h = 0, s = 0, l = (mx + mn) / 2;
+    if (d > 1e-6) {
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0));
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return [h, s, l];
+  }
+  /* HSL → RGB。 */
+  function fromHsl(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    function f(n) {
+      var k = (n + h / 30) % 12;
+      var a = s * Math.min(l, 1 - l);
+      return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    }
+    return [f(0), f(8), f(4)];
+  }
+  /* 背景撞色：取主色的互补色相（转 150° 附近，够撞但不髿），
+   * 再按极性定亮度 —— 深纱上提亮、浅纱上压深，保证在纱上可读。
+   * 输入主色 + 'light'/'dark'（当前极性）。 */
+  function accentFrom(color, polarity) {
+    var hsl = toHsl(color);
+    var h = hsl[0] + 150;                       // 互补偏一点，避开刺眼的纯 180
+    var s = Math.max(0.42, Math.min(0.72, hsl[1] * 0.9 + 0.22)); // 保底彩度
+    var l = polarity === 'dark' ? 0.72 : 0.40;  // 深纱亮、浅纱暗
+    return fromHsl(h, s, l);
+  }
   function rgbStr(c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
 
   /* 占比最多的色（4bit/通道量化）。近中性色（灰/黑/白）降权，优先取有彩的：
@@ -665,11 +700,14 @@
     if (!res || !res.color) {
       /* 取色失败 / 无封面：撤掉主色底，退回主题纸面；字色跟主题 */
       player.style.removeProperty('--ambient-color');
+      player.style.removeProperty('--ambient-accent');
       player.classList.remove('ambient-ok');
       player.setAttribute('data-ambient', player.classList.contains('nocover') ? 'none' : themePolarity());
       return;
     }
     player.style.setProperty('--ambient-color', rgbStr(res.color));
+    /* 当前句高亮：用背景撞色（互补色相 + 按极性定亮度），不跟随主题强调色 */
+    player.style.setProperty('--ambient-accent', rgbStr(accentFrom(res.color, res.polarity)));
     player.classList.add('ambient-ok');
     player.setAttribute('data-ambient', res.polarity);
   }
@@ -2157,9 +2195,13 @@
   }
   function positionSplitHandle() {
     if (!splitHandle || player.getAttribute('data-layout') !== 'long') return;
-    var sr = stageEl.getBoundingClientRect();
-    var pr = player.getBoundingClientRect();
-    splitHandle.style.top = Math.round(sr.bottom - pr.top) + 'px';
+    /* 交界 = scene 的底（不是 #stage 的底 —— stage 把 queue 也包进去了）。
+     * top 相对 #stage（position:relative 的祖先）。 */
+    var sceneEl = $('scene');
+    if (!sceneEl) return;
+    var sbr = sceneEl.getBoundingClientRect();
+    var stb = stageEl.getBoundingClientRect();
+    splitHandle.style.top = Math.round(sbr.bottom - stb.top) + 'px';
   }
   if (splitHandle && stageEl) {
     splitHandle.hidden = false;
@@ -2173,12 +2215,11 @@
     });
     splitHandle.addEventListener('pointermove', function (e) {
       if (!splitting) return;
-      var pr = player.getBoundingClientRect();
-      var fr = frame.getBoundingClientRect();
-      /* 可用高 = 整帧高 - 控制条高；舞台占比 = 指针在上半的空间比 */
-      var ctrl = $('controls').getBoundingClientRect().height;
-      var avail = (fr.height - ctrl) || 1;
-      var y = e.clientY - pr.top;
+      /* 指针相对分区容器（#stage）的高度比 = 封面区占比。
+       * 用 stage 自身的矩形做基准（它已排除控制条），不要用 frame。 */
+      var stb = stageEl.getBoundingClientRect();
+      var avail = stb.height || 1;
+      var y = e.clientY - stb.top;
       setSplit(y / avail, false);
     });
     function endSplit() {
