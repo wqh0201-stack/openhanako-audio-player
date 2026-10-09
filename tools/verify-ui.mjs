@@ -1227,18 +1227,33 @@ const motion = {};
   assert('search-page-lists-results',
     s.pageOpen.open === true && s.pageOpen.rows === 1 && s.pageOpen.addBtns === 1,
     JSON.stringify(s.pageOpen));
+  // 搜索页只盖舞台，不得遮住底部控制条（罐头拍板）
+  s.coversControls = await page.evaluate(() => {
+    const sp = document.getElementById('searchPage').getBoundingClientRect();
+    const ctl = document.getElementById('controls').getBoundingClientRect();
+    return { searchBottom: Math.round(sp.bottom), controlsTop: Math.round(ctl.top), spW: Math.round(sp.width), frameW: Math.round(document.getElementById('frame').getBoundingClientRect().width) };
+  });
+  assert('search-page-not-cover-controls',
+    s.coversControls.searchBottom <= s.coversControls.controlsTop + 1,
+    JSON.stringify(s.coversControls));
   await page.screenshot({ path: path.join(outDir, 'search-page-1040x780-light.png') });
 
   await page.evaluate(() => document.querySelector('#searchList .search-add').click());
   await sleep(300);
   s.afterAdd = await page.evaluate(() => ({
-    rows: document.querySelectorAll('#queueList .q-row').length,
     added: !!document.querySelector('#searchList .search-add.is-added'),
+    inFav: Array.prototype.some.call(document.querySelectorAll('#listTabs .list-tab'), (e) => e.getAttribute('data-list') === 'fav')
+  }));
+  // 拍板：搜索「加入」= 收藏，落「我的喜欢」（不再新建隐形「搜索」歌单）
+  await clickTab(page, 'fav');
+  await sleep(250);
+  s.favRows = await page.evaluate(() => ({
+    count: document.querySelectorAll('#queueList .q-row').length,
     hasNew: Array.prototype.some.call(document.querySelectorAll('#queueList .q-title'), (e) => e.textContent === '搜索命中曲')
   }));
-  assert('search-add-into-active-list',
-    s.afterAdd.rows === beforeRows + 1 && s.afterAdd.added === true && s.afterAdd.hasNew === true,
-    JSON.stringify({ beforeRows, ...s.afterAdd }));
+  assert('search-add-goes-to-fav',
+    s.afterAdd.added === true && s.afterAdd.inFav === true && s.favRows.hasNew === true,
+    JSON.stringify({ afterAdd: s.afterAdd, favRows: s.favRows }));
 
   // Esc 关闭搜索页
   await page.keyboard.press('Escape');

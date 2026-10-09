@@ -116,6 +116,44 @@
           </button>
         </div>
       </section>
+
+      <!-- 搜索页：只覆盖舞台（封面 + 歌词）区域，不遮下方控制条 -->
+      <section class="search-page" id="searchPage" hidden aria-label="搜索歌曲">
+        <header class="search-head">
+          <button class="back-btn" id="searchBackBtn" type="button">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-left"></use></svg>
+            <span>返回</span>
+          </button>
+          <div class="search-bar">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
+            <input class="search-input" id="searchInput" type="search" placeholder="搜歌名 / 歌手" aria-label="搜索关键词" autocomplete="off">
+            <button class="search-go" id="searchGoBtn" type="button" aria-label="搜索">搜索</button>
+          </div>
+          <div class="search-servers" id="searchServers" role="group" aria-label="搜索平台"></div>
+        </header>
+        <div class="search-scope" id="searchScope" role="group" aria-label="搜索范围">
+          <button class="search-scope-btn is-active" type="button" data-scope="song" aria-pressed="true">搜歌曲</button>
+          <button class="search-scope-btn" type="button" data-scope="artist" aria-pressed="false">搜歌手</button>
+        </div>
+        <!-- 推荐区：仅在未搜索时显示（搜索时整块隐去，改由结果列表接管） -->
+        <div class="search-discover" id="searchDiscover">
+          <section class="discover-block">
+            <h3 class="discover-title">热门推荐</h3>
+            <ol class="discover-songs" id="hotList"></ol>
+          </section>
+          <section class="discover-block" id="chartsBlock">
+            <h3 class="discover-title">榜单 · 歌单</h3>
+            <div class="discover-grid" id="chartsGrid"></div>
+          </section>
+          <section class="discover-block" id="radiosBlock">
+            <h3 class="discover-title">热门电台</h3>
+            <div class="discover-grid" id="radiosGrid"></div>
+          </section>
+        </div>
+        <p class="search-section" id="searchSection" hidden></p>
+        <ol class="search-list" id="searchList"></ol>
+        <p class="search-note" id="searchNote"></p>
+      </section>
     </section>
 
     <!-- 底部播放控制：三种布局常驻 -->
@@ -171,44 +209,6 @@
       <svg class="icon icon-sm" aria-hidden="true"><use href="#i-play"></use></svg>
       <span>继续播放</span>
     </button>
-
-    <!-- 搜索页：整页浮层（含底部控制栏），仅在独立窗口（大卡片）由左下角搜索入口唤出 -->
-    <section class="search-page" id="searchPage" hidden aria-label="搜索歌曲">
-      <header class="search-head">
-        <button class="back-btn" id="searchBackBtn" type="button">
-          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-chevron-left"></use></svg>
-          <span>返回</span>
-        </button>
-        <div class="search-bar">
-          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
-          <input class="search-input" id="searchInput" type="search" placeholder="搜歌名 / 歌手" aria-label="搜索关键词" autocomplete="off">
-          <button class="search-go" id="searchGoBtn" type="button" aria-label="搜索">搜索</button>
-        </div>
-        <div class="search-servers" id="searchServers" role="group" aria-label="搜索平台"></div>
-      </header>
-      <div class="search-scope" id="searchScope" role="group" aria-label="搜索范围">
-        <button class="search-scope-btn is-active" type="button" data-scope="song" aria-pressed="true">搜歌曲</button>
-        <button class="search-scope-btn" type="button" data-scope="artist" aria-pressed="false">搜歌手</button>
-      </div>
-      <!-- 推荐区：仅在未搜索时显示（搜索时整块隐去，改由结果列表接管） -->
-      <div class="search-discover" id="searchDiscover">
-        <section class="discover-block">
-          <h3 class="discover-title">热门推荐</h3>
-          <ol class="discover-songs" id="hotList"></ol>
-        </section>
-        <section class="discover-block" id="chartsBlock">
-          <h3 class="discover-title">榜单 · 歌单</h3>
-          <div class="discover-grid" id="chartsGrid"></div>
-        </section>
-        <section class="discover-block" id="radiosBlock">
-          <h3 class="discover-title">热门电台</h3>
-          <div class="discover-grid" id="radiosGrid"></div>
-        </section>
-      </div>
-      <p class="search-section" id="searchSection" hidden></p>
-      <ol class="search-list" id="searchList"></ol>
-      <p class="search-note" id="searchNote"></p>
-    </section>
 
     <pre class="report" id="report" hidden></pre>
   </div>
@@ -272,7 +272,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131586";</script>
+<script>window.__HANA_BUILD = "1003131588";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

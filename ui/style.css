@@ -1449,7 +1449,7 @@ body.is-shot *::after {
 .search-page {
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: 20;               /* 只盖住所在的 .stage（封面 + 歌词）；下面控制条不受影响 */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1578,13 +1578,18 @@ body.is-shot *::after {
   letter-spacing: 0.02em;
 }
 .discover-songs { margin: 0; padding: 0; }
-/* 榜单/歌单/电台：横向卡片网格（封面 + 名 + 备注），点开拉列表 */
+/* 榜单/歌单/电台：横向滑动的一行卡片（封面 + 名 + 备注），点开拉列表。
+   用横滑而非换行网格 —— 三块推荐区才能在一屏里都看得见（罐头真机反馈）。 */
 .discover-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  display: flex;
   gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 .discover-card {
+  flex: 0 0 108px;
   display: flex;
   flex-direction: column;
   gap: 6px;

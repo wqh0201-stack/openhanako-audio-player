@@ -2959,7 +2959,7 @@
     if (chartsGridEl) chartsGridEl.innerHTML = '<p class="discover-loading">加载中…</p>';
     if (radiosGridEl) radiosGridEl.innerHTML = '<p class="discover-loading">加载中…</p>';
 
-    apiGetJson(ENDPOINT.hot + '?limit=12').then(function (res) {
+    apiGetJson(ENDPOINT.hot + '?limit=6').then(function (res) {
       hotSongs = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
       renderHotSongs();
     }).catch(function () { hotSongs = []; renderHotSongs(); });
@@ -2989,6 +2989,8 @@
     }
   }
 
+  var HOT_MAX = 6;   // 热门歌曲只显前 6 条：多了会把下面「榜单/电台」顶出屏（真机反馈）
+
   /* 热门歌曲：复用搜索结果行的样子（可直接加入） */
   function renderHotSongs() {
     if (!hotListEl) return;
@@ -2997,7 +2999,8 @@
       return;
     }
     var html = '';
-    for (var i = 0; i < hotSongs.length; i++) {
+    var n = Math.min(hotSongs.length, HOT_MAX);
+    for (var i = 0; i < n; i++) {
       var r = hotSongs[i];
       var inList = hotSongInList(r);
       html += '<li class="search-row" data-hot="' + i + '">' +
@@ -3188,33 +3191,34 @@
     }
   }
 
-  /* 搜索结果归入哪个列表：与导入同一套语义 —— 当前是导入列表就用它，
-   * 本地/我的喜欢时新建/复用一个名为「搜索」的导入列表。 */
+  /* 搜索结果 / 推荐区的「加入」= 收藏，落到「我的喜欢」（与红心同一心智）。
+   * 之前错把导入的规矩（落当前歌单 / 新建隐形「搜索」歌单）套到搜索上，
+   * 而开卡默认就在「我的喜欢」，导致加入后人在原处、看不到 —— 罐头拍板修正。 */
   function searchTargetList() {
-    if (/^imp:/.test(state.activeList) && findList(state.activeList)) return state.activeList;
-    for (var i = 0; i < state.lists.length; i++) {
-      if (state.lists[i].id !== 'local' && state.lists[i].id !== 'fav' && state.lists[i].name === '搜索') return state.lists[i].id;
-    }
-    var id = nextImportId();
-    state.lists.push({ id: id, name: '搜索' });
-    saveLists();
-    return id;
+    return 'fav';
   }
 
-  /* 把一条曲目加进当前目标列表（搜索结果、热门、榜单、电台共用同一落库路径） */
+  /* 把一条曲目加进「我的喜欢」（搜索结果、热门、榜单、电台共用同一落库路径）。
+   * 与红心一致：按稳定 id 去重，已在则不再加。 */
   function addTrackToTarget(r) {
     if (!r) return false;
+    ensureList('fav', '我的喜欢');
+    var id = deriveId(r, r.url);
     var target = searchTargetList();
-    var added = mergeTracks([r], target);
-    var l = findList(target);
-    if (added > 0) {
-      savePlaylist();
-      renderQueue();
-      toast('已加入「' + ((l && l.name) || '搜索') + '」：' + (r.title || r.name || ''));
-    } else {
-      toast('「' + ((l && l.name) || '搜索') + '」里已有这首');
+    var already = false;
+    for (var j = 0; j < state.tracks.length; j++) {
+      if (state.tracks[j].id === id && state.tracks[j].list === target) { already = true; break; }
     }
-    return added > 0;
+    if (already) {
+      toast('「我的喜欢」里已有这首');
+      return false;
+    }
+    mergeTracks([r], target);
+    savePlaylist();
+    renderQueue();
+    renderTrack();   // 若正播这首，播放页/控制条的红心跟着点亮
+    toast('已加入「我的喜欢」：' + (r.title || r.name || ''));
+    return true;
   }
 
   function addSearchHit(idx) {
@@ -3771,6 +3775,17 @@
       var band = lyricWrap.getBoundingClientRect();
       add('title-not-overlap-content', band.top >= tb.bottom - 1,
         'titleBottom=' + Math.round(tb.bottom) + ' contentTop=' + Math.round(band.top));
+    }
+
+    /* 9c. 搜索页不得遮住底部控制条：它挂在 .stage 内，底线应 <= 控制条顶边 */
+    var spEl = $('searchPage');
+    if (spEl && !spEl.hidden) {
+      var spR = spEl.getBoundingClientRect();
+      var ctlR = $('controls').getBoundingClientRect();
+      add('search-page-not-cover-controls', spR.bottom <= ctlR.top + 1,
+        'searchBottom=' + Math.round(spR.bottom) + ' controlsTop=' + Math.round(ctlR.top));
+    } else {
+      add('search-page-not-cover-controls', true, 'n/a（搜索页未开）');
     }
     /* 10. 字号下限 */
     var small = [];
