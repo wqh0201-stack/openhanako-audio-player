@@ -350,7 +350,9 @@ button:disabled { cursor: default; }
   overflow: hidden;
 }
 
-/* 顶部局部渐变（标题可读底色）；底部渐隐把封面下缘「化」进环境色 */
+/* 顶部局部渐变（标题可读底色）。
+ * 底部**不再有渐隐** —— 曾试过「让封面底缘化进环境色」（.scene::after，吃 --ambient-color），
+ * 2026-10-09 罐头拍板撤掉：舞台底边直接硬切到控制条，全屏只留歌词那侧往左的淡入（.lyric-scrim）。 */
 .scene::before {
   content: "";
   position: absolute;
@@ -360,31 +362,6 @@ button:disabled { cursor: default; }
   height: 132px;
   z-index: 2;
   background: var(--cover-top-scrim);
-  pointer-events: none;
-}
-/* 底部渐隐 = 封面下缘「化」进环境色（与右缘淡出同一套做法），而不是拿主题面色
- * 在整条底边上刷一层 —— 后者在「深色封面 + 浅色主题」时就是那道很重的奶白晕：
- * 封面近黑、控制条暖白，72px 的固定带子把底边整条刷白。
- *   · 颜色吃 --ambient-color（封面主色）：封面区 = 封面在化开，环境色区 = 同色不显；
- *     取色失败/无封面时退回 --hk-surface（与旧行为一致）。
- *   · 高度跟舞台走（不再是死 72px）：矮卡/方块布局不会被吃掉一大块。
- *   · z-index 1：只化封面，不盖歌词/频谱/标题（它们都在 z-index 2/3）。
- *   · 底边到控制条是**硬切**（2026-10-09 罐头拍板）：控制条自己那条 hairline 还在，
- *     读起来是有意的面板分界，和 Apple Music 那种「作品结束、面板开始」一致。
- *     曾试过最底再补 18px 羽化接控制条，真机上判为不行（多一截浅色呼吸），已撤。
- * 注：不写成 :root 上的 --cover-blend —— var()/color-mix 在【声明所在元素】上求值，
- * 写在 :root 只会取到那里的值，拿不到 .player 上的 --ambient-color。 */
-.scene::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: clamp(36px, 9%, 72px);
-  z-index: 1;
-  background: linear-gradient(180deg,
-      transparent 0%,
-      var(--ambient-color, var(--hk-surface)) 92%);
   pointer-events: none;
 }
 

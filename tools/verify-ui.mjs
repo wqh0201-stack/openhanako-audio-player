@@ -1123,6 +1123,35 @@ const motion = {};
   const localPopOpen = await page.evaluate(() => !document.getElementById('listPop').hidden);
   assert('list-local-not-deletable', localPopOpen === false, String(localPopOpen));
 
+  /* 歌词跨源兜底：拿「标题+歌手」去别的平台搜时，匹配规则必须保守。
+   * 纯函数，不依赖网络（走 __playerDebug 钩子）；防「纯音乐被配成同名歌曲」这类乱配。 */
+  const lyricMatch = await page.evaluate(() => {
+    const D = window.__playerDebug;
+    const mk = (title, author) => ({ title, author, url: 'x' });
+    const hit = (list, t, a) => { const r = D.pickLyricHit(list, t, a); return r ? (r.title + '/' + r.author) : null; };
+    return {
+      exact: hit([mk('晴天', '周杰伦')], '晴天', '某某'),                 // 同名直取
+      bracketVersion: hit([mk('晴天 (Live版)', '周杰伦')], '晴天', ''),     // 括号版本注记 → 归一后同名
+      wrongTitle: hit([mk('雨天', '周杰伦')], '晴天', '周杰伦'),           // 标题不同不取
+      authorPreferred: hit([mk('晴天', '林俊杰'), mk('晴天', '周杰伦')], '晴天', '周杰伦'), // 同名时作者对得上的优先
+      emptyList: hit([], '晴天', '周杰伦'),
+      noUrl: (function () { const r = D.pickLyricHit([{ title: '晴天', author: '周杰伦' }], '晴天', '周杰伦'); return r ? 'has' : 'null'; })()  // 无 url 的结果不取
+    };
+  });
+  assert('lyric-crosssource-match-rules',
+    lyricMatch.exact === '晴天/周杰伦' && lyricMatch.bracketVersion === '晴天 (Live版)/周杰伦' &&
+    lyricMatch.wrongTitle === null && lyricMatch.authorPreferred === '晴天/周杰伦' &&
+    lyricMatch.emptyList === null && lyricMatch.noUrl === 'null',
+    JSON.stringify(lyricMatch));
+
+  /* 频谱反应链必须走 captureStream（非破坏性），**绝不能**回到 createMediaElementSource：
+   * 后者跨源会输出全零（静音）且不可逆。源码级守卫，去掉注释后再查。 */
+  const codeNoComments = fs.readFileSync(path.join(uiDir, 'app.js'), 'utf-8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert('reactive-uses-captureStream-not-mediaElementSource',
+    /\.captureStream\(\)/.test(codeNoComments) && !/createMediaElementSource\s*\(/.test(codeNoComments),
+    JSON.stringify({ usesCaptureStream: /\.captureStream\(\)/.test(codeNoComments), callsOldApi: /createMediaElementSource\s*\(/.test(codeNoComments) }));
+
   report.four = w2;
   await page.close();
 }
@@ -1274,15 +1303,11 @@ const AMBIENT_PROBE = async () => {
     })(),
     seam: pcs.getPropertyValue('--seam').trim(),
     band: pcs.getPropertyValue('--band').trim(),
-    /* 舞台底部渐隐带（.scene::after）：两层 —— 主体化进环境色 + 最底一截羽化到控制条色 */
-    blend: (() => {
+    /* 舞台底部渐隐已撤（2026-10-09 罐头拍板）：.scene::after 不该再生成 —— 底边硬切到控制条，
+     * 全屏只留歌词那侧往左的淡入（.lyric-scrim）。这里做反断言，防回归。 */
+    bottomFade: (() => {
       const cs = getComputedStyle(scene, '::after');
-      const bg = cs.backgroundImage || '';
-      return {
-        h: Math.round(parseFloat(cs.height) || 0),
-        layers: bg.split(/,\s*(?=linear-gradient\()/).map((s) => s.slice(0, 160)),
-        size: (cs.backgroundSize || '').slice(0, 80)
-      };
+      return { content: cs.content, bg: (cs.backgroundImage || 'none').slice(0, 60) };
     })(),
     surfaceRGB: hex(rs.getPropertyValue('--hk-surface')),
     /* .frame 的背景色 = 圆角处露出来的颜色（.player 满铺盖住其余部分）——
@@ -1385,22 +1410,12 @@ let ambient = {};
   assert('ambient-dark-color-applied',
     ambient.dark.ambientOk === true && ambient.dark.polarity === 'dark',
     JSON.stringify({ p: ambient.dark.polarity, ok: ambient.dark.ambientOk }));
-  /* 底部渐隐：单层，末端必须是环境色（封面主色）—— 不能拿主题面色在底边上刷一道：
-   * 「深色封面 + 浅色主题」时后者就是那道很重的奶白晕（封面近黑、控制条暖白）。
-   * 高度也必须跟舞台走，不再是死 72px（矮卡/方块布局不被吃掉一大块）。
-   * 底边到控制条是硬切（2026-10-09 罐头拍板）—— 曾试过最底补 18px 羽化，真机上判为不行，已撤。 */
-  {
-    const stopsOf = (s) => [...String(s).matchAll(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g)]
-      .map((m) => [+m[1], +m[2], +m[3]]);
-    const layers = ambient.dark.blend.layers || [];
-    const main = stopsOf(layers[layers.length - 1] || '').slice(-1)[0] || [];
-    const amb = ambient.dark.ambientColor || [];
-    const near = (a, b) => a.length === 3 && b.length === 3 && a.every((v, i) => Math.abs(v - b[i]) <= 2);
-    assert('bottom-blend-dissolves-into-ambient',
-      ambient.dark.ambientOk === true && layers.length === 1 && near(main, amb) &&
-      ambient.dark.blend.h >= 36 && ambient.dark.blend.h <= 72,
-      JSON.stringify({ h: ambient.dark.blend.h, main, amb, layers }));
-  }
+  /* 舞台底部不再有渐隐（2026-10-09 罐头拍板）：曾有一条 .scene::after 把封面底缘「化」进
+   * 环境色（吃 --ambient-color），现已撤掉 —— 底边直接硬切到控制条，全屏只留歌词那侧往左的
+   * 淡入（.lyric-scrim）。反断言：::after 不该生成。 */
+  assert('bottom-fade-removed',
+    ambient.dark.bottomFade.content === 'none' && ambient.dark.bottomFade.bg === 'none',
+    JSON.stringify(ambient.dark.bottomFade));
 
   /* 顶部圆角（2026-10-09）：宿主只在独立窗/浏览器视图里把 App 面裁圆，聊天卡片里不裁 ——
    * App 自己补上，固定 14px（宿主不转发 --radius-chat-surface；只转发 8/6px 那两个，

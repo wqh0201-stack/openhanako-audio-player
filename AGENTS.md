@@ -157,13 +157,27 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      点心/移出等重渲染**不触发**，不抢用户滚动位置。
   断言：`control-bar-fav-toggles` / `queue-center-on-list-switch` / `stage-fav-toggles-and-syncs-row`
   （含图标存在性）—— 验收计数升到 **68/68**。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 68/68 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
-- 第六轮（舞台底部渐隐重做 + 顶部圆角，2026-10-09 罐头拍板）：
-  ① `.scene::after` 从「固定 72px 刷主题面色」改成「按舞台高比例 `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，
-     `z-index:1` 只化封面不盖歌词；底边到控制条**硬切**（试过最底补 18px 羽化，真机判为不行，已撤）。
+- 跨源安全 + 歌词兜底（2026-10-09，**已部署**，构建号 1003131580）：
+  ① **拆一颗真雷：跨源音频接 `createMediaElementSource` 会输出全零（真·静音）**。
+     它是单程票（不可逆），而全曲共用一个 `<audio>`，一次建链后所有跨源歌一起哑。
+     改成 `audio.captureStream()` → `MediaStreamSource` → `Analyser`（副本增益 0，不叠音）：
+     同源能读数据；跨源直接抛 `SecurityError`，被捕获后**元素照常出声**、退 `is-reactive`
+     回 CSS `specPulse`。`loadAudio` 换源时调 `resetReactive()`，允许同源/跨源交替。
+     （实测：同源 `fmax=255`；跨源 `createMediaElementSource` 下 `fmax=0/dev=0` 无报错，
+     `captureStream` 下抛错但播不断。）断言 `reactive-uses-captureStream-not-mediaElementSource`。
+  ② 歌词降级链尾部新增**跨源兜底**：本平台/本 id 没词时，拿「标题+歌手」去其余 4 个平台
+     搜一次，`pickLyricHit` 按「标题完全相等 / 部分包含+作者对得上」接受（宁缺毋滥，
+     只在 `mode==='在线'` 与当前无词时触发）。断言 `lyric-crosssource-match-rules`。
+     ⚠️ 别改回 `createMediaElementSource`：跨源会静音且不可逆（原理与实测见
+     知识库 `20-资料/Web Audio 频谱反应-同源媒体与CORS陷阱.md`）。
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **70/70** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
+- 第六轮（舞台底部渐隐 + 顶部圆角，2026-10-09 罐头拍板）：
+  ① `.scene::after` 的舞台底部渐隐**已整个撤掉**：先是从「固定 72px 刷主题面色」改成「按舞台高比例
+     `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，真机看过之后罐头拍板**连这道也去掉** ——
+     舞台底边直接硬切到控制条，全屏只留歌词那侧往左的淡入（`.lyric-scrim`）。
   ② `.player` 顶部两角自己补圆角（`14px 14px 0 0`，只上两角）—— 宿主只裁独立窗，
      卡片不裁；`.frame` 底色改 `--hk-surface`，让角上露出卡面色而不是页面色。
-  断言 `bottom-blend-dissolves-into-ambient` / `top-corners-rounded` / `corner-reveals-card-surface`（59/59）。
+  断言 `bottom-fade-removed`（反断言，防回归）/ `top-corners-rounded` / `corner-reveals-card-surface`。
   详情 `docs/player-ui/REFINE-DONE-AMBIENT.md` §五-3
 - 红心 / 我的喜欢（2026-10-09，**已部署**，构建号 1003131576）：
   新增固定列表 `fav`「我的喜欢」——排切换条**最前**、当默认首页（`state.activeList` 初值 `fav`）、
@@ -176,10 +190,10 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ **fav 是「无归属」的额外列表**，会出现在切换条最前；与 `local` 一样不吃 `imp:N` 编号。
   断言 `fav-row-toggles-on` / `fav-list-collects-and-labels` / `fav-state-by-stable-id-cross-list` /
   `fav-unfav-keeps-original-list` / `fav-not-deletable` / `stage-fav-toggles-and-syncs-row`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 65/65 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
 - 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
-  §五-3（底部 72px 渐隐）已改（第六轮）：化进环境色 + 硬切底边；顶部圆角一并补上，均待真机复核。
+  §五-3（底部渐隐）已改（第六轮）：**底部渐隐整个撤掉**（底边硬切，只留歌词那侧往左的淡入）；
+  顶部圆角一并补上（14px），均待真机复核。
 
 > 注：早期 `docs/REFACTOR-BRIEF.md` 里的「PV / 唱盘 / 主题面板」等要求已被 2026-10-08 的
 > `CONTRACT.md` 取代，以极简版为准。

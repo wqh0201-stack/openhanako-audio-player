@@ -1166,24 +1166,27 @@
   }
 
   /* ============================================================
-     音频反应（真 FFT）：把 <audio> 接进 Web Audio，AnalyserNode 驱动频谱柱。
-     安全设计（防「变哑」）：
-       1) 只在有用户手势（play）且上下文 running 时才建链；
-       2) 一定 connect(destination)，不在别处 disconnect；
-       3) 建链失败 / 拿不到数据 → 保留 CSS 装饰循环，绝不静音、绝不白屏。
-     注意：createMediaElementSource 一旦建立不可逆（声音改走 Web Audio），
-     所以卡在 resume() 成功之后才建。
+     音频反应（真 FFT）：用 captureStream() 把 <audio> 的音频**另拷一路**
+     接到 AnalyserNode，驱动频谱柱。
+
+     为什么不用 createMediaElementSource（2026-10-09 实测，别改回去）：
+       它把元素的输出**重定向**进 Web Audio，而且**不可逆**。跨源音频
+       （非网易云曲目会 302 到平台自己的 CDN）一旦进去，浏览器会**输出全零**
+       （控制台：MediaElementAudioSource outputs zeroes due to CORS access
+       restrictions）——歌在播、时间在走，但**完全没声音**。而全曲共用一个
+       <audio> 元素，一次建链就再也退不回，后面所有歌一起哑。
+
+     captureStream() 不碰元素输出：
+       · 同源 → 拿到 MediaStream，能读频域，真频谱照常；
+       · 跨源 → 抛 SecurityError，被我们捕获，**元素照常出声**，
+                移除 is-reactive、退回 CSS 装饰循环（specPulse）。
      ============================================================ */
-  var reactive = { actx: null, analyser: null, data: null, raf: 0, ready: false, failed: false, building: false };
+  var reactive = { actx: null, msSrc: null, analyser: null, data: null, raf: 0, ready: false, failed: false, building: false };
   var barSmooth = null;
 
   /* 是否接入真音频反应。**现为 true**。
-   * 前提：music/go 已改为**同源分片代理**（lib/register-routes.js）——媒体与本卡片
-   * 同源，所以 createMediaElementSource 能读到数据，且无需 crossOrigin。
-   * 历史坑（记在这里，别改回去）：网易云 CDN 不回 CORS 头；一旦音乐走 302 跳到
-   * 跨源 CDN，再给 <audio> 设 crossOrigin 会直接加载失败，而拿跨源无 CORS 的媒体
-   * 接 createMediaElementSource 会**静音**（图一旦建立不可逆）。所以“同源”是硬前提。
-   * 拿不到数据 / 建链失败 → 退回 CSS 装饰循环（specPulse）。 */
+   * 同源媒体（走 music/go 的同源分片代理）才拿得到数据；跨源时 captureStream
+   * 直接抛错，自动退回 CSS 装饰循环。拿不到数据 / 捕获失败 → 绝不静音。 */
   var REACTIVE_ENABLED = true;
 
   function reactiveSupported() {
@@ -1216,24 +1219,52 @@
     }
   }
 
+  /* 拆掉当前的真频谱链（换源前调）。不复用 AudioContext（留着复用）。 */
+  function detachReactive() {
+    stopBars();
+    player.classList.remove('is-reactive');
+    if (reactive.msSrc) { try { reactive.msSrc.disconnect(); } catch (e) {} reactive.msSrc = null; }
+    if (reactive.analyser) { try { reactive.analyser.disconnect(); } catch (e) {} reactive.analyser = null; }
+    reactive.data = null;
+    reactive.ready = false;
+  }
+
+  /* 换曲调它：断掉旧流、清 ready，让下一首 play 时重新捕获。
+   * 不设 failed —— 同源跨源会交替出现，得允许重试。 */
+  function resetReactive() {
+    detachReactive();
+    reactive.building = false;
+  }
+
   function buildReactive() {
-    if (!REACTIVE_ENABLED) return;
-    if (reactive.ready || reactive.failed || reactive.building || !reactiveSupported()) return;
+    if (!REACTIVE_ENABLED || reactive.building || !reactiveSupported()) return;
+    if (reactive.ready) return;                // 已在跟当前这首
+    if (!audio.src) return;
     reactive.building = true;
     var AC = window.AudioContext || window.webkitAudioContext;
-    var actx;
-    try { actx = new AC(); } catch (e) { reactive.failed = true; reactive.building = false; return; }
+    var actx = reactive.actx;
+    if (!actx) {
+      try { actx = new AC(); } catch (e) { reactive.failed = true; reactive.building = false; return; }
+    }
 
     function attach() {
       if (actx.state !== 'running') return false;
       try {
-        var srcNode = actx.createMediaElementSource(audio);
+        var stream = audio.captureStream ? audio.captureStream() : null;
+        if (!stream) throw new Error('captureStream unsupported');
+        var tracks = stream.getAudioTracks ? stream.getAudioTracks() : [];
+        if (!tracks.length) throw new Error('no audio track');
+        var ms = actx.createMediaStreamSource(stream);
         var an = actx.createAnalyser();
         an.fftSize = 128;                      // → 64 个频段
         an.smoothingTimeConstant = 0.82;
-        srcNode.connect(an);
-        an.connect(actx.destination);          // 关键：不接 destination 就没声音
+        var g = actx.createGain();
+        g.gain.value = 0;                      // 副本静音：只取数据，不与元素自身出声叠加
+        ms.connect(an);
+        an.connect(g);
+        g.connect(actx.destination);           // 图要通到 destination，AnalyserNode 才会被拉数据
         reactive.actx = actx;
+        reactive.msSrc = ms;
         reactive.analyser = an;
         reactive.data = new Uint8Array(an.frequencyBinCount);
         reactive.ready = true;
@@ -1241,15 +1272,20 @@
         player.classList.add('is-reactive');   // CSS 关掉装饰循环，交给 JS
         startBars();
         return true;
-      } catch (e) { reactive.failed = true; reactive.building = false; return false; }
+      } catch (e) {
+        // 跨源（SecurityError）或浏览器不支持：元素输出不受影响，只是拿不到数据。
+        // 退回 CSS 装饰循环，绝不静音。
+        detachReactive();
+        reactive.building = false;
+        return false;
+      }
     }
 
     if (actx.state === 'running') { if (attach()) return; }
     actx.resume().then(function () {
-      if (!attach()) { reactive.failed = true; reactive.building = false; try { actx.close(); } catch (e) {} }
+      if (!attach()) reactive.building = false;
     }).catch(function () {
       reactive.failed = true; reactive.building = false;
-      try { actx.close(); } catch (e) {}
     });
   }
 
@@ -1433,7 +1469,43 @@
     return 'netease';
   }
 
-  /* 降级链：离线库 → music/lrc → lrc-proxy → ttml(404 退空)。
+  /* 归一化标题：去空白、去括号后缀（(Live)/(伴奏) 等）、小写。 */
+  function normLyricTitle(s) {
+    return String(s || '').toLowerCase()
+      .replace(/[\s\u3000]+/g, '')
+      .replace(/[（(【\[].*?[）)】\]]/g, '');
+  }
+  function normLyricAuthor(s) {
+    return String(s || '').toLowerCase().replace(/[\s\u3000\/、,，&]+/g, '');
+  }
+  /* 从搜索结果里挑一个「标题对得上」的（作者对得上加权），防同名不同版本乱匹配。
+   * 只有当标题完全相等，或标题部分包含 + 作者也对得上时才接受；
+   * 没有歌手的曲目（纯音乐等）只认标题完全相等。宁可没词，不可错配。 */
+  function pickLyricHit(list, title, author) {
+    var want = normLyricTitle(title);
+    if (!want) return null;
+    var wantA = normLyricAuthor(author);
+    var best = null, bestScore = 0;
+    for (var i = 0; i < (list || []).length; i++) {
+      var it = list[i];
+      if (!it || !it.url) continue;
+      var nm = normLyricTitle(it.title);
+      if (!nm) continue;
+      var exact = nm === want;
+      var ts = exact ? 3 : (nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0 ? 2 : 0);
+      if (!ts) continue;
+      var na = normLyricAuthor(it.author);
+      var as = (wantA && na && (na === wantA || na.indexOf(wantA) >= 0 || wantA.indexOf(na) >= 0)) ? 2 : 0;
+      // 接受条件：标题完全相等，或（标题部分包含且作者对得上）。
+      // 没有歌手时不做部分匹配 —— 防纯音乐被配成同名歌曲的人工版。
+      if (!exact && !as) continue;
+      var score = ts + as;
+      if (score > bestScore) { bestScore = score; best = it; }
+    }
+    return best;
+  }
+
+  /* 降级链：离线库 → music/lrc → lrc-proxy → ttml(404 退空) → **跨源兜底**。
    * 每次带代次，迟到响应不许覆盖新歌。 */
   function loadLyrics(t) {
     var gen = ++lyricGen;
@@ -1490,11 +1562,45 @@
       }
     }
 
+    // 跨源兜底：本平台/本 id 拿不到词时，拿「标题+歌手」去别的平台搜一次，
+    // 命中标题匹配的首条再取词。只兜 online 曲目；本地文件不动（避免纯音乐乱配）。
+    function crossLyric() {
+      if (gen !== lyricGen) return Promise.resolve();
+      if (state.lyricLines.length) return Promise.resolve();    // 已有词，不兜
+      if (t.mode !== '在线') return Promise.resolve();
+      var kw = [t.title, t.author].filter(Boolean).join(' ').trim();
+      if (!kw) return Promise.resolve();
+      var cur = onlineServerOf(t);
+      var servers = ['netease', 'tencent', 'kugou', 'kuwo', 'baidu'].filter(function (s) { return s !== cur; });
+      var i = 0;
+      function next() {
+        if (gen !== lyricGen || i >= servers.length) return Promise.resolve();
+        var sv = servers[i++];
+        return apiGetJson(ENDPOINT.search + '?keyword=' + encodeURIComponent(kw) + '&server=' + encodeURIComponent(sv)).then(function (res) {
+          if (gen !== lyricGen) return;
+          var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
+          var hit = pickLyricHit(list, t.title, t.author);
+          var hid = hit ? onlineIdOf(hit) : '';
+          if (!hid) return next();
+          return apiText(ENDPOINT.musicLrc + '?id=' + encodeURIComponent(hid) + '&server=' + encodeURIComponent(sv)).then(function (r) {
+            if (gen !== lyricGen) return;
+            if (r.ok && r.text && !/^lyric fetch failed/.test(r.text)) {
+              var lines = parseLrc(r.text);
+              if (lines.length) return done(lines, r.text);   // 标题对上了才落盘
+            }
+            return next();
+          }).catch(function () { return next(); });
+        }).catch(function () { return next(); });
+      }
+      return next();
+    }
+
     apiGetJson(ENDPOINT.lrcLoad + '?name=' + encodeURIComponent(t.title)).then(function (res) {
       if (gen !== lyricGen) return;
       if (res.ok && res.body && res.body.ok && res.body.lrc) return done(parseLrc(res.body.lrc), null);
       return online();
-    }).catch(function () { return online(); });
+    }).catch(function () { return online(); })
+    .then(function () { return crossLyric(); });
   }
 
   /* ============================================================
@@ -1519,6 +1625,7 @@
     var srcUrl = withSession(t.url);
     var same = audio.getAttribute('src') === srcUrl;
     if (!same) {
+      resetReactive();          // 换源：断掉旧链，play 时按新源重新判同源/跨源
       audio.src = srcUrl;
       try { audio.load(); } catch (e) {}
     }
@@ -2358,6 +2465,7 @@
         state.currentUid = '';
         state.progress = 0;
         state.playing = false;
+        resetReactive();          // 无曲可停：一并断掉频谱链
         audio.removeAttribute('src');
         try { audio.load(); } catch (e) {}
         lyricIndex = -1;
@@ -3142,6 +3250,10 @@
     reactive: function () {
       return { ready: reactive.ready, failed: reactive.failed, state: reactive.actx ? reactive.actx.state : 'none' };
     },
-    applyBins: applyBins
+    applyBins: applyBins,
+    /* 跨源歌词兜底的匹配判定（测试用）：不依赖网络，直接喂结果集。 */
+    pickLyricHit: pickLyricHit,
+    normLyricTitle: normLyricTitle,
+    normLyricAuthor: normLyricAuthor
   };
 })();
