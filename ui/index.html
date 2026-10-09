@@ -13,14 +13,16 @@
   <div class="player" id="player" data-layout="long" data-page="play" data-drawer="0" data-lyrics="1">
 
     <section class="stage" id="stage">
-      <!-- 舞台：封面 + 歌词 -->
+      <!-- 舞台：封面（贴左不裁切）+ 晕开背景 + 歌词/频谱 -->
       <div class="scene" id="scene">
+        <div class="cover-haze" id="coverHaze" aria-hidden="true"></div>
         <div class="cover" id="cover" aria-hidden="true"></div>
         <div class="lyric-scrim" id="lyricScrim" aria-hidden="true"></div>
 
         <div class="scene-top" id="sceneTop">
           <h1 class="track-title" id="trackTitle">风经过的地方</h1>
           <p class="track-artist" id="trackArtist">林间来信</p>
+          <p class="track-meta" id="trackMeta"></p>
         </div>
 
         <div class="lyric-wrap" id="lyricWrap">
@@ -30,6 +32,9 @@
             <span>回到当前歌词</span>
           </button>
         </div>
+
+        <!-- 歌词关闭时的替代内容：纯装饰频谱（不接 Web Audio） -->
+        <div class="spectrum" id="spectrum" aria-hidden="true"></div>
       </div>
 
       <div class="drawer-scrim" id="drawerScrim" hidden></div>
@@ -191,7 +196,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131545";</script>
+<script>window.__HANA_BUILD = "1003131546";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

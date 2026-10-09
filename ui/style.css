@@ -9,19 +9,46 @@
   --radius-s: 5px;
   --radius-m: 8px;
   --radius-l: 10px;
-  /* ── 主题桥 ──
-   * 宿主主题样式表会给卡片注入 --bg / --bg-card / --text / --accent / --border /
-   * --text-muted / --text-light（换主题时整份样式表替换）。但注入可能缺席，
-   * 一旦缺席，裸 var(--accent) 会让按钮底色失效、白图标浮在透明上。
-   * 所以统一走 --hk-*：有宿主值就用宿主值，没有就落 Hana 默认暖纸一套。
+  /* ── 主题兜底层（第三优先级）──
+   * 只有宿主一个变量都没给时才轮到它；跟随 macOS 深浅自动切换：
+   * 浅色 = Hana 暖纸一套，深色 = App 深板岩一套。
+   * 组件不许直接吃 --fallback-*，统一走下面的 --hk-* 桥。 */
+  --fallback-bg: #F8F4ED;
+  --fallback-surface: #FCFAF5;
+  --fallback-text: #3B3D3F;
+  --fallback-muted: #6B6158;
+  --fallback-faint: #8E9196;
+  --fallback-accent: #537D96;
+  --fallback-border: rgba(122, 96, 88, 0.18);
+}
+
+/* 系统夜间模式兜底：macOS 切深色时整套变量跟着换深板岩。
+ * 只写 --fallback-*，绝不碰宿主变量 —— 宿主显式给的值永远优先（见下）。 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fallback-bg: #34424B;
+    --fallback-surface: #414D56;
+    --fallback-text: #E1EAF0;
+    --fallback-muted: #9FB1BC;
+    --fallback-faint: #9FB1BC;
+    --fallback-accent: #C99AAF;
+    --fallback-border: rgba(170, 121, 141, 0.16);
+  }
+}
+
+:root {
+  /* ── 主题桥（第二/第一优先级）──
+   * 优先级：宿主显式注入的 --bg/--accent/… > prefers-color-scheme 兜底 > 写死默认。
+   * var(--bg, var(--fallback-bg)) 的语义正是「--bg 有定义就用它」，
+   * 所以兜底永远不会盖掉宿主主题，也不依赖样式表加载顺序。
    * 组件一律只吃 --hk-*，不再直接引用宿主变量名。 */
-  --hk-bg: var(--bg, #F8F4ED);
-  --hk-surface: var(--bg-card, #FCFAF5);
-  --hk-text: var(--text, #3B3D3F);
-  --hk-muted: var(--text-muted, #6B6158);
-  --hk-faint: var(--text-light, #8E9196);
-  --hk-accent: var(--accent, #537D96);
-  --hk-border: var(--border, rgba(122, 96, 88, 0.18));
+  --hk-bg: var(--bg, var(--fallback-bg));
+  --hk-surface: var(--bg-card, var(--fallback-surface));
+  --hk-text: var(--text, var(--fallback-text));
+  --hk-muted: var(--text-muted, var(--fallback-muted));
+  --hk-faint: var(--text-light, var(--fallback-faint));
+  --hk-accent: var(--accent, var(--fallback-accent));
+  --hk-border: var(--border, var(--fallback-border));
   --hk-on-accent: #FFFDF7;
   --hk-hairline: var(--hk-border);
   --hk-hover: color-mix(in srgb, var(--hk-text) 6%, transparent);
@@ -59,15 +86,17 @@
       color-mix(in srgb, var(--hk-surface) 0%, transparent) 100%);
   /* 封面底部渐隐融入下方面板：跟随歌词开关，关闭时只剩封面 */
   --cover-blend: linear-gradient(180deg, transparent 0%, var(--hk-surface) 92%);
-  /* 歌词阅读列在右：主题纸色遮罩，左端完全透明 → 右端厚实一层，墨色歌词才压得住 */
+  /* 歌词/频谱阅读列蒙层：主题纸色遮罩，左端几乎透明 → 右端厚实一层。
+   * 封面晕开（blur 副本）打底，这层只负责把右列压平到能读字。
+   * 歌词关闭时它不许消失 —— 频谱也压在它上面（R4）。 */
   --lyric-scrim: linear-gradient(90deg,
       color-mix(in srgb, var(--hk-surface) 0%, transparent) 0%,
       color-mix(in srgb, var(--hk-surface) 34%, transparent) 14%,
       color-mix(in srgb, var(--hk-surface) 82%, transparent) 30%,
       color-mix(in srgb, var(--hk-surface) 95%, transparent) 56%,
       color-mix(in srgb, var(--hk-surface) 97%, transparent) 100%);
-  /* 歌词整体右移的量（左侧留白 = 封面可见区） */
-  --lyric-shift: 22%;
+  /* 右侧内容列起点：JS 按封面实际显示宽算出 px 写进来（--cover-w 同理） */
+  --content-x: 34%;
   /* 滚动条条子颜色（轨道透明）；歌词落在纸色遮罩上，墨色才看得见 */
   --sb-color: color-mix(in srgb, var(--hk-text) 34%, transparent);
   /* 当前歌词用主题强调色（与播放键、当前队列行同色） */
@@ -195,7 +224,7 @@ button:disabled { cursor: default; }
   overflow: hidden;
 }
 
-/* 顶部局部渐变（曲目信息的可读底色）；歌词开启时封面底部渐隐融入 */
+/* 顶部局部渐变（标题可读底色）；底部渐隐让歌词/频谱融入下方面板 */
 .scene::before {
   content: "";
   position: absolute;
@@ -203,7 +232,7 @@ button:disabled { cursor: default; }
   left: 0;
   right: 0;
   height: 132px;
-  z-index: 1;
+  z-index: 2;
   background: var(--cover-top-scrim);
   pointer-events: none;
 }
@@ -217,41 +246,73 @@ button:disabled { cursor: default; }
   z-index: 2;
   background: var(--cover-blend);
   pointer-events: none;
-  display: none;
 }
-.player[data-lyrics="1"] .scene::after { display: block; }
 
-.cover {
+/* 封面晕开层（R2）：同一张封面的模糊放大副本打底，上面叠主题纸色蒙层压平。
+ * 纯 CSS —— 跨源封面没有 CORS，canvas 取像素会 taint，所以绝不能走 canvas。
+ * transform: scale 是为了把 blur 边缘的透明采样区推出画面。 */
+.cover-haze {
   position: absolute;
-  inset: 0;
+  inset: -14%;
   z-index: 0;
   background-color: var(--hk-surface);
-  background-image: var(--cover-image), var(--cover-fallback);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  filter: blur(34px) saturate(1.08);
+  transform: scale(1.18);
+  pointer-events: none;
 }
-.player.nocover .cover,
-.player.nocover .q-cover { background-image: var(--cover-fallback); }
+.cover-haze::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+      color-mix(in srgb, var(--hk-surface) 26%, transparent) 0%,
+      color-mix(in srgb, var(--hk-surface) 48%, transparent) 42%,
+      color-mix(in srgb, var(--hk-surface) 66%, transparent) 100%);
+}
+.player.nocover .cover-haze { display: none; }
 
-/* 歌词蒙层：只在歌词开启时存在 */
-.lyric-scrim {
+/* 封面本体贴着左边，按高度完整显示（contain：高度优先填满舞台，
+ * 容器比画幅窄时退化成按宽适配）—— 永不裁头砍脚（R2）。 */
+.cover {
   position: absolute;
   inset: 0;
   z-index: 1;
+  background-color: var(--hk-surface);
+  background-image: var(--cover-image), var(--cover-fallback);
+  background-size: contain;
+  background-position: left center;
+  background-repeat: no-repeat;
+}
+.player.nocover .cover,
+.player.nocover .q-cover {
+  background-image: var(--cover-fallback);
+  background-size: cover;
+  background-position: center;
+}
+
+/* 右列蒙层：歌词与频谱共用，歌词关闭时也不许消失（R4） */
+.lyric-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   background: var(--lyric-scrim);
 }
-.player[data-lyrics="0"] .lyric-scrim,
 .player[data-lyrics="0"] .lyric-wrap { display: none; }
+.player[data-lyrics="1"] .spectrum { display: none; }
 
-/* 顶栏：曲目信息直接压封面左上（无底框），可读性交给顶部局部渐变 */
+/* 标题块常驻右侧内容列上方（R3）：大标题 / 副标题 / 元信息行。
+ * padding-top 让出顶部 44px：聊天卡右上 100×40 是宿主安全区，
+ * 标题整块落在安全带以下，右边界才不需要再缩 108px。 */
 .scene-top {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  left: var(--content-x, 34%);
+  right: 18px;
   z-index: 3;
-  padding: 20px 108px 0 18px;
+  padding: 44px 0 0;
 }
 .track-title {
   margin: 0;
@@ -263,17 +324,30 @@ button:disabled { cursor: default; }
   overflow-wrap: anywhere;
 }
 .track-artist {
-  margin: 4px 0 0;
-  font-size: 12px;
+  margin: 5px 0 0;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--cover-text-soft);
   overflow-wrap: anywhere;
 }
+.track-artist:empty { display: none; }
+/* 元信息行：专辑 / 歌手 / 来源，拿不到的字段优雅省略（不显空标签） */
+.track-meta {
+  margin: 7px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--cover-text-soft);
+  overflow-wrap: anywhere;
+}
+.track-meta:empty { display: none; }
 
-/* 歌词层：只有它自己的容器滚 */
+/* 歌词层：只有它自己的容器滚；阅读列与标题块共用 --content-x */
 .lyric-wrap {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: var(--content-x, 34%);
+  right: 20px;
   z-index: 2;
 }
 .lyrics {
@@ -282,8 +356,6 @@ button:disabled { cursor: default; }
   overflow-x: hidden;
   overscroll-behavior: contain;
   text-align: center;
-  /* 歌词整体右移：左边留出封面可见区，与右侧遮罩对齐 */
-  padding-left: var(--lyric-shift);
   /* 滚动条：轨道常驻占位（文字宽度不随悬停改变，不抽动），轨道透明，
      只有条子本身带色；平时全透明，悬停淡入。 */
   scrollbar-width: thin;
@@ -624,6 +696,40 @@ button:disabled { cursor: default; }
 .pop-go:hover { filter: brightness(1.06); }
 
 /* ============================================================
+   频谱（R4）：歌词关闭时的替代内容。纯装饰动画，由 data-playing 驱动；
+   不碰 Web Audio / createMediaElementSource —— 接真音频链有把声音变哑的不可逆风险，
+   本期不做真 FFT。暂停时定格成静态均衡器。
+   ============================================================ */
+.spectrum {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--content-x, 34%);
+  right: 20px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  padding: 0 10px;
+  pointer-events: none;
+}
+.spec-bar {
+  flex: 0 0 3px;
+  width: 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--hk-accent) 58%, transparent);
+  transform-origin: 50% 100%;
+  animation: specPulse var(--d, 1.2s) ease-in-out var(--delay, 0s) infinite alternate;
+  animation-play-state: paused;
+}
+.player[data-playing="1"] .spec-bar { animation-play-state: running; }
+@keyframes specPulse {
+  from { transform: scaleY(0.32); }
+  to   { transform: scaleY(1); }
+}
+
+/* ============================================================
    底部播放控制
    ============================================================ */
 .controls {
@@ -768,6 +874,23 @@ button:disabled { cursor: default; }
 }
 .range-seek { flex: 1 1 auto; min-width: 0; }
 
+/* 窄容器（真机聊天卡实测 ~312px）：控制条会溢出被切（R6）。
+ * 紧凑排布：歌词/队列收成纯图标（aria-label/title 仍带全名）、
+ * 播放键略缩、去分隔线、缩内边距 —— 不隐藏任何控件。 */
+.player[data-bar="tight"] .controls { gap: 10px; padding: 10px 12px 12px; }
+.player[data-bar="tight"] .btn-row { gap: 4px; margin-top: 8px; }
+.player[data-bar="tight"] .text-btn,
+.player[data-bar="tight"] .queue-btn { padding: 6px; gap: 0; }
+.player[data-bar="tight"] .text-btn span,
+.player[data-bar="tight"] .qb-label { display: none; }
+.player[data-bar="tight"] .play-btn { width: 42px; height: 42px; }
+.player[data-bar="tight"] .play-btn .icon { width: 20px; height: 20px; }
+.player[data-bar="tight"] .ctl-divider { display: none; }
+.player[data-bar="tight"] .track-title { font-size: 18px; }
+.player[data-bar="tight"] .track-artist { font-size: 12px; }
+.player[data-bar="tight"] .lyric-line.is-current,
+.player[data-bar="tight"] .lyric-line { padding-left: 3%; padding-right: 3%; }
+
 /* 提示：走主题纸面 + 墨字，不是一个黑气泡 */
 .toast {
   position: absolute;
@@ -813,17 +936,15 @@ button:disabled { cursor: default; }
 .player[data-layout="wide"] .controls-info { display: block; }
 .player[data-layout="wide"] .range-vol { display: block; width: 88px; }
 
-.player[data-layout="wide"] .lyric-wrap {
-  left: 24%;
-  right: 8%;
-  transition: left 0.22s ease, right 0.22s ease;
+/* 宽窗：阅读列位置由 --content-x 决定；抽屉打开时只收窄右边界，不整体搬家 */
+.player[data-layout="wide"] .lyric-wrap,
+.player[data-layout="wide"] .spectrum {
+  transition: right 0.22s ease;
 }
-.player[data-layout="wide"][data-drawer="1"] .lyric-wrap {
-  left: 8%;
-  right: 42%;
+.player[data-layout="wide"][data-drawer="1"] .lyric-wrap,
+.player[data-layout="wide"][data-drawer="1"] .spectrum {
+  right: clamp(330px, 40%, 400px);
 }
-/* 宽窗窄时阅读列本身就很窄，不再额外右移 */
-.player[data-layout="wide"] .lyrics { padding-left: 2%; }
 
 .player[data-layout="wide"] .queue {
   position: absolute;

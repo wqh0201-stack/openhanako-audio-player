@@ -351,12 +351,54 @@
   function coverImage(url) {
     return url ? 'url(' + JSON.stringify(withSession(url)) + '), var(--cover-fallback)' : 'var(--cover-fallback)';
   }
+  function coverUrlOnly(url) {
+    return url ? 'url(' + JSON.stringify(withSession(url)) + ')' : 'none';
+  }
+  /* 舞台指标（纯呈现）：封面按 contain 贴左完整显示，先算它的实际显示宽，
+   * 再决定右侧内容列（标题/歌词/频谱）从哪里开始。
+   * 量画幅比例只读 Image 自然尺寸 —— 绝不碰 canvas：跨源封面无 CORS，
+   * drawImage 取像素会 taint 且不可逆。 */
+  var coverAR = 0;
+  var coverProbeToken = 0;
+  function updateStageMetrics() {
+    var sceneEl = $('scene');
+    if (!sceneEl) return;
+    var w = sceneEl.clientWidth;
+    var h = sceneEl.clientHeight;
+    if (!(w > 0) || !(h > 0)) return;
+    var wide = player.getAttribute('data-layout') === 'wide';
+    var coverW = coverAR > 0 ? Math.min(w, h * coverAR) : w;
+    var lo = wide ? 0.30 : 0.22;
+    var hi = wide ? 0.66 : 0.36;
+    var x = Math.max(w * lo, Math.min(coverW + 18, w * hi));
+    player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
+    player.style.setProperty('--content-x', Math.round(x) + 'px');
+  }
+  function probeCover(pic) {
+    var token = ++coverProbeToken;
+    if (!pic) { coverAR = 0; updateStageMetrics(); return; }
+    var img = new Image();
+    img.onload = function () {
+      if (token !== coverProbeToken) return;
+      coverAR = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
+      updateStageMetrics();
+    };
+    img.onerror = function () {
+      if (token !== coverProbeToken) return;
+      coverAR = 0;
+      updateStageMetrics();
+    };
+    img.src = withSession(pic);
+  }
   function applyCovers() {
     var t = currentTrack();
     var pic = t && t.pic ? t.pic : '';
     /* 呈现层标记：无封面时走「纸面留白」兜底（只切 CSS 变量，不动业务） */
     player.classList.toggle('nocover', !pic);
     $('cover').style.backgroundImage = coverImage(pic);
+    /* 晕开层：同一张封面的模糊放大副本（R2，纯 CSS） */
+    $('coverHaze').style.backgroundImage = coverUrlOnly(pic);
+    probeCover(pic);
     var rows = queueList.querySelectorAll('.q-row');
     for (var i = 0; i < rows.length; i++) {
       var tr = state.tracks[i];
@@ -368,11 +410,23 @@
   /* ============================================================
      渲染
      ============================================================ */
+  /* 元信息行：专辑 / 歌手 / 来源。后端暂无 album 字段，拿不到就整段省略，
+   * 不硬编、不显示空标签（R3）。 */
+  function metaLine(t) {
+    var parts = [];
+    var album = String((t.raw && t.raw.album) || '').trim();
+    if (album) parts.push('专辑 ' + album);
+    var src = String(t.group || '').trim() || (t.mode === '在线' ? '在线音乐' : '本地音乐');
+    parts.push('来源 ' + src);
+    return parts.join(' · ');
+  }
+
   function renderTrack() {
     var t = currentTrack();
     if (!t) {
       $('trackTitle').textContent = '还没有曲目';
       $('trackArtist').textContent = '用右上角的 ＋ 导入';
+      $('trackMeta').textContent = '';
       $('ciTitle').textContent = '还没有曲目';
       $('ciArtist').textContent = '';
       seek.max = '0';
@@ -381,9 +435,11 @@
       return;
     }
     $('trackTitle').textContent = t.title;
-    $('trackArtist').textContent = t.artist;
+    /* 副标题只放真歌手：拿不到就留空省略，不把来源/分组冒充歌手（R3） */
+    $('trackArtist').textContent = t.author || '';
+    $('trackMeta').textContent = metaLine(t);
     $('ciTitle').textContent = t.title;
-    $('ciArtist').textContent = t.artist;
+    $('ciArtist').textContent = t.author || t.artist;
     var d = trackDuration(t);
     seek.max = String(d || 0);
     $('durTime').textContent = d ? fmtTime(d) : '--:--';
@@ -400,7 +456,8 @@
           '<span class="q-cover"></span>' +
           '<span class="q-meta">' +
             '<span class="q-title">' + esc(t.title) + '</span>' +
-            '<span class="q-artist">' + esc(t.artist) + '</span>' +
+            /* 队列第二行：有歌手显歌手；没有就把 group 当来源显示（R3） */
+            '<span class="q-artist">' + esc(t.author || (t.group ? '来自 ' + t.group : t.mode)) + '</span>' +
           '</span>' +
           /* 正在播放指示：行内 SVG（不走 <use>，否则选择器进不了 shadow tree，条形动画不会生效） */
           '<span class="q-eq"><svg viewBox="0 0 24 24" aria-hidden="true">' +
@@ -467,6 +524,22 @@
     btn.setAttribute('aria-pressed', state.lyrics ? 'true' : 'false');
     btn.title = '歌词显示：' + (state.lyrics ? '开' : '关');
     player.setAttribute('data-lyrics', state.lyrics ? '1' : '0');
+  }
+
+  /* 频谱（R4）：纯装饰，条形只在 CSS 里动，由 data-playing 驱动。
+   * 不接 Web Audio / createMediaElementSource —— 那是不可逆动作，
+   * AudioContext 一旦 suspended 会把声音变哑，本期不做真 FFT。 */
+  function renderSpectrum() {
+    var host = $('spectrum');
+    if (!host || host.childNodes.length) return;
+    var html = '';
+    for (var i = 0; i < 34; i++) {
+      var h = 10 + Math.round((Math.abs(Math.sin(i * 1.7)) * 26 + Math.abs(Math.cos(i * 0.6)) * 12 + (i % 4) * 2));
+      var d = (0.85 + ((i * 37) % 13) / 10).toFixed(2);
+      var delay = (-((i * 53) % 19) / 10).toFixed(2);
+      html += '<i class="spec-bar" style="height:' + h + '%; --d:' + d + 's; --delay:' + delay + 's"></i>';
+    }
+    host.innerHTML = html;
   }
 
   function renderLyrics() {
@@ -1207,6 +1280,9 @@
     var w = r.width;
     var h = r.height;
     var next = w >= 720 ? 'wide' : (h < 560 ? 'compact' : 'long');
+    /* 窄容器（真机聊天卡实测 ~312px）控制条走紧凑排布（R6）：
+     * 只收排布不藏控件，断言里 control-visible:* 仍然逐个校验。 */
+    player.setAttribute('data-bar', w < 420 ? 'tight' : 'loose');
     if (next !== layout) {
       layout = next;
       player.setAttribute('data-layout', next);
@@ -1214,6 +1290,7 @@
       if (next !== 'compact') state.page = 'play';
       renderChrome();
     }
+    updateStageMetrics();
     sizeLyricPad();
     updateLyricIndex(true);
   }
@@ -1224,18 +1301,89 @@
   }
 
   /* ============================================================
-     主题：跟随宿主（宿主样式表已注入 --bg/--text/--accent/...）
-     ============================================================ */
+     主题（R5 + macOS 夜间模式）
+     优先级：宿主显式注入的变量 > @media prefers-color-scheme 兜底 > 写死默认。
+     style.css 的 --hk-* 桥已保证优先级；这里负责「让宿主值真的进来」：
+     宿主把 hana-css / hana-palette-* 拼进 iframe URL，但 SDK 只在用户换主题
+     （THEME_CHANGED）时才拉样式表，初始并不拉 —— 线上从未见过 theme.css 请求，
+     --accent 一直落兜底就是这个原因。这里按 Creator 模板的方式自己补初始注入：
+       1) 有 hana-palette-light/dark-css → 分别包 @media 注入（跟随 macOS 深浅，
+          用宿主真主题的深浅两套，不是自己配的颜色）；
+       2) 否则有 hana-css → 注入单份；
+       3) 都没有但知道主题名 → 自己拉 /api/apps/theme.css?theme=…；
+       4) 全都没有 → 不注水，交给 CSS 兜底层（prefers-color-scheme）。
+     拉不到就静默降级，绝不硬编宿主主题值。 */
+  function setThemeStyle(key, css) {
+    var el = document.querySelector('style[data-app-theme="' + key + '"]');
+    if (!css) {
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      return;
+    }
+    if (!el) {
+      el = document.createElement('style');
+      el.setAttribute('data-app-theme', key);
+      (document.head || document.documentElement).appendChild(el);
+    }
+    el.textContent = css;
+  }
+  function fetchThemeCss(url) {
+    return apiText(url).then(function (r) {
+      return (r.ok && r.text && r.text.indexOf('{') >= 0) ? r.text : '';
+    }).catch(function () { return ''; });
+  }
+  var themeGen = 0;
+  function injectHostTheme(snap, isUpdate) {
+    var gen = ++themeGen;
+    function put(url, key, media) {
+      return fetchThemeCss(url).then(function (css) {
+        if (gen !== themeGen || !css) return;
+        if (media) css = '@media (prefers-color-scheme: ' + media + ') {\n' + css + '\n}';
+        setThemeStyle(key, css);
+      });
+    }
+    if (isUpdate && snap && snap.cssUrl) {
+      /* 运行时换主题：单份覆盖，初始的 palette 对必须撤掉，避免夜间态串色 */
+      setThemeStyle('palette-light', '');
+      setThemeStyle('palette-dark', '');
+      return put(snap.cssUrl, 'base', '');
+    }
+    if (!isUpdate) {
+      var lightCss = params.get('hana-palette-light-css');
+      var darkCss = params.get('hana-palette-dark-css');
+      if (lightCss && darkCss) {
+        return Promise.all([
+          put(lightCss, 'palette-light', 'light'),
+          put(darkCss, 'palette-dark', 'dark')
+        ]);
+      }
+      var cssUrl = params.get('hana-css');
+      if (cssUrl) return put(cssUrl, 'base', '');
+    }
+    var name = (snap && snap.theme) || params.get('hana-theme') || '';
+    if (name) return put('/api/apps/theme.css?theme=' + encodeURIComponent(name), 'base', '');
+    return Promise.resolve();
+  }
   function applyHostTheme() {
     var forced = params.get('theme');
     if (forced) { document.documentElement.setAttribute('data-theme', forced); return; }
     try {
-      if (window.hana && window.hana.theme && typeof window.hana.theme.subscribe === 'function') {
-        window.hana.theme.subscribe(function (s) {
-          if (s && s.theme) document.documentElement.setAttribute('data-theme', s.theme);
-        });
+      if (window.hana && window.hana.theme) {
+        var snap0 = window.hana.theme.getSnapshot ? window.hana.theme.getSnapshot() : null;
+        if (snap0 && snap0.theme) document.documentElement.setAttribute('data-theme', snap0.theme);
+        injectHostTheme(snap0, false);
+        if (typeof window.hana.theme.subscribe === 'function') {
+          var first = true;
+          window.hana.theme.subscribe(function (s) {
+            if (s && s.theme) document.documentElement.setAttribute('data-theme', s.theme);
+            /* 首次回调是当前快照回放，注入已在上面做过，不重复 */
+            if (first) { first = false; return; }
+            injectHostTheme(s, true);
+          });
+        }
+        return;
       }
-    } catch (e) { /* 无宿主主题时保持默认 */ }
+    } catch (e) { /* 无宿主主题：交给 CSS 兜底层 */ }
+    injectHostTheme(null, false);
   }
 
   /* ============================================================
@@ -1250,6 +1398,7 @@
     renderPlayState();
     renderLyricToggle();
     renderLyrics();
+    renderSpectrum();
     renderChrome();
   }
 
@@ -1440,15 +1589,18 @@
       add('lyric-no-overflow', true, 'n/a（歌词关闭）');
     }
 
-    /* 9. 歌词关闭：正文与渐变蒙层都不在 */
+    /* 9. 歌词 ⇄ 频谱互换（R4）：关歌词只换内容层，蒙层/渐变必须保持在线 */
     if (!state.lyrics) {
-      add('scrim-gone-when-lyrics-off',
-        !shown(lyricScrim) && !shown(lyricWrap),
-        'scrim=' + getComputedStyle(lyricScrim).display + ' wrap=' + getComputedStyle(lyricWrap).display);
+      add('spectrum-swap-when-lyrics-off',
+        !shown(lyricWrap) && shown(lyricScrim) && shown($('spectrum')),
+        'wrap=' + getComputedStyle(lyricWrap).display +
+        ' scrim=' + getComputedStyle(lyricScrim).display +
+        ' spec=' + getComputedStyle($('spectrum')).display);
     } else if (shown($('scene'))) {
-      add('scrim-shown-when-lyrics-on', shown(lyricScrim), '');
+      add('lyrics-swap-when-lyrics-on',
+        shown(lyricWrap) && shown(lyricScrim) && !shown($('spectrum')), '');
     } else {
-      add('scrim-shown-when-lyrics-on', true, 'n/a（本状态整页是队列页，舞台整体隐藏）');
+      add('lyrics-swap-when-lyrics-on', true, 'n/a（本状态整页是队列页，舞台整体隐藏）');
     }
 
     /* 10. 字号下限 */

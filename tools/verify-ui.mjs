@@ -2,8 +2,12 @@
 /* ============================================================
    tools/verify-ui.mjs — 生产 ui/ 的无头验收（开发用）
    零业务依赖：起本地 HTTP 服务（ui/ + 假后端），用 puppeteer-core 驱动系统 Chrome：
-     · 六种尺寸 × 浅深主题：跑页面内自检（?assert=1）+ 出截图
+     · 六种尺寸 × 浅深主题：跑页面内自检（?assert=1）+ 出截图（12 组布局自检）
      · 接线冒烟：拉列表 / 播放 / 上下首 / 歌词 / 导入链接 / 删除
+     · 精修矩阵：312/465/1040 × 浅深 × 歌词开/关 + 312 档自检
+     · 主题双保险：hana-css 注入 / palette 跟随系统深浅 / 无宿主兜底 / 宿主优先
+   鉴权闸门（无票 403）与滚动条断言（悬停前后歌词宽度必须相等）都在本文件里，
+   不许绕过。
    用法：node tools/verify-ui.mjs
    ============================================================ */
 import fs from 'node:fs';
@@ -21,17 +25,22 @@ const uiDir = path.join(repo, 'ui');
 const outDir = process.env.OUT_DIR || '/tmp/hap-verify';
 const API = '/api/apps/hanako-audio-player/routes';
 const COVER_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover.png');
+const COVER_SQUARE_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover-square.png');
 fs.mkdirSync(outDir, { recursive: true });
 
-/* ---------- 假音频：1 秒静音 WAV ---------- */
-const pcm = Buffer.alloc(44100 * 2);
+/* ---------- 假音频：30 秒静音 WAV（走 URL，不走 data URL） ----------
+ * 30 秒是为了让接线冒烟不跟 1 秒音频的 ended 连锁自动切歌撞车（点完到断言
+ * 有 0.7~0.9s 窗口，ended 恰好落在里面就会张冠李戴）；走 URL 同时让 <audio>
+ * 真实经过 withSession 贴票路径，也避免 savePlaylist 把巨型 data URL 回写。 */
+const WAV_SECONDS = 30;
+const pcm = Buffer.alloc(44100 * 2 * WAV_SECONDS);
 const wav = Buffer.alloc(44 + pcm.length);
 wav.write('RIFF', 0); wav.writeUInt32LE(36 + pcm.length, 4); wav.write('WAVEfmt ', 8);
 wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
 wav.writeUInt32LE(44100, 24); wav.writeUInt32LE(44100 * 2, 28); wav.writeUInt16LE(2, 32);
 wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(pcm.length, 40);
 pcm.copy(wav, 44);
-const WAV_URL = 'data:audio/wav;base64,' + wav.toString('base64');
+const WAV_URL = `${API}/_fixture/audio.wav`;
 
 /* ---------- 假播放列表（48 首，含在线曲目，测去重/歌词/删除） ---------- */
 function makeTracks(n) {
@@ -39,11 +48,11 @@ function makeTracks(n) {
   for (let i = 0; i < n; i++) {
     const online = i % 4 === 3;
     out.push(online
-      ? { id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: `/api/apps/hanako-audio-player/routes/widget/api/music/go/${900000 + i}?server=netease`, mode: '在线', dur: 0, group: '在线音乐', pic: `${API}/_fixture/cover.png` }
+      ? { id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: `/api/apps/hanako-audio-player/routes/widget/api/music/go/${900000 + i}?server=netease`, mode: '在线', dur: 0, group: '在线音乐', pic: `${API}/_fixture/cover-square.png` }
       : { id: `fixture-${String(i + 1).padStart(2, '0')}.wav`, name: `本地曲目 ${i + 1}`, url: WAV_URL, mode: '本地', dur: 0, group: '本地音乐' });
   }
-  // 前两首给封面图，用来验「有封面」的双态（浅色字 + 顶部渐变）
-  out[0].pic = `${API}/_fixture/cover.png`;
+  // 前两首给封面图（一张方形 / 一张横幅），验「封面贴左不裁切」的两种画幅
+  out[0].pic = `${API}/_fixture/cover-square.png`;
   out[1].pic = `${API}/_fixture/cover.png`;
   // 复刻罐头的真实数据：只有搜索词、没有 url/id 的旧版在线曲目
   for (let k = 0; k < 3; k++) {
@@ -106,6 +115,18 @@ const server = http.createServer((req, res) => {
     res.setHeader('content-type', 'image/png');
     return fs.createReadStream(COVER_FILE).pipe(res);
   }
+  if (p === API + '/_fixture/cover-square.png') {
+    res.setHeader('content-type', 'image/png');
+    return fs.createReadStream(COVER_SQUARE_FILE).pipe(res);
+  }
+  if (p === API + '/_fixture/audio.wav') { res.setHeader('content-type', 'audio/wav'); return res.end(wav); }
+  // 假主题样式表（真实宿主同款端点 /api/apps/theme.css，不需要 surface session）
+  if (p === '/api/apps/theme.css') {
+    const name = u.searchParams.get('theme') || '';
+    const HOSTFIX = { '--bg': '#112233', '--bg-card': '#1B2E44', '--text': '#E8F2FF', '--text-muted': '#8FA8C0', '--text-light': '#8FA8C0', '--accent': '#22AA88', '--border': 'rgba(150,180,220,0.2)' };
+    const vars = /dark/.test(name) ? THEME_VARS.dark : (/hostfix/.test(name) ? HOSTFIX : THEME_VARS.light);
+    return text(res, 200, ':root{' + Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') + ';}', 'text/css; charset=utf-8');
+  }
   if (p === API + '/widget/api/music/search') {
     const kw = u.searchParams.get('keyword') || '';
     return json(res, 200, { ok: true, results: [{ id: `netease:${770000 + kw.length}`, title: `命中 ${kw}`, author: '搜索歌手', url: `${API}/widget/api/music/go/${770000 + kw.length}?server=netease`, pic: '', lrc: 'http://mock/lrc/' + encodeURIComponent(kw) }], host: 'mock', total: 1 });
@@ -152,16 +173,40 @@ const THEME_VARS = {
 
 const browser = await puppeteer.launch({
   executablePath: CHROME, headless: 'new',
-  args: ['--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required', '--force-device-scale-factor=1']
+  args: ['--no-sandbox', '--disable-gpu', '--autoplay-policy=no-user-gesture-required', '--force-device-scale-factor=1']
 });
 
-const report = { selfCheck: [], wiring: {}, runtimeErrors: [] };
+const report = { selfCheck: [], wiring: {}, runtimeErrors: [], expectedProbes: [], assertions: [] };
+
+/* 断言登记：不通过就退非零，结果里逐条列出 */
+function assert(name, ok, detail) {
+  report.assertions.push({ name, ok: !!ok, detail: String(detail === undefined ? '' : detail) });
+}
+/* 预期噪声（文档已记）：降级链的探测性 404（离线库没命中 → 走在线）、
+ * 切歌时 <audio> 主动 abort 媒体请求的 ERR_ABORTED。不计入致命错误，但逐条留档。 */
+const EXPECTED_PROBE = /\/(widget\/api\/lrc\/load|widget\/api\/music\/ttml)(\?|$)/;
 
 async function newPage() {
   const page = await browser.newPage();
   page.on('pageerror', (e) => report.runtimeErrors.push('pageerror: ' + String(e)));
-  page.on('console', (m) => { if (m.type() === 'error') report.runtimeErrors.push('console: ' + m.text()); });
-  page.on('requestfailed', (r) => report.runtimeErrors.push('reqfail: ' + r.url() + ' ' + (r.failure() && r.failure().errorText)));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    const txt = m.text();
+    /* 浏览器对 4xx 的固定播报不带 URL，改由 response 监听器带 URL 记录 */
+    if (txt.indexOf('Failed to load resource') >= 0) return;
+    report.runtimeErrors.push('console: ' + txt);
+  });
+  page.on('response', (r) => {
+    if (r.status() < 400) return;
+    const u = r.url();
+    (EXPECTED_PROBE.test(u) ? report.expectedProbes : report.runtimeErrors).push(`http ${r.status()} ${u}`);
+  });
+  page.on('requestfailed', (r) => {
+    const err = (r.failure() && r.failure().errorText) || '';
+    const line = `reqfail: ${r.url()} ${err}`;
+    /* 切歌时 <audio> 会主动 abort 上一个媒体请求，浏览器记 ERR_ABORTED —— 正常行为 */
+    (err === 'net::ERR_ABORTED' ? report.expectedProbes : report.runtimeErrors).push(line);
+  });
   await page.evaluateOnNewDocument(() => {
     window.__fixtureTheme = (mode) => {
       const light = { '--bg': '#F8F4ED', '--bg-card': '#FCFAF5', '--text': '#3B3D3F', '--text-muted': '#8E9196', '--text-light': '#6B6F73', '--accent': '#537D96', '--border': 'rgba(122,96,88,0.18)' };
@@ -257,11 +302,24 @@ for (const [name, w, h, file] of CASES) {
     const el = document.getElementById('lyrics');
     return { clientWidth: el.clientWidth, offsetWidth: el.offsetWidth, sb: getComputedStyle(el).scrollbarColor };
   });
+  /* 滚动条断言（R1）：悬停前后歌词宽度必须相等 —— 滑块淡入不许挾压歌词 */
+  assert('lyric-scrollbar-no-shift',
+    w.lyricBeforeHover.clientWidth === w.lyricAfterHover.clientWidth &&
+    w.lyricBeforeHover.offsetWidth === w.lyricAfterHover.offsetWidth &&
+    w.lyricBeforeHover.sb !== w.lyricAfterHover.sb,
+    JSON.stringify({ before: w.lyricBeforeHover, after: w.lyricAfterHover }));
   await page.mouse.move(2, 2);
   await new Promise((r) => setTimeout(r, 250));
-  // 同一帧紧接关掉歌词（无遮罩），用于对比遮罩方向
+  // 同一帧紧接关掉歌词：右侧换频谱，蒙层/渐变必须保持在线（R4）
   await page.evaluate(() => document.getElementById('lyricToggle').click());
   await new Promise((r) => setTimeout(r, 250));
+  w.lyricsoffState = await page.evaluate(() => {
+    const cs = (id) => getComputedStyle(document.getElementById(id)).display;
+    return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum') };
+  });
+  assert('spectrum-swap-scrim-stays',
+    w.lyricsoffState.wrap === 'none' && w.lyricsoffState.scrim !== 'none' && w.lyricsoffState.spec !== 'none',
+    JSON.stringify(w.lyricsoffState));
   await page.screenshot({ path: path.join(outDir, 'lyricsoff-465x930-light.png') });
   await page.evaluate(() => document.getElementById('lyricToggle').click());
   await new Promise((r) => setTimeout(r, 250));
@@ -332,18 +390,179 @@ for (const [name, w, h, file] of CASES) {
   await page.close();
 }
 
+/* ============ 3) 精修矩阵：312 / 465 / 1040 × 浅深 × 歌词开/关 ============ */
+const REFINE_CASES = [
+  ['312x494', 312, 494, 'index.html'],
+  ['465x930', 465, 930, 'index.html'],
+  ['1040x780', 1040, 780, 'standalone.html']
+];
+report.refine = [];
+report.narrowSelfCheck = [];
+const accentByTheme = {};
+for (const [name, w, h, file] of REFINE_CASES) {
+  for (const theme of ['light', 'dark']) {
+    for (const lyricsOn of [true, false]) {
+      const page = await newPage();
+      await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
+      await page.goto(`${BASE}/${file}?assert=1&shot=1&appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+      await page.evaluate((t) => window.__fixtureTheme(t), theme);
+      // 选中有封面 + 有歌词的在线曲目（紧凑布局下队列隐藏，程序化点击仍生效）
+      await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('#queueList .q-row')];
+        const target = rows.find((r) => r.querySelector('.q-title').textContent.startsWith('在线曲目')) || rows[0];
+        target.querySelector('.q-hit').click();
+      });
+      await new Promise((r) => setTimeout(r, 900));
+      if (!lyricsOn) {
+        await page.evaluate(() => document.getElementById('lyricToggle').click());
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      const shotName = `refine-${name}-${theme}-lyrics-${lyricsOn ? 'on' : 'off'}.png`;
+      await page.screenshot({ path: path.join(outDir, shotName) });
+      report.refine.push(shotName);
+
+      // R4：歌词 ⇄ 频谱互换，蒙层/渐变保持在线
+      const swap = await page.evaluate(() => {
+        const cs = (id) => getComputedStyle(document.getElementById(id)).display;
+        return { wrap: cs('lyricWrap'), scrim: cs('lyricScrim'), spec: cs('spectrum') };
+      });
+      const swapOk = lyricsOn
+        ? (swap.wrap !== 'none' && swap.scrim !== 'none' && swap.spec === 'none')
+        : (swap.wrap === 'none' && swap.scrim !== 'none' && swap.spec !== 'none');
+      assert(`lyrics-spectrum-swap:${shotName}`, swapOk, JSON.stringify(swap));
+
+      // R5：高亮/激活态必须吃主题强调色
+      accentByTheme[theme] = await page.evaluate(() => getComputedStyle(document.getElementById('playBtn')).backgroundColor);
+
+      if (w === 312) {
+        const res = await page.evaluate(() => window.__playerSelfCheck());
+        report.narrowSelfCheck.push({
+          case: `${name}/${theme}/lyrics-${lyricsOn ? 'on' : 'off'}`,
+          passed: res.passed,
+          failed: res.checks.filter((c) => !c.ok)
+        });
+      }
+      await page.close();
+    }
+  }
+}
+assert('theme-accent-on-highlight',
+  accentByTheme.light === 'rgb(83, 125, 150)' && accentByTheme.dark === 'rgb(201, 154, 175)',
+  JSON.stringify(accentByTheme));
+
+/* ============ 4) 主题双保险（R5 + macOS 夜间模式） ============
+   优先级断言：宿主显式注入 > @media prefers-color-scheme 兑底 > 写死默认 */
+report.theme = {};
+{
+  // (a) hana-css 初始注入：SDK 初始不拉样式表，App 自己补拉
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  const cssUrl = '/api/apps/theme.css?theme=hostfix';
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket&shot=1&hana-theme=hostfix&hana-css=${encodeURIComponent(cssUrl)}`, { waitUntil: 'domcontentloaded' });
+  await new Promise((r) => setTimeout(r, 500));
+  const vals = await page.evaluate(() => ({
+    accent: getComputedStyle(document.getElementById('playBtn')).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor
+  }));
+  report.theme.hanaCssInject = vals;
+  assert('theme-hana-css-inject', vals.accent === 'rgb(34, 170, 136)' && vals.body === 'rgb(17, 34, 51)', JSON.stringify(vals));
+  await page.screenshot({ path: path.join(outDir, 'theme-hostfix-inject.png') });
+  await page.close();
+}
+{
+  // (b) palette 对：宿主给深浅两套主题时，跟随 macOS 深浅自动切换
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  const q = new URLSearchParams({
+    appSurfaceSession: 'fake-ticket',
+    shot: '1',
+    'hana-theme': 'palette-fix',
+    'hana-palette-light-css': '/api/apps/theme.css?theme=palette-light-fix',
+    'hana-palette-dark-css': '/api/apps/theme.css?theme=palette-dark-fix'
+  });
+  await page.goto(`${BASE}/index.html?${q}`, { waitUntil: 'domcontentloaded' });
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  await new Promise((r) => setTimeout(r, 500));
+  const lightVals = await page.evaluate(() => ({
+    accent: getComputedStyle(document.getElementById('playBtn')).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor
+  }));
+  await page.screenshot({ path: path.join(outDir, 'theme-palette-macos-light.png') });
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+  await new Promise((r) => setTimeout(r, 300));
+  const darkVals = await page.evaluate(() => ({
+    accent: getComputedStyle(document.getElementById('playBtn')).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor
+  }));
+  await page.screenshot({ path: path.join(outDir, 'theme-palette-macos-dark.png') });
+  report.theme.palette = { light: lightVals, dark: darkVals };
+  assert('theme-palette-follows-macos',
+    lightVals.accent === 'rgb(83, 125, 150)' && lightVals.body === 'rgb(248, 244, 237)' &&
+    darkVals.accent === 'rgb(201, 154, 175)' && darkVals.body === 'rgb(59, 74, 84)',
+    JSON.stringify({ light: lightVals, dark: darkVals }));
+  await page.close();
+}
+{
+  // (c) 无宿主注入：@media prefers-color-scheme 兑底接管（深板岩 / 暖纸）
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket&shot=1`, { waitUntil: 'domcontentloaded' });
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+  await new Promise((r) => setTimeout(r, 500));
+  const darkVals = await page.evaluate(() => ({
+    accent: getComputedStyle(document.getElementById('playBtn')).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor
+  }));
+  await page.screenshot({ path: path.join(outDir, 'theme-fallback-dark.png') });
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  await new Promise((r) => setTimeout(r, 300));
+  const lightVals = await page.evaluate(() => ({
+    accent: getComputedStyle(document.getElementById('playBtn')).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor
+  }));
+  await page.screenshot({ path: path.join(outDir, 'theme-fallback-light.png') });
+  report.theme.fallback = { dark: darkVals, light: lightVals };
+  assert('fallback-dark-slate',
+    darkVals.accent === 'rgb(201, 154, 175)' && darkVals.body === 'rgb(52, 66, 75)', JSON.stringify(darkVals));
+  assert('fallback-light-paper',
+    lightVals.accent === 'rgb(83, 125, 150)' && lightVals.body === 'rgb(248, 244, 237)', JSON.stringify(lightVals));
+  await page.close();
+}
+{
+  // (d) 优先级：宿主显式值 > prefers-color-scheme 兑底（系统深色也不能盖掉宿主主题）
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  const cssUrl = '/api/apps/theme.css?theme=hostfix';
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket&shot=1&hana-theme=hostfix&hana-css=${encodeURIComponent(cssUrl)}`, { waitUntil: 'domcontentloaded' });
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+  await new Promise((r) => setTimeout(r, 500));
+  const vals = await page.evaluate(() => ({ body: getComputedStyle(document.body).backgroundColor }));
+  await page.screenshot({ path: path.join(outDir, 'theme-host-wins-over-dark.png') });
+  assert('host-theme-wins-over-prefers', vals.body === 'rgb(17, 34, 51)', JSON.stringify(vals));
+  await page.close();
+}
+
 await browser.close();
 server.closeAllConnections();
 server.close();
 
 const failed = report.selfCheck.filter((c) => !c.passed);
+const narrowFailed = report.narrowSelfCheck.filter((c) => !c.passed);
+const assertFailed = report.assertions.filter((a) => !a.ok);
+const realErrors = [...new Set(report.runtimeErrors)];
 fs.writeFileSync(path.join(outDir, 'verify.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({
   selfCheckPassed: report.selfCheck.length - failed.length,
   selfCheckTotal: report.selfCheck.length,
   failedCases: failed.map((f) => ({ case: f.case, failed: f.failed.map((x) => x.name + ' | ' + x.detail) })),
+  narrowSelfCheck: `${report.narrowSelfCheck.length - narrowFailed.length}/${report.narrowSelfCheck.length}`,
+  narrowFailed: narrowFailed.map((f) => ({ case: f.case, failed: f.failed.map((x) => x.name + ' | ' + x.detail) })),
+  assertions: `${report.assertions.length - assertFailed.length}/${report.assertions.length}`,
+  failedAssertions: assertFailed,
+  theme: report.theme,
   wiring: report.wiring,
-  runtimeErrors: [...new Set(report.runtimeErrors)].slice(0, 20),
+  expectedProbes: [...new Set(report.expectedProbes)],
+  runtimeErrors: realErrors.slice(0, 20),
   outDir
 }, null, 2));
-process.exit(failed.length || report.runtimeErrors.length ? 1 : 0);
+process.exit(failed.length || narrowFailed.length || assertFailed.length || realErrors.length ? 1 : 0);
