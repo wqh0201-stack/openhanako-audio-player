@@ -735,13 +735,16 @@
     if (!(w > 0) || !(h > 0)) return;
     var ar = coverAR > 0 ? coverAR : 1;
     var coverW = Math.max(96, h * ar);
-    /* 带宽：跟舞台宽走（宽窗 ~196、窄卡 ~140），夹在 130~240 */
-    var band = Math.max(130, Math.min(240, w * 0.19));
-    /* 接缝：在封面右缘略靠内，且不低于舞台 34%、不高于 62% */
-    var seam = Math.min(coverW - band * 0.4, w * 0.60);
-    seam = Math.max(w * 0.34, seam);
-    /* 歌词列起点：叠进过渡带（在接缝左侧一点），与封面右缘重叠 */
-    var contentX = Math.max(w * 0.34, seam - band * 0.30);
+    /* 带宽：跟舞台宽走，夹在 120~220 */
+    var band = Math.max(120, Math.min(220, w * 0.19));
+    /* 接缝：淡出带末端（seam+band/2）必须收在封面右缘内 —— 否则封面 mask 走到
+     * 元素边界还没淡完，就会被硬切一刀（那条接缝）。留 8px 余量，末端落在封面宽
+     * 的 ~94% 处（与高手做法一致：淡出在封面内部就结束，末尾一段全透）。 */
+    var seam = coverW - band * 0.5 - 8;
+    /* 但也不能太靠左：夹在舞台宽的 32%~58% */
+    seam = Math.max(w * 0.32, Math.min(seam, w * 0.58));
+    /* 歌词列起点：叠进过渡带（接缝左侧一点），与封面右缘重叠 */
+    var contentX = Math.max(w * 0.30, seam - band * 0.30);
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
     player.style.setProperty('--seam', Math.round(seam) + 'px');
     player.style.setProperty('--band', Math.round(band) + 'px');

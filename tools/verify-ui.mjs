@@ -1096,13 +1096,14 @@ let ambient = {};
   assert('cover-anchored-left-top-bottom',
     ambient.dark.coverAnchored === true,
     JSON.stringify({ anchored: ambient.dark.coverAnchored, box: ambient.dark.coverBox }));
-  /* 镜像双羽化：封面 mask 从实到虚、歌词遮罩 mask 从虚到实，共用 seam/band */
+  /* 镜像双羽化：封面 mask（实→虚）与歌词遮罩 mask（虚→实）共用同一个 seam 像素值 */
+  const covFirst = (ambient.dark.coverMask.match(/(\d+)px/) || [])[1];
+  const scrFirst = (ambient.dark.scrimMask.match(/(\d+)px/) || [])[1];
   assert('mirror-feather-same-seam-band',
     /linear-gradient/.test(ambient.dark.coverMask) && /linear-gradient/.test(ambient.dark.scrimMask) &&
-    ambient.dark.coverMask.indexOf(ambient.dark.seam.split('px')[0]) !== -1 &&
-    ambient.dark.scrimMask.indexOf(ambient.dark.seam.split('px')[0]) !== -1 &&
+    covFirst && scrFirst && covFirst === scrFirst &&
     parseFloat(ambient.dark.band) > 0 && parseFloat(ambient.dark.band) < 320,
-    JSON.stringify({ seam: ambient.dark.seam, band: ambient.dark.band, cm: ambient.dark.coverMask.slice(0, 60), sm: ambient.dark.scrimMask.slice(0, 60) }));
+    JSON.stringify({ seam: ambient.dark.seam, band: ambient.dark.band, covFirst, scrFirst, cm: ambient.dark.coverMask.slice(0, 70), sm: ambient.dark.scrimMask.slice(0, 70) }));
   assert('lyric-scrim-covers-column',
     ambient.dark.scrim !== 'none' && Math.abs(ambient.dark.scrimLeft - ambient.dark.contentX) <= 1 &&
     Math.abs(ambient.dark.scrimTop - ambient.dark.lyricTop) <= 1,

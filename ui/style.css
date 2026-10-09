@@ -122,13 +122,9 @@
       color-mix(in srgb, var(--veil-paper) 78%, transparent) 0%,
       color-mix(in srgb, var(--veil-paper) 40%, transparent) 52%,
       color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
-  /* 歌词薄纱：不再是一块铺满的矩形。改成以歌词列中心向外渐隐的橢圆柔光，
-   * 四边都淡到 0 —— 不再有「黑砖」的硬边。极淡，字主要靠阴影保可读。
-   * 歌词关闭时它不许消失 —— 频谱也压在它上面（R4）。 */
-  --lyric-scrim: radial-gradient(ellipse 72% 58% at 50% 50%,
-      color-mix(in srgb, var(--veil-paper) 34%, transparent) 0%,
-      color-mix(in srgb, var(--veil-paper) 18%, transparent) 55%,
-      transparent 82%);
+  /* 歌词底层：纯色平层（不再用径向渐变 —— 径向的同心圈乘横向 mask 会出摩尔纹/色阶，
+   * 就是那条条竖纹）。镜像过渡只靠一条横向 mask 完成（与封面右缘共用 seam/band）。 */
+  --lyric-scrim: color-mix(in srgb, var(--veil-paper) 26%, transparent);
   /* 滚动条条子颜色（轨道透明） */
   --sb-color: color-mix(in srgb, var(--hk-text) 34%, transparent);
   /* 当前歌词：强调色往墨色压，压到在浅纱上仍看得清 */
@@ -145,10 +141,7 @@
       color-mix(in srgb, var(--veil-paper) 80%, transparent) 0%,
       color-mix(in srgb, var(--veil-paper) 42%, transparent) 52%,
       color-mix(in srgb, var(--veil-paper) 0%, transparent) 100%);
-  --lyric-scrim: radial-gradient(ellipse 72% 58% at 50% 50%,
-      color-mix(in srgb, var(--veil-paper) 34%, transparent) 0%,
-      color-mix(in srgb, var(--veil-paper) 18%, transparent) 55%,
-      transparent 82%);
+  --lyric-scrim: color-mix(in srgb, var(--veil-paper) 26%, transparent);
   --lyric-current: color-mix(in srgb, var(--hk-accent) 46%, var(--on-veil-ink));
   --lyric-near: color-mix(in srgb, var(--on-veil-ink) 75%, transparent);
   --lyric-far: color-mix(in srgb, var(--on-veil-ink) 50%, transparent);
@@ -164,10 +157,7 @@
       color-mix(in srgb, var(--veil-ink) 66%, transparent) 0%,
       color-mix(in srgb, var(--veil-ink) 32%, transparent) 52%,
       color-mix(in srgb, var(--veil-ink) 0%, transparent) 100%);
-  --lyric-scrim: radial-gradient(ellipse 72% 58% at 50% 50%,
-      color-mix(in srgb, var(--veil-ink) 40%, transparent) 0%,
-      color-mix(in srgb, var(--veil-ink) 22%, transparent) 55%,
-      transparent 82%);
+  --lyric-scrim: color-mix(in srgb, var(--veil-ink) 30%, transparent);
   --lyric-current: color-mix(in srgb, var(--hk-accent) 44%, var(--on-veil-paper));
   --lyric-near: color-mix(in srgb, var(--on-veil-paper) 82%, transparent);
   --lyric-far: color-mix(in srgb, var(--on-veil-paper) 52%, transparent);
@@ -397,17 +387,13 @@ button:disabled { cursor: default; }
   background-position: left center;
   background-repeat: no-repeat;
   /* 右缘淡出：接缝 --seam 处 opacity .5，两侧对称展开 --band/2 */
-  -webkit-mask-image: linear-gradient(90deg, #000 0%,
+  /* 只给「完全不透明→完全透明」两个端点，中间交给浏览器连续插值 ——
+   * 多段离散 stop 会在 8bit alpha 上出可见色阶（一条一条的竖纹）。 */
+  -webkit-mask-image: linear-gradient(90deg,
       #000 calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      rgba(0,0,0,.84) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
-      rgba(0,0,0,.50) var(--seam, 60%),
-      rgba(0,0,0,.16) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
       transparent calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
-  mask-image: linear-gradient(90deg, #000 0%,
+  mask-image: linear-gradient(90deg,
       #000 calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      rgba(0,0,0,.84) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
-      rgba(0,0,0,.50) var(--seam, 60%),
-      rgba(0,0,0,.16) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
       transparent calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
 }
 .player.nocover .cover {
@@ -434,19 +420,14 @@ button:disabled { cursor: default; }
   right: 0;
   z-index: 2;
   background: var(--lyric-scrim);
-  /* 镜像双羽化：与封面右缘用同一个 --seam/--band，
-   * 从接缝左侧渐入、到接缝右侧满 —— 两道严丝合缝交汇（网易式）。 */
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%,
+  /* 镜像双羽化：与封面右缘共用 --seam/--band。
+   * 只给两个端点（透明→不透明），中间交给浏览器连续插值 ——
+   * 多段离散 stop 会在 8bit alpha 上出可见色阶（那条条竖纹）。 */
+  -webkit-mask-image: linear-gradient(90deg,
       transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      rgba(0,0,0,.16) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
-      rgba(0,0,0,.50) var(--seam, 60%),
-      rgba(0,0,0,.84) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
       #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
-  mask-image: linear-gradient(90deg, transparent 0%,
+  mask-image: linear-gradient(90deg,
       transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      rgba(0,0,0,.16) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
-      rgba(0,0,0,.50) var(--seam, 60%),
-      rgba(0,0,0,.84) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
       #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
   pointer-events: none;
 }
