@@ -30,6 +30,24 @@
   --hk-pop-shadow: 0 10px 26px color-mix(in srgb, var(--hk-text) 16%, transparent);
 }
 
+/* ── 夜间兜底：跟随 macOS 夜间模式 ──
+ * 优先级：宿主显式注入的值 > 这里的 prefers-color-scheme 兜底 > 上面写死的默认。
+ * 写法上每条都仍用 var(宿主变量, 夜间默认)，所以宿主一旦注入就以宿主为准；
+ * 宿主没注入（线上日志里 theme.css 从未被请求）时，跟随系统深浅自动切一套。 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hk-bg: var(--bg, #34424B);
+    --hk-surface: var(--bg-card, #414D56);
+    --hk-text: var(--text, #E1EAF0);
+    --hk-muted: var(--text-muted, #9FB1BC);
+    --hk-faint: var(--text-light, #9FB1BC);
+    --hk-accent: var(--accent, #C99AAF);
+    --hk-border: var(--border, rgba(170, 121, 141, 0.16));
+    /* 夜间强调色是浅藕荷粉，压在它上面的字要深色才看得清 */
+    --hk-on-accent: #2A3238;
+  }
+}
+
 /* ============================================================
    封面层：文字与遮罩都吃宿主主题色，不写死白色
    · 有封面（pic）：主题纸色遮罩压一层，让墨色文字在任意封面上都可读
@@ -425,6 +443,39 @@ button:disabled { cursor: default; }
 #drawerCloseBtn { display: none; }
 .queue-head-actions .icon { width: 21px; height: 21px; }
 
+/* ---------- 顶部歌单切换条（横向可滚的分段控件） ---------- */
+.list-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 14px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.list-tabs::-webkit-scrollbar { height: 0; }
+.list-tab {
+  flex: 0 0 auto;
+  min-width: 32px;
+  padding: 5px 12px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--hk-hairline);
+  background: transparent;
+  color: var(--hk-muted);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-align: center;
+}
+.list-tab:hover { background: var(--hk-hover); color: var(--hk-text); }
+.list-tab.is-active {
+  background: var(--hk-accent);
+  border-color: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-weight: 600;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -447,6 +498,31 @@ button:disabled { cursor: default; }
   overscroll-behavior: contain;
 }
 /* 滚动条样式统一走全局规则（轨道透明、滑块带色），此处不再另写 */
+
+/* ---------- 空列表 / 引导（不是空白） ---------- */
+.q-empty {
+  margin: 0;
+  padding: 22px 14px;
+  list-style: none;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--hk-faint);
+}
+.q-guide { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 28px 14px; }
+.q-guide-text { margin: 0; font-size: 13px; color: var(--hk-muted); }
+.q-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--hk-hairline);
+  background: var(--hk-surface);
+  color: var(--hk-text);
+  font-size: 12px;
+}
+.q-guide-btn:hover { background: var(--hk-hover); }
 
 .q-row {
   display: flex;

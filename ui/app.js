@@ -114,14 +114,24 @@
     return 'name:' + String(t.name || t.title || '').trim();
   }
 
+  /* 归属列表：'local' = 本地（固定文件夹），'imp:N' = 第 N 个导入歌单。
+   * 同一首歌可以同时存在于多个列表 —— 稳定 id 会重复，所以列表内定位一律用
+   * uid = `list|id`（见 uidOf），不能用裸 id。 */
+  function listOf(t) { return String((t && t.list) || '').trim(); }
+  function uidOf(t) { return listOf(t) + '|' + String((t && t.id) || ''); }
+
   function normalizeTrack(raw) {
     var t = raw && typeof raw === 'object' ? raw : {};
     var url = String(t.url || '');
     var mode = t.mode === '在线' ? '在线' : (t.mode === '本地' ? '本地' : (t.group === '在线音乐' ? '在线' : '本地'));
     var title = String(t.name || t.title || '').trim() || '未命名';
     var author = String(t.author || '').trim();
+    var id = deriveId(t, url);
+    var list = listOf(t);
     return {
-      id: deriveId(t, url),
+      id: id,
+      list: list,
+      uid: list + '|' + id,
       title: title,
       artist: author || String(t.group || '').trim() || (mode === '在线' ? '在线音乐' : '本地音乐'),
       author: author,
@@ -142,6 +152,7 @@
     var k;
     for (k in t.raw) if (Object.prototype.hasOwnProperty.call(t.raw, k)) out[k] = t.raw[k];
     out.id = t.id;
+    out.list = t.list;
     out.name = t.title;
     out.url = t.url;
     out.mode = t.mode;
@@ -158,7 +169,10 @@
   /* ---------- 状态（接口约定的 playback-state 字段） ---------- */
   var state = {
     tracks: [],
-    currentId: '',
+    lists: [],          // [{ id:'local'|'imp:N', name }]，顺序即顶部切换条顺序
+    activeList: 'local',
+    localDir: '',       // 本地固定文件夹绝对路径（空 = 没设过）
+    currentUid: '',
     progress: 0,
     volume: 0.8,
     muted: false,
@@ -183,7 +197,8 @@
   }
   function snapshot() {
     return {
-      currentId: state.currentId,
+      currentId: state.currentUid,
+      activeList: state.activeList,
       progress: Math.round(state.progress * 10) / 10,
       volume: state.volume,
       muted: !!state.muted,
@@ -226,6 +241,134 @@
     });
   }
 
+  /* ---------- 歌单：列表元数据 + 本地固定文件夹 ----------
+   * 列表元数据（顺序 + 原始名）与本地文件夹路径都存 hana.storage.global；
+   * 曲目本身仍写在 playlist.json（每条带 list 字段）。
+   * 宿主存储不可用时（纯浏览器 / 无宿主 / 卡在 SDK 落地前）退化为内存态：
+   * 功能照常，只是不跨重启。绝不写 localStorage（契约）。 */
+  var LISTS_KEY = 'player-lists';
+  var LOCALDIR_KEY = 'player-local-dir';
+  var memStore = {};
+
+  function storeGet(key) {
+    var st = hanaStorage();
+    var fallback = Object.prototype.hasOwnProperty.call(memStore, key) ? memStore[key] : null;
+    if (!st) return Promise.resolve(fallback);
+    return Promise.resolve(st.get(key, { timeoutMs: 1500 })).then(function (raw) {
+      var v = unwrapStored(raw);
+      if (v !== null && v !== undefined) memStore[key] = v;
+      return v === undefined ? fallback : v;
+    }).catch(function () { return fallback; });
+  }
+  function storeSet(key, value) {
+    memStore[key] = value;
+    var st = hanaStorage();
+    if (!st) return Promise.resolve();
+    return Promise.resolve(st.set(key, value)).catch(function (e) {
+      console.warn('[player] ' + key + ' 写入失败', e);
+    });
+  }
+
+  function findList(id) {
+    for (var i = 0; i < state.lists.length; i++) if (state.lists[i].id === id) return state.lists[i];
+    return null;
+  }
+  function ensureList(id, name) {
+    var l = findList(id);
+    if (!l) { l = { id: id, name: name || id }; state.lists.push(l); }
+    else if (name && !l.name) l.name = name;
+    return l;
+  }
+  function listNum(id) {
+    var m = /^imp:(\d+)$/.exec(String(id || ''));
+    return m ? parseInt(m[1], 10) : 999999;
+  }
+  function nextImportId() {
+    var max = 0;
+    for (var i = 0; i < state.lists.length; i++) {
+      var m = /^imp:(\d+)$/.exec(state.lists[i].id);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return 'imp:' + (max + 1);
+  }
+  function saveLists() { storeSet(LISTS_KEY, state.lists); }
+
+  /* 每个列表内按 uid 去重（跨列表不去重 —— 同一首歌在两个歌单里是合理的）。
+   * 保留首次出现的位置，后出现的同 uid 项并入（补齐 pic/author 之类）。 */
+  function dedupeWithinLists(tracks) {
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < tracks.length; i++) {
+      var t = tracks[i];
+      if (!t.uid) t.uid = uidOf(t);
+      if (seen[t.uid] !== undefined) { out[seen[t.uid]] = t; continue; }
+      seen[t.uid] = out.length;
+      out.push(t);
+    }
+    tracks.length = 0;
+    for (var j = 0; j < out.length; j++) tracks.push(out[j]);
+  }
+
+  /* 旧数据迁移（幂等）：
+   *  · mode==="本地" → list "local"
+   *  · 其余（在线）→ 按原 group 各自成一个导入列表，按首次出现顺序编 1/2/3…
+   *  · group 缺失 → "未分类"
+   *  · 每个列表内按稳定 id 去重；跨列表不去重
+   *  · 已经带 list 字段的数据原样保留，再跑一次不改变结构
+   * 返回是否真正改写了曲目（需要回写 playlist.json）。 */
+  function migrateLists(tracks, savedLists) {
+    var i, t;
+    var needsAssign = false;
+    for (i = 0; i < tracks.length; i++) {
+      if (!String(tracks[i].list || '').trim()) { needsAssign = true; break; }
+    }
+
+    if (needsAssign) {
+      var groupToId = {};
+      var ordered = [];
+      var seq = 0;
+      for (i = 0; i < tracks.length; i++) {
+        t = tracks[i];
+        var list = String(t.list || '').trim();
+        if (!list) {
+          if (t.mode === '本地') {
+            list = 'local';
+          } else {
+            var g = String(t.group || '').trim() || '未分类';
+            if (!groupToId[g]) { seq++; groupToId[g] = { id: 'imp:' + seq, name: g }; ordered.push(groupToId[g]); }
+            list = groupToId[g].id;
+          }
+        }
+        t.list = list;
+        t.uid = uidOf(t);
+      }
+      state.lists = [{ id: 'local', name: '本地' }];
+      for (i = 0; i < ordered.length; i++) state.lists.push(ordered[i]);
+    } else {
+      state.lists = [];
+      ensureList('local', '本地');
+      if (savedLists && savedLists.length) {
+        for (i = 0; i < savedLists.length; i++) {
+          var s = savedLists[i];
+          if (s && s.id && s.id !== 'local') ensureList(String(s.id), String(s.name || s.id));
+        }
+      }
+      for (i = 0; i < tracks.length; i++) {
+        t = tracks[i];
+        if (t.list && t.list !== 'local') ensureList(t.list, t.list);
+        t.uid = uidOf(t);
+      }
+    }
+
+    dedupeWithinLists(tracks);
+    state.lists.sort(function (a, b) {
+      if (a.id === 'local') return -1;
+      if (b.id === 'local') return 1;
+      return listNum(a.id) - listNum(b.id);
+    });
+    return needsAssign;
+  }
+
   /* SDK 是 ES module，可能比本脚本晚落地；宿主没给就走无宿主降级（不留 localStorage） */
   function waitForHana(timeoutMs) {
     return new Promise(function (resolve) {
@@ -265,19 +408,21 @@
     return saveChain;
   }
 
-  /* 把新曲目并入列表（按稳定 id 去重，保留原位置；同 id 覆盖补充信息）。
+  /* 把新曲目并入指定列表（按 uid 去重，保留原位置；同 uid 覆盖补充信息）。
    * 返回真正新增的条数。 */
-  function mergeTracks(incoming) {
+  function mergeTracks(incoming, listId) {
     var index = {};
     var i;
-    for (i = 0; i < state.tracks.length; i++) index[state.tracks[i].id] = i;
+    for (i = 0; i < state.tracks.length; i++) index[state.tracks[i].uid] = i;
     var added = 0;
     for (i = 0; i < incoming.length; i++) {
       var t = normalizeTrack(incoming[i]);
-      if (index[t.id] !== undefined) {
-        state.tracks[index[t.id]] = t;
+      t.list = listId;
+      t.uid = uidOf(t);
+      if (index[t.uid] !== undefined) {
+        state.tracks[index[t.uid]] = t;
       } else {
-        index[t.id] = state.tracks.length;
+        index[t.uid] = state.tracks.length;
         state.tracks.push(t);
         added++;
       }
@@ -291,6 +436,7 @@
   var sceneTop = $('sceneTop');
   var queue = $('queue');
   var queueHead = $('queueHead');
+  var listTabs = $('listTabs');
   var queueList = $('queueList');
   var lyrics = $('lyrics');
   var lyricWrap = $('lyricWrap');
@@ -310,28 +456,37 @@
     s = Math.max(0, Math.round(s));
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
-  function currentTrack() {
+  function visibleTracks() {
+    var out = [];
     for (var i = 0; i < state.tracks.length; i++) {
-      if (state.tracks[i].id === state.currentId) return state.tracks[i];
+      if (state.tracks[i].list === state.activeList) out.push(state.tracks[i]);
     }
-    return state.tracks[0] || null;
+    return out;
   }
-  function trackById(id) {
+  function trackByUid(uid) {
+    if (!uid) return null;
     for (var i = 0; i < state.tracks.length; i++) {
-      if (state.tracks[i].id === id) return state.tracks[i];
+      if (state.tracks[i].uid === uid) return state.tracks[i];
     }
     return null;
   }
+  function currentTrack() {
+    var t = trackByUid(state.currentUid);
+    if (t) return t;
+    var vis = visibleTracks();
+    return vis[0] || state.tracks[0] || null;
+  }
   function currentIndex() {
-    for (var i = 0; i < state.tracks.length; i++) {
-      if (state.tracks[i].id === state.currentId) return i;
+    var vis = visibleTracks();
+    for (var i = 0; i < vis.length; i++) {
+      if (vis[i].uid === state.currentUid) return i;
     }
     return -1;
   }
   /* 时长：优先拿真实 <audio> 的（本地/在线都可能比列表里存的准） */
   function trackDuration(t) {
     if (!t) return 0;
-    if (t.id === state.currentId && isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+    if (t.uid === state.currentUid && isFinite(audio.duration) && audio.duration > 0) return audio.duration;
     return Number(t.dur) > 0 ? Number(t.dur) : 0;
   }
   var toastTimer = 0;
@@ -359,7 +514,7 @@
     $('cover').style.backgroundImage = coverImage(pic);
     var rows = queueList.querySelectorAll('.q-row');
     for (var i = 0; i < rows.length; i++) {
-      var tr = state.tracks[i];
+      var tr = trackByUid(rows[i].getAttribute('data-uid'));
       var el = rows[i].querySelector('.q-cover');
       if (el && tr) el.style.backgroundImage = coverImage(tr.pic || '');
     }
@@ -390,12 +545,49 @@
     applyCovers();
   }
 
-  function renderQueue() {
+  function renderListTabs() {
+    if (!listTabs) return;
     var html = '';
-    for (var i = 0; i < state.tracks.length; i++) {
-      var t = state.tracks[i];
-      var cur = t.id === state.currentId;
-      html += '<li class="q-row' + (cur ? ' is-current' : '') + '" data-id="' + esc(t.id) + '">' +
+    for (var i = 0; i < state.lists.length; i++) {
+      var l = state.lists[i];
+      var label = l.id === 'local' ? '本地' : String(l.id).replace(/^imp:/, '');
+      var active = l.id === state.activeList;
+      html += '<button class="list-tab' + (active ? ' is-active' : '') + '" type="button" role="tab"' +
+        ' aria-selected="' + (active ? 'true' : 'false') + '" data-list="' + esc(l.id) + '"' +
+        ' title="' + esc(l.name || label) + '">' + esc(label) + '</button>';
+    }
+    listTabs.innerHTML = html;
+  }
+
+  /* 列表空时的安静引导（不是空白） */
+  function emptyGuide() {
+    if (state.activeList === 'local') {
+      if (!state.localDir) {
+        return '<li class="q-empty q-guide">' +
+          '<p class="q-guide-text">还没有选择本地文件夹</p>' +
+          '<button class="q-guide-btn" id="localPickBtn" type="button">' +
+            icon('i-folder', 'icon-sm') + '<span>选择文件夹</span>' +
+          '</button>' +
+          '</li>';
+      }
+      return '<li class="q-empty q-guide">' +
+        '<p class="q-guide-text">这个文件夹里还没有音频文件</p>' +
+        '<button class="q-guide-btn" id="localRescanBtn" type="button">' +
+          icon('i-repeat', 'icon-sm') + '<span>重新扫描</span>' +
+        '</button>' +
+        '</li>';
+    }
+    return '<li class="q-empty">这个歌单还没有曲目</li>';
+  }
+
+  function renderQueue() {
+    renderListTabs();
+    var vis = visibleTracks();
+    var html = '';
+    for (var i = 0; i < vis.length; i++) {
+      var t = vis[i];
+      var cur = t.uid === state.currentUid;
+      html += '<li class="q-row' + (cur ? ' is-current' : '') + '" data-id="' + esc(t.id) + '" data-uid="' + esc(t.uid) + '">' +
         '<button class="q-hit" type="button" title="' + esc(t.title + (t.artist ? ' — ' + t.artist : '')) + '">' +
           '<span class="q-cover"></span>' +
           '<span class="q-meta">' +
@@ -411,12 +603,10 @@
         '<button class="q-more" type="button" aria-label="更多操作：' + esc(t.title) + '">' + icon('i-more') + '</button>' +
       '</li>';
     }
-    if (!html) {
-      html = '<li class="q-empty">还没有曲目，点右上角的 ＋ 导入</li>';
-    }
+    if (!html) html = emptyGuide();
     queueList.innerHTML = html;
     applyCovers();
-    var n = state.tracks.length;
+    var n = vis.length;
     $('queueCount').textContent = String(n);
     $('queueBtnCount').textContent = String(n);
   }
@@ -768,7 +958,8 @@
   });
 
   function stepIndex(dir) {
-    var n = state.tracks.length;
+    var vis = visibleTracks();
+    var n = vis.length;
     if (!n) return -1;
     var i = currentIndex();
     if (i < 0) return dir >= 0 ? 0 : n - 1;
@@ -788,7 +979,8 @@
       return;
     }
     var i = stepIndex(1);
-    if (i >= 0) playTrack(state.tracks[i].id);
+    var vis = visibleTracks();
+    if (i >= 0 && vis[i]) playTrack(vis[i].uid);
   }
 
   var resolveGen = 0;
@@ -832,11 +1024,11 @@
     });
   }
 
-  function playTrack(id, keepProgress) {
-    var t = trackById(id);
+  function playTrack(uid, keepProgress) {
+    var t = trackByUid(uid);
     if (!t) return;
-    var changed = id !== state.currentId;
-    state.currentId = id;
+    var changed = uid !== state.currentUid;
+    state.currentUid = uid;
     if (changed && !keepProgress) state.progress = 0;
     if (changed) {
       lyricIndex = -1;
@@ -855,7 +1047,7 @@
     } else {
       // 无 url：可能是旧版 searchKey 曲目，异步解析后再播
       ensurePlayable(t).then(function (ok) {
-        if (!ok || state.currentId !== t.id) return;
+        if (!ok || state.currentUid !== t.uid) return;
         renderTrack();
         renderQueue();
         loadLyrics(t);
@@ -878,12 +1070,14 @@
 
   $('prevBtn').addEventListener('click', function () {
     var i = stepIndex(-1);
-    if (i >= 0) playTrack(state.tracks[i].id);
+    var vis = visibleTracks();
+    if (i >= 0 && vis[i]) playTrack(vis[i].uid);
   });
 
   $('nextBtn').addEventListener('click', function () {
     var i = stepIndex(1);
-    if (i >= 0) playTrack(state.tracks[i].id);
+    var vis = visibleTracks();
+    if (i >= 0 && vis[i]) playTrack(vis[i].uid);
   });
 
   $('modeBtn').addEventListener('click', function () {
@@ -963,7 +1157,7 @@
   drawerScrim.addEventListener('click', closeDrawer);
 
   /* ---------- 队列行 / 浮层 ---------- */
-  var moreTargetId = null;
+  var moreTargetUid = null;
   var morePop = $('morePop');
   var importPop = $('importPop');
   var importNote = $('importNote');
@@ -975,7 +1169,7 @@
     morePop.hidden = true;
     importPop.hidden = true;
     $('importBtn').setAttribute('aria-expanded', 'false');
-    moreTargetId = null;
+    moreTargetUid = null;
   }
 
   function placePop(pop, anchor) {
@@ -993,12 +1187,16 @@
   }
 
   queueList.addEventListener('click', function (e) {
+    // 空列表引导按钮（本地页）
+    if (e.target.closest('#localPickBtn')) { pickLocalFolder(); return; }
+    if (e.target.closest('#localRescanBtn')) { syncLocalFolder(true); return; }
+
     var more = e.target.closest('.q-more');
     if (more) {
       e.stopPropagation();
       var row = more.closest('.q-row');
-      moreTargetId = row.getAttribute('data-id');
-      var t = state.tracks.filter(function (x) { return x.id === moreTargetId; })[0];
+      moreTargetUid = row.getAttribute('data-uid');
+      var t = trackByUid(moreTargetUid);
       $('moreTitle').textContent = t ? t.title + ' — ' + t.artist : '';
       importPop.hidden = true;
       placePop(morePop, more);
@@ -1007,31 +1205,47 @@
     var hit = e.target.closest('.q-hit');
     if (hit) {
       var li = hit.closest('.q-row');
-      playTrack(li.getAttribute('data-id'));
+      playTrack(li.getAttribute('data-uid'));
     }
   });
 
+  /* 顶部歌单切换条 */
+  if (listTabs) {
+    listTabs.addEventListener('click', function (e) {
+      var tab = e.target.closest('.list-tab');
+      if (!tab) return;
+      var id = tab.getAttribute('data-list');
+      if (!id || id === state.activeList) return;
+      state.activeList = id;
+      renderQueue();
+      renderTrack();
+      persistState();
+    });
+  }
+
   /* 删除：先本地移除（即时反馈），再叫后端删列表 + 清 media/lyrics；失败回滚 */
   $('removeBtn').addEventListener('click', function () {
-    if (!moreTargetId) return;
-    var id = moreTargetId;
-    var wasCurrent = id === state.currentId;
+    if (!moreTargetUid) return;
+    var uid = moreTargetUid;
+    var target = trackByUid(uid);
+    var wasCurrent = uid === state.currentUid;
     var idx = currentIndex();
     closePops();
 
     var prevTracks = state.tracks.slice();
-    var prevId = state.currentId;
+    var prevUid = state.currentUid;
     var prevProgress = state.progress;
 
-    state.tracks = state.tracks.filter(function (x) { return x.id !== id; });
+    state.tracks = state.tracks.filter(function (x) { return x.uid !== uid; });
     if (wasCurrent) {
-      if (state.tracks.length) {
-        var next = state.tracks[Math.min(idx < 0 ? 0 : idx, state.tracks.length - 1)];
-        state.currentId = next.id;
+      var vis = visibleTracks();
+      if (vis.length) {
+        var next = vis[Math.min(idx < 0 ? 0 : idx, vis.length - 1)];
+        state.currentUid = next.uid;
         state.progress = 0;
-        playTrack(next.id);
+        playTrack(next.uid);
       } else {
-        state.currentId = '';
+        state.currentUid = '';
         state.progress = 0;
         state.playing = false;
         audio.removeAttribute('src');
@@ -1048,25 +1262,21 @@
     persistNow();
     toast('已从队列移除');
 
-    apiDeleteJson(ENDPOINT.track + '?id=' + encodeURIComponent(id)).then(function (res) {
-      if (!res.ok) {
-        toast('移除失败，已恢复');
-        state.tracks = prevTracks;
-        state.currentId = prevId;
-        state.progress = prevProgress;
-        renderQueue();
-        renderTrack();
-        renderProgress();
-      }
-    }).catch(function () {
+    // 后端按 id + list 定位（同一首歌在两个歌单里各自独立删除）
+    var qs = '?id=' + encodeURIComponent(target ? target.id : '') +
+             '&list=' + encodeURIComponent(target ? target.list : '');
+    function rollback() {
       toast('移除失败，已恢复');
       state.tracks = prevTracks;
-      state.currentId = prevId;
+      state.currentUid = prevUid;
       state.progress = prevProgress;
       renderQueue();
       renderTrack();
       renderProgress();
-    });
+    }
+    apiDeleteJson(ENDPOINT.track + qs).then(function (res) {
+      if (!res.ok) rollback();
+    }).catch(rollback);
   });
 
   $('importBtn').addEventListener('click', function (e) {
@@ -1084,6 +1294,7 @@
 
   function afterImport(added, label) {
     renderQueue();
+    renderTrack();
     if (added > 0) {
       savePlaylist();
       toast(label + '：新增 ' + added + ' 首');
@@ -1094,7 +1305,20 @@
     }
   }
 
-  /* 在线链接导入：单曲 / 歌单 */
+  /* 新建一个导入列表并切过去 */
+  function newImportList(namePrefix) {
+    var id = nextImportId();
+    var l = { id: id, name: namePrefix + ' ' + id.replace(/^imp:/, '') };
+    state.lists.push(l);
+    saveLists();
+    state.activeList = id;
+    return id;
+  }
+
+  /* 在线链接导入：单曲 / 歌单
+   *  · 歌单 → 新建一个导入列表（按导入顺序编号），并切过去
+   *  · 单曲 → 归入当前选中的导入列表；当前是本地列表时新建一个导入列表
+   *    （单曲归处是需罐头拍板的点，暂取此默认，见交付说明） */
   function importLink(raw) {
     var v = String(raw || '').trim();
     if (!v) { setNote('请先粘贴链接'); return; }
@@ -1112,7 +1336,13 @@
         return;
       }
       var list = isPlaylist ? (res.body.tracks || []) : (res.body.track ? [res.body.track] : []);
-      var added = mergeTracks(list);
+      var targetId;
+      if (isPlaylist) {
+        targetId = newImportList('歌单');
+      } else {
+        targetId = /^imp:/.test(state.activeList) ? state.activeList : newImportList('单曲');
+      }
+      var added = mergeTracks(list, targetId);
       afterImport(added, isPlaylist ? '在线歌单' : '在线单曲');
       var input = $('linkInput');
       if (input) input.value = '';
@@ -1127,6 +1357,44 @@
     }
     return window.hana.resources.pick(input);
   }
+
+  /* 扫描本地固定文件夹，并入 local 列表（幂等：同 id 不重复加）。 */
+  function syncLocalFolder(announce) {
+    if (!state.localDir) return Promise.resolve(0);
+    ensureList('local', '本地');
+    return apiGetJson(ENDPOINT.scanFolder + '?path=' + encodeURIComponent(state.localDir)).then(function (r) {
+      if (!r.ok || !r.body || !r.body.ok) {
+        if (announce) toast('扫描失败：' + ((r.body && r.body.error) || r.status));
+        return 0;
+      }
+      var added = mergeTracks(r.body.files || [], 'local');
+      savePlaylist();
+      renderQueue();
+      if (announce) toast(added > 0 ? '本地文件夹：新增 ' + added + ' 首' : '本地文件夹：没有新文件');
+      return added;
+    }).catch(function () { if (announce) toast('扫描失败：网络错误'); return 0; });
+  }
+
+  /* 选本地固定文件夹（入口：本地页引导按钮 / 导入面板「本地文件夹」） */
+  function pickLocalFolder() {
+    if (importBusy) return;
+    importBusy = true;
+    setNote('请选择文件夹…');
+    hostPick({ mode: 'directory' }).then(function (res) {
+      var ref = res && res.resources && res.resources[0];
+      var dir = ref && ref.path;
+      if (!dir) { setNote('未选择文件夹'); importBusy = false; return; }
+      state.localDir = String(dir);
+      storeSet(LOCALDIR_KEY, state.localDir);
+      if (!findList('local')) ensureList('local', '本地');
+      state.activeList = 'local';
+      setNote('正在扫描…');
+      return syncLocalFolder(true);
+    }).catch(function (e) {
+      setNote(e && e.message ? e.message : '文件夹选择不可用');
+    }).then(function () { importBusy = false; });
+  }
+
   function importLocalFiles() {
     if (importBusy) return;
     importBusy = true;
@@ -1141,30 +1409,12 @@
           .then(function (r) { return (r.ok && r.body && r.body.ok) ? r.body : null; })
           .catch(function () { return null; });
       })).then(function (items) {
-        afterImport(mergeTracks(items.filter(Boolean)), '本地文件');
+        // 本地文件归本地列表（本地列表 = 固定文件夹 + 手动导入的本地文件）
+        ensureList('local', '本地');
+        afterImport(mergeTracks(items.filter(Boolean), 'local'), '本地文件');
       });
     }).catch(function (e) {
       setNote(e && e.message ? e.message : '文件选择不可用');
-    }).then(function () { importBusy = false; });
-  }
-  function importLocalFolder() {
-    if (importBusy) return;
-    importBusy = true;
-    setNote('请选择文件夹…');
-    hostPick({ mode: 'directory' }).then(function (res) {
-      var ref = res && res.resources && res.resources[0];
-      var dir = ref && ref.path;
-      if (!dir) { setNote('未选择文件夹'); importBusy = false; return; }
-      setNote('正在扫描…');
-      return apiGetJson(ENDPOINT.scanFolder + '?path=' + encodeURIComponent(dir)).then(function (r) {
-        if (!r.ok || !r.body || !r.body.ok) {
-          setNote('扫描失败：' + ((r.body && r.body.error) || r.status));
-          return;
-        }
-        afterImport(mergeTracks(r.body.files || []), '本地文件夹');
-      });
-    }).catch(function (e) {
-      setNote(e && e.message ? e.message : '文件夹选择不可用');
     }).then(function () { importBusy = false; });
   }
 
@@ -1173,7 +1423,7 @@
     if (item) {
       var kind = item.getAttribute('data-import');
       if (kind === 'file') importLocalFiles();
-      else if (kind === 'folder') importLocalFolder();
+      else if (kind === 'folder') pickLocalFolder();
       return;
     }
     if (e.target.closest('#linkAddBtn')) {
@@ -1255,8 +1505,11 @@
 
   function applyTracks(tracks) {
     state.tracks = tracks;
-    if (!state.tracks.length) { state.currentId = ''; }
-    else if (!trackById(state.currentId)) { state.currentId = state.tracks[0].id; }
+    if (!state.tracks.length) { state.currentUid = ''; }
+    else if (!trackByUid(state.currentUid)) {
+      var vis = visibleTracks();
+      state.currentUid = (vis[0] || state.tracks[0]).uid;
+    }
   }
 
   function restorePlayback(pb) {
@@ -1272,7 +1525,14 @@
     audio.volume = state.volume;
     audio.muted = state.muted;
 
-    var t = trackById(pb && pb.currentId) || state.tracks[0];
+    // 恢复当前曲目：优先 uid（list|id）；旧版存的是裸 id，兼容回退
+    var t = trackByUid(pb && pb.currentId);
+    if (!t && pb && pb.currentId) {
+      for (var i = 0; i < state.tracks.length; i++) {
+        if (state.tracks[i].id === pb.currentId) { t = state.tracks[i]; break; }
+      }
+    }
+    if (!t) t = visibleTracks()[0] || state.tracks[0] || null;
     if (!t) {
       renderTrack();
       renderQueue();
@@ -1280,7 +1540,7 @@
       renderPlayState();
       return;
     }
-    state.currentId = t.id;
+    state.currentUid = t.uid;
     state.progress = pb && Number(pb.progress) > 0 ? Number(pb.progress) : 0;
     var wantPlay = !!(pb && pb.playing);
     state.playing = false;
@@ -1294,7 +1554,7 @@
       loadAudio(t, state.progress, wantPlay);
     } else if (wantPlay) {
       ensurePlayable(t).then(function (ok) {
-        if (!ok || state.currentId !== t.id) return;
+        if (!ok || state.currentUid !== t.uid) return;
         renderTrack();
         renderQueue();
         loadLyrics(t);
@@ -1314,14 +1574,33 @@
         console.warn('[player] playlist 读取失败', e);
         return null;
       }),
-      loadPlaybackState()
+      loadPlaybackState(),
+      storeGet(LISTS_KEY),
+      storeGet(LOCALDIR_KEY)
     ]).then(function (results) {
       applyHostTheme();
       var tracks = results[1];
       var pb = results[2];
-      if (tracks) applyTracks(tracks);
+      var savedLists = results[3];
+      var dir = results[4];
+      if (dir) state.localDir = String(dir);
+
+      if (tracks) {
+        var needsAssign = migrateLists(tracks, savedLists);
+        applyTracks(tracks);
+        if (needsAssign) savePlaylist();  // 迁移结果回写（幂等：再跑不改结构）
+        saveLists();                       // 列表元数据（顺序 + 原始名）落盘
+      } else {
+        state.lists = [{ id: 'local', name: '本地' }];
+      }
+      // 恢复当前列表
+      if (pb && pb.activeList && findList(pb.activeList)) state.activeList = pb.activeList;
+      else if (!findList(state.activeList)) state.activeList = 'local';
+
       restorePlayback(pb);
       if (!tracks) toast('列表加载失败，请稍后重试');
+      // 本地固定文件夹：开机扫一次（没设过就不扫，等用户选）
+      if (state.localDir) syncLocalFolder(false);
       if (params.get('assert') === '1') setTimeout(runSelfCheck, 60);
     });
   }
