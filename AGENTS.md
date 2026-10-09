@@ -4,6 +4,15 @@
 **这不是宿主安装目录**——安装目录是 `~/.hanako/apps/hanako-audio-player/`，那是部署目标
 （宿主会把它快照进 `.cache/app-ui-snapshots/`），别把它当工作区。
 
+**许可证是 AGPL-3.0，不是 MIT。** 本仓是 [openhanako-labs/openhanako-audio-player](https://github.com/openhanako-labs/openhanako-audio-player)
+（AGPL-3.0）的**衍生作品**，必须同证分发：别改回 MIT，也别把它当可以闭源/商用的东西
+（要闭源得上游的商业授权）。README 与 `LICENSE` 已按 AGPL-3.0 写好。
+
+**远端与分支**：本地 `fork` remote 指 `wqh0201-stack/openhanako-audio-player`（2026-10-09 起常驻）。
+`hana-simple` 是**本仓这版**、也是 fork 的默认分支；`master` 是上游原样；
+`fix/same-origin-audio-proxy` 是给上游的 PR 分支（基于上游 master，与本版历史不相连）。
+推送：`git push fork hana-simple`。
+
 ---
 
 ## 0. 动手前先读技能：Hana App 的官方做法都在 `hana-app-creator` 里
