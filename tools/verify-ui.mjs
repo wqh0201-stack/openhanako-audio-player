@@ -995,7 +995,12 @@ const AMBIENT_PROBE = async () => {
     lyricTop: Math.round(parseFloat(pcs.getPropertyValue('--lyric-top')) || 0),
     coverW: pcs.getPropertyValue('--cover-w').trim(),
     coverBox: (() => { const r = cover.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })(),
-    coverAspect: pcs.getPropertyValue('--cover-w').trim() && (() => { const r = cover.getBoundingClientRect(); return r.height > 0 ? +(r.width / r.height).toFixed(2) : null; })(),
+    /* 封面三边锚定：left/top/bottom 都贴 scene 边（允许宽出被裁） */
+    coverAnchored: (() => {
+      const r = cover.getBoundingClientRect();
+      return Math.abs(r.left - sb.left) <= 1 && Math.abs(r.top - sb.top) <= 1 && Math.abs(r.bottom - sb.bottom) <= 1;
+    })(),
+    coverAspect: (() => { const r = cover.getBoundingClientRect(); return r.height > 0 ? +(r.width / r.height).toFixed(2) : null; })(),
     lyricsTextAlign: getComputedStyle(document.getElementById('lyrics')).textAlign,
     contrastMid: { current: contrastAt('.lyric-line.is-current', ambColor), near: contrastAt('.lyric-line.is-near', ambColor) },
     contrastWorst: { current: contrastAt('.lyric-line.is-current', ambColor), near: contrastAt('.lyric-line.is-near', ambColor) },
@@ -1084,10 +1089,10 @@ let ambient = {};
   assert('ambient-light-lyric-readable',
     ambient.light.contrastMid.current >= 4.5 && ambient.light.contrastMid.near >= 4.5,
     JSON.stringify({ mid: ambient.light.contrastMid }));
-  /* 竖条卡封面「做方」：宽高比接近 3:4（宽/高 ≈ 0.75） */
-  assert('tall-cover-3-4',
-    ambient.dark.coverAspect === null || (ambient.dark.coverAspect > 0.68 && ambient.dark.coverAspect < 0.82),
-    JSON.stringify({ ar: ambient.dark.coverAspect, box: ambient.dark.coverBox }));
+  /* 封面锚定「左/上/下」三边（不管什么比例都是如此） */
+  assert('cover-anchored-left-top-bottom',
+    ambient.dark.coverAnchored === true,
+    JSON.stringify({ anchored: ambient.dark.coverAnchored, box: ambient.dark.coverBox }));
   assert('lyric-scrim-covers-column',
     ambient.dark.scrim !== 'none' && Math.abs(ambient.dark.scrimLeft - ambient.dark.contentX) <= 1 &&
     Math.abs(ambient.dark.scrimTop - ambient.dark.lyricTop) <= 1,

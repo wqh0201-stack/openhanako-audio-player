@@ -723,8 +723,9 @@
     img.src = ambientUrl(pic);
   }
 
-  /* 舞台指标（纯呈现）：封面按 contain 贴左完整显示，先算它的实际显示宽，
-   * 再决定右侧内容列（标题/歌词/频谱）从哪里开始。 */
+  /* 舞台指标（纯呈现）：封面锚定「左/上/下」三边、填满左边一列。
+   * 封面宽度 = 舞台高 × 画幅比（方图就是方的），贴左满高，超出裁掉。
+   * 右侧多出来的空间用主色底填；歌词列独立（不拿封面去迁就它）。 */
   function updateStageMetrics() {
     var sceneEl = $('scene');
     if (!sceneEl) return;
@@ -732,29 +733,18 @@
     var h = sceneEl.clientHeight;
     if (!(w > 0) || !(h > 0)) return;
     var wide = player.getAttribute('data-layout') === 'wide';
-    var coverW, x;
-    if (wide) {
-      /* 宽窗：封面按画幅完整显示（contain），右列起点贴其右缘 */
-      coverW = coverAR > 0 ? Math.min(w, h * coverAR) : w;
-      x = Math.max(w * 0.30, Math.min(coverW + 18, w * 0.66));
-    } else {
-      /* 竖版卡（矮卡 / 长卡）：封面是固定宽的左列，缩放到满高（cover，超出裁边）。
-       * 「封面顶着、播放区上下也顶着」—— 不再 contain 居中留白。列宽夹在
-       * 132~248px，窄到 312 时也不至于把右侧歌词挤没。 */
-      coverW = Math.max(132, Math.min(248, w * 0.44));
-      x = coverW + 14;
-    }
-    /* 右缘淡出宽度：跟封面列宽走，夹在 28~140px，窄封面也不会整张糊掉 */
-    var fade = Math.max(28, Math.min(140, coverW * 0.24));
+    var ar = coverAR > 0 ? coverAR : 1;
+    /* 封面：满高 + 按画幅定宽（左/上/下三边锚定）。溢出交给 scene 裁。 */
+    var coverW = Math.max(96, h * ar);
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
+    /* 右缘淡出宽度：跟封面宽走，夹在 28~140px */
+    var fade = Math.max(28, Math.min(140, coverW * 0.18));
     player.style.setProperty('--cover-fade-a', Math.round(Math.max(0, coverW - fade)) + 'px');
     player.style.setProperty('--cover-fade-b', Math.round(coverW) + 'px');
+    /* 内容列（歌词/标题）：独立一列，不随封面宽跑；封面色底在这一列上
+     * 用一层渐变和封面融合。宽窗靠右一点、竖卡靠中一点。 */
+    var x = wide ? w * 0.42 : Math.min(w * 0.46, Math.max(w * 0.40, w * 0.42));
     player.style.setProperty('--content-x', Math.round(x) + 'px');
-    /* 环境色取色：采样带要落在封面「屏上可见的右缘」上。
-     *  · 宽窗 contain 完整显示 → 可见右缘≈图右缘（frac≈1）
-     *  · 竖版卡 cover 贴左载切 → 屏上只露左侧一条：方形≈38%、横幅≈14%，
-     *    按 coverW / 封面自然宽（= h*AR）算可见比例。
-     * 尺寸/布局/画幅都齐了才触发（probeCover 量到 AR 后会回过来调这里）。 */
     if (stagePic) probeAmbient(stagePic, coverProbeToken);
     measureLyricTop();
   }

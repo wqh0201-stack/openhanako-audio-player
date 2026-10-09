@@ -386,34 +386,25 @@ button:disabled { cursor: default; }
 .player.nocover .cover-haze,
 .player.ambient-ok .cover-haze { display: none; }
 
-/* 封面本体贴着左边，按高度完整显示（contain：高度优先填满舞台，
- * 容器比画幅窄时退化成按宽适配）—— 永不裁头砍脚（R2）。
- * 背景色透明：contain 的留白露出底下的环境色，而不是一块纸。 */
+/* 封面本体：锚定「左 / 上 / 下」三边 —— 贴左、满高（top:0 bottom:0），
+ * 宽度由 JS 按画幅比写成 --cover-w（方图就是方的），溢出的交给 scene 裁。
+ * 右侧多出来的空间用主色底填；右缘淡出融入主色。 */
 .cover {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: var(--cover-w, 60%);
   z-index: 1;
   background-color: transparent;
   background-image: var(--cover-image);
-  background-size: contain;
+  background-size: cover;
   background-position: left center;
   background-repeat: no-repeat;
-  /* 右缘淡出：让封面「化」进环境色。起点/终点由 JS 按封面显示宽写入 */
+  /* 右缘淡出：让封面「化」进主色底。起点/终点由 JS 按封面宽写入 */
   -webkit-mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
   mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
-}
-/* 矮卡 / 长卡：封面贴左、宽高比 3:4（top-left 锚），不再细长满高。
- * 「做方一点」：列宽由 JS 写 --cover-w，高度 = 宽 × 4/3。
- * 下方露出的是封面主色底。宽窗维持 contain 完整显示。 */
-.player[data-layout="compact"] .cover,
-.player[data-layout="long"] .cover {
-  right: auto;
-  bottom: auto;
-  width: var(--cover-w, 44%);
-  height: auto;
-  aspect-ratio: 3 / 4;
-  background-size: cover;
-  background-position: left top;
 }
 .player.nocover .cover {
   background-image: var(--cover-fallback);
