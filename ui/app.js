@@ -743,8 +743,20 @@
     var seam = coverW - band * 0.5 - 8;
     /* 但也不能太靠左：夹在舞台宽的 32%~58% */
     seam = Math.max(w * 0.32, Math.min(seam, w * 0.58));
-    /* 歌词列起点：叠进过渡带（接缝左侧一点），与封面右缘重叠 */
-    var contentX = Math.max(w * 0.30, seam - band * 0.30);
+    /* 歌词列起点：宽窗下跟随面板宽度线性右移（网易式：右缘锚定，左缘占面板宽的比
+   * 随宽度缓慢上升）—— 封面固定三边、不跟随；窄卡仍叠进过渡带，与封面右缘重叠。
+   * 线性系数由网易两档实测反推：911px→0.513、1253px→0.526。 */
+    var contentX;
+    if (player.getAttribute('data-layout') === 'wide') {
+      var ratio = 0.478 + 0.000038 * w;
+      ratio = Math.max(0.48, Math.min(ratio, 0.56));
+      contentX = w * ratio;
+      /* 下限：不落进封面实体中部（贴在封面右缘的羽化带里）；上限：留最小列宽 */
+      contentX = Math.max(contentX, coverW * 0.72);
+      contentX = Math.min(contentX, w - 210);
+    } else {
+      contentX = Math.max(w * 0.30, seam - band * 0.30);
+    }
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
     player.style.setProperty('--seam', Math.round(seam) + 'px');
     player.style.setProperty('--band', Math.round(band) + 'px');

@@ -1096,25 +1096,26 @@ let ambient = {};
   assert('cover-anchored-left-top-bottom',
     ambient.dark.coverAnchored === true,
     JSON.stringify({ anchored: ambient.dark.coverAnchored, box: ambient.dark.coverBox }));
-  /* 过渡带：封面 mask 两段式（实→虚）。歌词遮罩不再与封面镜像，改为
-   * 左缘探出 --band*0.4、淡入同宽 —— 满罩点正好落在歌词列起点（content-x）。
-   * 两条都是「只给两端点的连续插值」（离散多段 stop 会出 8bit 竖纹）。 */
+  /* 封面 mask 两段式（实→虚，连续插值）。
+   * 歌词遮罩：满屏固定（inset:0，不跟歌词列跑），只做横向淡入 ——
+   * 从接缝 -band/2 透明、+band/2 满。两条都是「只给两端点」的连续插值。 */
   const band = parseFloat(ambient.dark.band) || 0;
   const coverM = /linear-gradient/.test(ambient.dark.coverMask);
   const coverTwoStop = (ambient.dark.coverMask.match(/(?:px|%)/g) || []).length >= 2;
   assert('cover-mask-two-stop-continuous',
     coverM && coverTwoStop && band > 0 && band < 320,
     JSON.stringify({ band, cm: ambient.dark.coverMask.slice(0, 80) }));
-  /* 歌词遮罩左缘 = content-x - band*0.4，且淡入带宽同值 → 满罩点落列首 */
-  const expectLeftOffset = band * 0.4;
-  const actualLeftOffset = ambient.dark.contentX - ambient.dark.scrimLeft;
+  /* 歌词遮罩：满屏固定（左/上贴 0），且 mask 从接缝淡入（linear-gradient 两端点） */
   const scrimFade = ambient.dark.scrimMask;
-  assert('lyric-scrim-full-opacity-at-column-start',
+  assert('lyric-scrim-fixed-full-bleed-fade',
     ambient.dark.scrim !== 'none' &&
-    Math.abs(actualLeftOffset - expectLeftOffset) <= 2 &&
+    ambient.dark.scrimLeft === 0 && ambient.dark.scrimTop === 0 &&
     /linear-gradient/.test(scrimFade) &&
-    Math.abs(ambient.dark.scrimTop - ambient.dark.lyricTop) <= 1,
-    JSON.stringify({ expectLeftOffset: Math.round(expectLeftOffset), actualLeftOffset: Math.round(actualLeftOffset), scrimLeft: ambient.dark.scrimLeft, x: ambient.dark.contentX, top: ambient.dark.scrimTop, lyricTop: ambient.dark.lyricTop, sm: scrimFade.slice(0, 80) }));
+    (scrimFade.match(/(?:px|%)/g) || []).length >= 2,
+    JSON.stringify({ scrimLeft: ambient.dark.scrimLeft, scrimTop: ambient.dark.scrimTop, sm: scrimFade.slice(0, 90) }));
+  assert('lyric-scrim-starts-at-seam',
+    scrimFade.indexOf(String(Math.round(parseFloat(ambient.dark.seam) - band * 0.5))) !== -1,
+    JSON.stringify({ seam: ambient.dark.seam, band, sm: scrimFade.slice(0, 90) }));
   assert('ambient-nocover-fallback',
     ambient.nocover.nocover === true && ambient.nocover.polarity === 'none' && ambient.nocover.ambientColor === null,
     JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, c: ambient.nocover.ambientColor }));
