@@ -359,10 +359,12 @@ button:disabled { cursor: default; }
 }
 .track-meta:empty { display: none; }
 
-/* 歌词层：只有它自己的容器滚；阅读列与标题块共用 --content-x */
+/* 歌词层：只有它自己的容器滚；阅读列与标题块共用 --content-x。
+ * top 让出标题块的高度（--lyric-top，由 JS 量出）——否则歌词行会跟
+ * 歌名/歌手/元信息落在同一竖带里叠字。 */
 .lyric-wrap {
   position: absolute;
-  top: 0;
+  top: var(--lyric-top, 108px);
   bottom: 0;
   left: var(--content-x, 34%);
   right: 20px;
@@ -378,9 +380,10 @@ button:disabled { cursor: default; }
      只有条子本身带色；平时全透明，悬停淡入。 */
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  /* 首尾淡出：边缘行不硬裁，也避免与曲目信息牌磁上 */
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 44px, #000 calc(100% - 44px), transparent 100%);
+  /* 首尾淡出：边缘行不硬裁。列已从标题块下方开始（--lyric-top），
+     顶部不必再让 44px 给标题，收成小一点即可。 */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 44px), transparent 100%);
 }
 .lyrics:hover { scrollbar-color: var(--sb-color) transparent; }
 
@@ -793,7 +796,7 @@ button:disabled { cursor: default; }
    ============================================================ */
 .spectrum {
   position: absolute;
-  top: 0;
+  top: var(--lyric-top, 108px);
   bottom: 0;
   left: var(--content-x, 34%);
   right: 20px;

@@ -557,6 +557,20 @@
     var x = Math.max(w * lo, Math.min(coverW + 18, w * hi));
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
     player.style.setProperty('--content-x', Math.round(x) + 'px');
+    measureLyricTop();
+  }
+  /* 歌词阅读列必须从标题块下方开始，否则歌名/歌手/元信息会与歌词行叠字。
+   * 标题块高度随歌名行数与 meta 有无变化，所以量而不是写死。 */
+  function measureLyricTop() {
+    var sceneEl = $('scene');
+    if (!sceneEl) return;
+    var host = sceneTop;
+    if (!host || host.offsetParent === null) return;
+    var hb = host.getBoundingClientRect();
+    var sb = sceneEl.getBoundingClientRect();
+    var gap = 10;
+    var top = Math.max(44, Math.round(hb.bottom - sb.top + gap));
+    player.style.setProperty('--lyric-top', top + 'px');
   }
   function probeCover(pic) {
     var token = ++coverProbeToken;
@@ -628,6 +642,7 @@
     seek.max = String(d || 0);
     $('durTime').textContent = d ? fmtTime(d) : '--:--';
     applyCovers();
+    measureLyricTop();
   }
 
   function renderListTabs() {
@@ -2047,6 +2062,13 @@
       add('lyrics-swap-when-lyrics-on', true, 'n/a（本状态整页是队列页，舞台整体隐藏）');
     }
 
+    /* 9b. 标题块与歌词/频谱文字不得重叠（舞台重构遗留缺陷） */
+    if (shown($('scene'))) {
+      var tb = sceneTop.getBoundingClientRect();
+      var band = (state.lyrics ? lyricWrap : $('spectrum')).getBoundingClientRect();
+      add('title-not-overlap-content', band.top >= tb.bottom - 1,
+        'titleBottom=' + Math.round(tb.bottom) + ' contentTop=' + Math.round(band.top));
+    }
     /* 10. 字号下限 */
     var small = [];
     player.querySelectorAll('*').forEach(function (el) {
