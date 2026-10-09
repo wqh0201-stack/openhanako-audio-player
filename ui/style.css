@@ -1335,7 +1335,7 @@ button:disabled { cursor: default; }
   border-radius: var(--radius-l);
   box-shadow: 0 18px 44px rgba(12, 16, 20, 0.32);
   overflow: hidden;
-  z-index: 6;
+  z-index: 30;               /* 抽屉为最上层：盖过搜索页(22) */
 }
 .player[data-layout="wide"][data-drawer="0"] .queue { display: none; }
 /* 抽屉浮出：从右滑入 + 淡入；遮罩同步淡入（可打断） */
@@ -1379,8 +1379,10 @@ body.is-shot *::after {
   .search-entry:active,
   .search-go:active,
   .search-add:active { transform: none !important; }
-  /* 搜索页入场也退为纯淡入（去掉位移） */
-  .search-page { animation: panelFadeIn 0.2s ease both !important; }
+  /* 搜索页探出/收回也退为纯淡入淡出（去掉位移） */
+  .player[data-search="1"] .search-page.is-anim,
+  .player.is-s-leaving .search-page { animation: panelFadeIn 0.2s ease both !important; }
+  .player.is-s-leaving .search-page { animation: panelFadeOut 0.2s ease both !important; }
   /* 换层保留纯淡入淡出（去位移） */
   .player[data-lyrics] .lyric-wrap.is-swap-in { animation: panelFadeIn 0.2s ease both !important; }
   .player[data-lyrics] .lyric-wrap.is-swap-out { animation: panelFadeOut 0.2s ease both !important; }
@@ -1394,7 +1396,7 @@ body.is-shot *::after {
 .drawer-scrim {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 28;               /* 在搜索页(22)之上、队列(30)之下：遮罩同时压住搜索页 */
   background: rgba(12, 16, 20, 0.3);
 }
 .drawer-scrim[hidden] { display: none; }
@@ -1449,16 +1451,24 @@ body.is-shot *::after {
 .search-page {
   position: absolute;
   inset: 0;
-  z-index: 20;               /* 只盖住所在的 .stage（封面 + 歌词）；下面控制条不受影响 */
+  z-index: 22;               /* 只盖住所在的 .stage（封面 + 歌词）；队列抽屉(30)在其上，控制条在其外 */
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--hk-bg);
-  animation: searchIn 0.26s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 .search-page[hidden] { display: none; }
-/* 入场：底部轻升 + 淡入（与队列入场同一条曲线，安静的位移） */
-@keyframes searchIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+/* 探出/收回：与队列抽屉同一套语言，但从**左侧**滑入/滑出（可打断）。
+ * 入场：player[data-search="1"] 下带 .is-anim；退场：player.is-s-leaving 下带 .is-anim。 */
+.player[data-search="1"] .search-page.is-anim {
+  animation: searchIn 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.player.is-s-leaving .search-page {
+  display: flex;
+  animation: searchOut 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes searchIn { from { opacity: 0; transform: translateX(-100%); } to { opacity: 1; transform: none; } }
+@keyframes searchOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(-100%); } }
 
 .search-head {
   flex: 0 0 auto;

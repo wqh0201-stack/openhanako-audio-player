@@ -1400,7 +1400,18 @@
   function renderChrome() {
     player.setAttribute('data-page', state.page);
     player.setAttribute('data-drawer', state.drawer ? '1' : '0');
+    player.setAttribute('data-search', (searchPage && !searchPage.hidden) ? '1' : '0');
     drawerScrim.hidden = !(player.getAttribute('data-layout') === 'wide' && state.drawer);
+
+    // 搜索入口按钮：已开时提示「收起搜索」
+    var seBtn = $('searchEntryBtn');
+    if (seBtn) {
+      var sOpen = !!(searchPage && !searchPage.hidden);
+      seBtn.setAttribute('aria-expanded', sOpen ? 'true' : 'false');
+      var sLabel = sOpen ? '收起搜索' : '搜索歌曲';
+      seBtn.title = sLabel;
+      seBtn.setAttribute('aria-label', sLabel);
+    }
 
     var qBtn = $('queueBtn');
     var lay = player.getAttribute('data-layout');
@@ -1486,6 +1497,16 @@
   lyrics.addEventListener('scroll', function () { if (!state.follow) scheduleResume(); }, { passive: true });
 
   /* LRC：[mm:ss.xx] 行级时间戳，一行可带多个 */
+  /* 占位词识别：有些纯音乐曲目，歌词源会回一句「这似乎是一首纯音乐呢」「纯音乐，请欣赏」之类，
+   * 当成正常歌词显示反而遮住背景。视作「无词」（交给涟漪/封面）。 */
+  function lyricIsPlaceholder(lines) {
+    if (!lines || !lines.length) return true;
+    // 只看前 3 句，防误伤正经歌词
+    var head = lines.slice(0, 3).map(function (l) { return String(l.text || ''); }).join(' ');
+    if (!head.trim()) return true;
+    return /纯音乐|請欣賞|请欣赏|尽情欣赏|無歌詞|无歌词|暂无歌词|instrumental/i.test(head);
+  }
+
   function parseLrc(text) {
     if (!text) return [];
     var out = [];
@@ -1593,6 +1614,9 @@
 
     function done(lines, cacheText) {
       if (gen !== lyricGen) return;
+      // 占位词（「这似乎是一首纯音乐呢」等）当空处理：不占歌词层，回到封面 + 涟漪。
+      // 不落盘这句，免得下次读离线库又当它有词。
+      if (lyricIsPlaceholder(lines)) { lines = []; cacheText = null; }
       state.lyricLines = lines;
       lyricIndex = -1;
       renderLyrics();
@@ -2923,18 +2947,48 @@
     }
   }
 
+  var searchLeaveTimer = 0;
+
   function openSearch() {
-    if (!searchPage) return;
+    if (!searchPage || !searchPage.hidden) return;   // 已开就不重复开
+    clearTimeout(searchLeaveTimer); searchLeaveTimer = 0;
+    player.classList.remove('is-s-leaving');
     searchPage.hidden = false;
+    renderChrome();
     renderSearchServers();
     renderSearchScope();
     renderSearchResults();
     if (!String((searchInput && searchInput.value) || '').trim()) loadDiscover();   // 空白页预置推荐
+    // 从左侧滑入（与队列抽屉同一套语言；reduced-motion 下退为淡入）
+    searchPage.classList.remove('is-anim');
+    void searchPage.offsetWidth;
+    searchPage.classList.add('is-anim');
+    clearTimeout(searchLeaveTimer);
+    searchLeaveTimer = setTimeout(function () { searchPage.classList.remove('is-anim'); searchLeaveTimer = 0; }, 300);
     if (searchInput) setTimeout(function () { try { searchInput.focus(); } catch (e) {} }, 30);
   }
   function closeSearch() {
-    if (!searchPage) return;
-    searchPage.hidden = true;
+    if (!searchPage || searchPage.hidden) return;
+    clearTimeout(searchLeaveTimer); searchLeaveTimer = 0;
+    searchPage.classList.remove('is-anim');
+    player.classList.add('is-s-leaving');
+    renderChrome();                                   // data-search 立即转 0
+    searchLeaveTimer = setTimeout(function () {
+      player.classList.remove('is-s-leaving');
+      searchPage.hidden = true;
+      searchLeaveTimer = 0;
+    }, 290);
+  }
+  function toggleSearch() {
+    if (searchPage && !searchPage.hidden) closeSearch(); else openSearch();
+  }
+
+  /* 搜索页内的「返回」：按层级退 —— 详情层（搜索结果/榜单/电台）→ 推荐区根层 →
+   * 再按才退出搜索（罐头拍板）。左下角入口按钮不跑这套，直接 toggle 退出。 */
+  function searchGoBack() {
+    if (!searchPage || searchPage.hidden) return;
+    if (!discoverActive()) { clearSearch(); return; }   // 详情 → 回推荐区
+    closeSearch();                                       // 根层 → 退出搜索
   }
 
   /* 推荐区显示/隐藏：未搜索时显示推荐区、隐藏结果表；搜索时相反。
@@ -2944,6 +2998,13 @@
     if (searchDiscoverEl) searchDiscoverEl.hidden = !on;
     if (searchList) searchList.hidden = on;
     if (searchSectionEl && on) setSearchSection('');
+    // 「返回」标签随层级变：详情层「返回」，根层「收起」
+    var bb = $('searchBackBtn');
+    if (bb) {
+      var lbl = bb.querySelector('span');
+      if (lbl) lbl.textContent = on ? '收起' : '返回';
+      bb.setAttribute('aria-label', on ? '收起搜索' : '返回上一页');
+    }
   }
   function discoverActive() {
     return !!(searchDiscoverEl && !searchDiscoverEl.hidden);
@@ -3229,8 +3290,8 @@
     renderSearchResults();
   }
 
-  if ($('searchEntryBtn')) $('searchEntryBtn').addEventListener('click', openSearch);
-  if ($('searchBackBtn')) $('searchBackBtn').addEventListener('click', closeSearch);
+  if ($('searchEntryBtn')) $('searchEntryBtn').addEventListener('click', toggleSearch);
+  if ($('searchBackBtn')) $('searchBackBtn').addEventListener('click', searchGoBack);
   if ($('searchGoBtn')) $('searchGoBtn').addEventListener('click', doSearch);
   if (searchInput) {
     searchInput.addEventListener('keydown', function (e) {
@@ -3323,7 +3384,7 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (searchPage && !searchPage.hidden) { closeSearch(); return; }
+    if (searchPage && !searchPage.hidden) { searchGoBack(); return; }   // 分层退：详情→推荐区→退出
     if (!morePop.hidden || !importPop.hidden) { closePops(); return; }
     if (player.getAttribute('data-layout') === 'wide' && state.drawer) closeDrawer();
   });
@@ -3832,6 +3893,7 @@
     ripplePoke: function (x, y, strong) { return rippleHandle ? rippleHandle.poke(x, y, strong) : 0; },
     /* 跨源歌词兜底的匹配判定（测试用）：不依赖网络，直接喂结果集。 */
     pickLyricHit: pickLyricHit,
+    lyricIsPlaceholder: lyricIsPlaceholder,
     normLyricTitle: normLyricTitle,
     normLyricAuthor: normLyricAuthor,
     /* 搜索页（测试用）：不依赖真实网络，直接喂结果验证渲染/落库。 */

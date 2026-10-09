@@ -76,6 +76,7 @@ function makeTracks() {
   out[2].pic = COVER_DARK;     // 深色封面（右缘极深，走「深纱+纸字」）
   out[4].pic = COVER_LIGHT;    // 真·浅底封面（整张浅，走「浅纱+墨字」）
   out[5] = { id: 'netease:900099', name: '无词纯音乐', url: goUrl(900099), mode: '在线', dur: 0, group: '在线音乐', list: 'imp:1', pic: COVER_DARK };  // 无歌词曲目（假后端对其返回空 LRC）；配深色封面，供「无词 + 深底」验证
+  out[6] = { id: 'netease:900098', name: '占位词纯音乐', url: goUrl(900098), mode: '在线', dur: 0, group: '在线音乐', list: 'imp:1', pic: COVER_LIGHT };  // 歌词源回「这似乎是一首纯音乐」占位句，应被当无词
   for (let i = 0; i < 3; i++) {
     out.push({
       id: `netease:${900000 + i}`, name: `在线曲目 ${i + 1}`, url: goUrl(900000 + i),
@@ -209,6 +210,7 @@ const server = http.createServer((req, res) => {
   if (p === API + '/widget/api/music/lrc') {
     const id = u.searchParams.get('id') || '';
     if (id === '900099') return text(res, 200, '', 'text/plain; charset=utf-8');  // 无词纯音乐
+    if (id === '900098') return text(res, 200, '[00:00.00]这似乎是一首纯音乐呢，请尽情欣赏它吧！', 'text/plain; charset=utf-8');  // 占位词纯音乐
     return text(res, 200, lrcFor('fixture'), 'text/plain; charset=utf-8');
   }
   if (p === API + '/widget/api/music/lrc-proxy') {
@@ -1168,6 +1170,24 @@ const motion = {};
     lyricMatch.emptyList === null && lyricMatch.noUrl === 'null',
     JSON.stringify(lyricMatch));
 
+  /* 占位词识别：纯音乐占位句（「这似乎是一首纯音乐呢」等）当空处理，不占歌词层 */
+  const placeholder = await page.evaluate(() => {
+    const D = window.__playerDebug;
+    if (!D || typeof D.lyricIsPlaceholder !== 'function') return { ok: false, reason: 'no-hook' };
+    const one = (t) => D.lyricIsPlaceholder([{ t: 0, text: t }]);
+    return {
+      ok: true,
+      pure: one('这似乎是一首纯音乐呢，请尽情欣赏它吧！'),
+      enjoy: one('纯音乐，请欣赏'),
+      real: one('作词 : ACAね'),
+      real2: one('おはよう　おつかれ')
+    };
+  });
+  assert('lyric-placeholder-treated-as-empty',
+    placeholder.ok === true && placeholder.pure === true && placeholder.enjoy === true &&
+    placeholder.real === false && placeholder.real2 === false,
+    JSON.stringify(placeholder));
+
   /* 不再把音频接进 Web Audio（旧 captureStream/Analyser 链已随频谱一起移除）：
    * 跨源音频接 createMediaElementSource 会输出全零（静音）且不可逆。涟漪不读音频，
    * 从根上避开了这颗雷。源码级守卫，去掉注释后再查。 */
@@ -1255,11 +1275,22 @@ const motion = {};
     s.afterAdd.added === true && s.afterAdd.inFav === true && s.favRows.hasNew === true,
     JSON.stringify({ afterAdd: s.afterAdd, favRows: s.favRows }));
 
-  // Esc 关闭搜索页
+  // Esc 关闭搜索页（退场动画 290ms 后才 hidden）
   await page.keyboard.press('Escape');
-  await sleep(200);
+  await sleep(420);
   s.closed = await page.evaluate(() => window.__playerDebug.searchState().open);
   assert('search-page-esc-closes', s.closed === false, String(s.closed));
+
+  // 入口按钮 toggle：点一下开、再点一下关（与队列抽屉同一交互）
+  await page.evaluate(() => document.getElementById('searchEntryBtn').click());
+  await sleep(360);
+  s.toggleOpen = await page.evaluate(() => window.__playerDebug.searchState().open);
+  await page.evaluate(() => document.getElementById('searchEntryBtn').click());
+  await sleep(420);
+  s.toggleClosed = await page.evaluate(() => window.__playerDebug.searchState().open);
+  assert('search-entry-toggles',
+    s.toggleOpen === true && s.toggleClosed === false,
+    JSON.stringify({ open: s.toggleOpen, closed: s.toggleClosed }));
 
   // 搜歌手 / 搜歌曲：范围切换按钮存在且能切（后台同一关键词接口，侧重不同）
   await page.evaluate(() => { window.__playerDebug.renderDiscover({ hot: [], charts: [], sheets: [], radios: [] }); window.__playerDebug.openSearch(); });
@@ -1311,6 +1342,17 @@ const motion = {};
   assert('search-chart-opens-tracks',
     s.chartOpen.rows === 2 && s.chartOpen.discoverVisible === false && s.chartOpen.first === '榜单曲 1',
     JSON.stringify(s.chartOpen));
+
+  // 「返回」分层退：详情层 → 推荐区（不关搜索）→ 再按才退出搜索（罐头拍板）
+  await page.evaluate(() => document.getElementById('searchBackBtn').click());
+  await sleep(250);
+  s.back1 = await page.evaluate(() => ({ open: window.__playerDebug.searchState().open, discover: window.__playerDebug.searchState().discoverVisible, label: (document.querySelector('#searchBackBtn span') || {}).textContent }));
+  await page.evaluate(() => document.getElementById('searchBackBtn').click());
+  await sleep(420);
+  s.back2 = await page.evaluate(() => window.__playerDebug.searchState().open);
+  assert('search-back-layered',
+    s.back1.open === true && s.back1.discover === true && s.back2 === false,
+    JSON.stringify({ back1: s.back1, back2: s.back2 }));
 
   // 点一档电台 → 拉节目进结果区（每期是可播长音频）
   await page.evaluate(() => { window.__playerDebug.clearSearch(); });
