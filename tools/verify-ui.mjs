@@ -756,6 +756,31 @@ const motion = {};
     await p2.close();
   }
 
+  // 矮卡整页交叉：点开队列时舞台仍在场（左滑出）而不是瞬间消失
+  {
+    const p3 = await newPage();
+    await p3.setViewport({ width: 531, height: 451, deviceScaleFactor: 1 });
+    await p3.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+    await sleep(700);
+    motion.compactEnter = await p3.evaluate(async () => {
+      const player = document.getElementById('player');
+      const scene = document.getElementById('scene');
+      const q = document.getElementById('queue');
+      document.getElementById('queueBtn').click();
+      await new Promise((r) => setTimeout(r, 70));
+      const mid = { page: player.getAttribute('data-page'), cls: player.classList.contains('is-q-in'), scene: getComputedStyle(scene).display, queue: getComputedStyle(q).display };
+      await new Promise((r) => setTimeout(r, 300));
+      const settled = { cls: player.classList.contains('is-q-in'), scene: getComputedStyle(scene).display, queue: getComputedStyle(q).display };
+      return { mid, settled };
+    });
+    assert('motion-compact-queue-enter',
+      motion.compactEnter.mid.cls === true && motion.compactEnter.mid.scene !== 'none' &&
+      motion.compactEnter.mid.queue !== 'none' && motion.compactEnter.settled.cls === false &&
+      motion.compactEnter.settled.scene === 'none' && motion.compactEnter.settled.queue !== 'none',
+      JSON.stringify(motion.compactEnter));
+    await p3.close();
+  }
+
   report.motion = motion;
   await page.close();
 }

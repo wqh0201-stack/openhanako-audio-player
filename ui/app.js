@@ -1046,13 +1046,14 @@
   var reactive = { actx: null, analyser: null, data: null, raf: 0, ready: false, failed: false, building: false };
   var barSmooth = null;
 
-  /* 是否接入真音频反应。**现为 false**。
-   * 根因（实测）：网易云 CDN（music/go 302 跳转的终点）不回 CORS 头
-   * （access-control-allow-origin: null）。跨源媒体一旦接进 createMediaElementSource，
-   * 输出会变成静音；而且图一旦建立不可逆，之后播在线曲会直接变哑。
-   * 要真正启用，得先让音频走**同源**（app 服务端代理 music/go），再把这个开关打开。
-   * 关着时频谱退回 CSS 装饰循环（specPulse）。 */
-  var REACTIVE_ENABLED = false;
+  /* 是否接入真音频反应。**现为 true**。
+   * 前提：music/go 已改为**同源分片代理**（lib/register-routes.js）——媒体与本卡片
+   * 同源，所以 createMediaElementSource 能读到数据，且无需 crossOrigin。
+   * 历史坑（记在这里，别改回去）：网易云 CDN 不回 CORS 头；一旦音乐走 302 跳到
+   * 跨源 CDN，再给 <audio> 设 crossOrigin 会直接加载失败，而拿跨源无 CORS 的媒体
+   * 接 createMediaElementSource 会**静音**（图一旦建立不可逆）。所以“同源”是硬前提。
+   * 拿不到数据 / 建链失败 → 退回 CSS 装饰循环（specPulse）。 */
+  var REACTIVE_ENABLED = true;
 
   function reactiveSupported() {
     return !!(window.AudioContext || window.webkitAudioContext);
@@ -1737,6 +1738,7 @@
   /* 队列呼出/收回：进加 .is-anim 滑入；出加 player.is-q-leaving 滑出，
    * 动画结束再摘类回到 resting 的 display:none（延迟卸载，可打断）。 */
   var queueLeaveTimer = 0;
+  var queueEnterTimer = 0;
 
   function pulseQueueAnim() {
     var q = $('queue');
@@ -1753,17 +1755,34 @@
 
   function cancelQueueLeave() {
     clearTimeout(queueLeaveTimer); queueLeaveTimer = 0;
+    clearTimeout(queueEnterTimer); queueEnterTimer = 0;
     player.classList.remove('is-q-leaving');
+    player.classList.remove('is-q-in');
   }
 
   /* 降级（reduced-motion）：不做延迟卸载，直接卸 */
   function beginQueueLeave(ms) {
     if (reducedMotion()) return;
+    player.classList.remove('is-q-in');
     player.classList.add('is-q-leaving');
     clearTimeout(queueLeaveTimer);
     queueLeaveTimer = setTimeout(function () {
       player.classList.remove('is-q-leaving');
       queueLeaveTimer = 0;
+    }, ms);
+  }
+
+  /* 入场镜像：播放页留在原地左滑淡出，队列从右滑入（矮卡整页交叉） */
+  function beginQueueEnter(ms) {
+    if (reducedMotion()) return;
+    player.classList.remove('is-q-leaving');
+    player.classList.remove('is-q-in');
+    void player.offsetWidth;
+    player.classList.add('is-q-in');
+    clearTimeout(queueEnterTimer);
+    queueEnterTimer = setTimeout(function () {
+      player.classList.remove('is-q-in');
+      queueEnterTimer = 0;
     }, ms);
   }
 
@@ -1786,7 +1805,7 @@
       cancelQueueLeave();
       state.page = 'queue';
       renderChrome();
-      pulseQueueAnim();
+      beginQueueEnter(260);   // 整页交叉：播放页左滑出 + 队列右滑入
     } else {
       state.page = 'play';
       renderChrome();

@@ -1254,6 +1254,22 @@ button:disabled { cursor: default; }
   from { opacity: 0; transform: translateX(-5%); }
   to   { opacity: 1; transform: none; }
 }
+/* 队列入场（退场的镜像）：播放页留在原地左滑淡出，队列从右滑入 —— 进出对称。
+ * 之前入场只给队列加了 queueIn，舞台是瞬间 display:none，所以看着突兀。 */
+.player[data-layout="compact"].is-q-in[data-page="queue"] .scene {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  animation: sceneOut 0.26s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.player[data-layout="compact"].is-q-in[data-page="queue"] .queue {
+  animation: queueIn 0.26s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes sceneOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(-6%); }
+}
 
 /* ============================================================
    布局三 · 宽窗：舞台在左，队列从右侧浮层打开
