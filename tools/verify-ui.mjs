@@ -1096,18 +1096,25 @@ let ambient = {};
   assert('cover-anchored-left-top-bottom',
     ambient.dark.coverAnchored === true,
     JSON.stringify({ anchored: ambient.dark.coverAnchored, box: ambient.dark.coverBox }));
-  /* 镜像双羽化：封面 mask（实→虚）与歌词遮罩 mask（虚→实）共用同一个 seam 像素值 */
-  const covFirst = (ambient.dark.coverMask.match(/(\d+)px/) || [])[1];
-  const scrFirst = (ambient.dark.scrimMask.match(/(\d+)px/) || [])[1];
-  assert('mirror-feather-same-seam-band',
-    /linear-gradient/.test(ambient.dark.coverMask) && /linear-gradient/.test(ambient.dark.scrimMask) &&
-    covFirst && scrFirst && covFirst === scrFirst &&
-    parseFloat(ambient.dark.band) > 0 && parseFloat(ambient.dark.band) < 320,
-    JSON.stringify({ seam: ambient.dark.seam, band: ambient.dark.band, covFirst, scrFirst, cm: ambient.dark.coverMask.slice(0, 70), sm: ambient.dark.scrimMask.slice(0, 70) }));
-  assert('lyric-scrim-covers-column',
-    ambient.dark.scrim !== 'none' && Math.abs(ambient.dark.scrimLeft - ambient.dark.contentX) <= 1 &&
+  /* 过渡带：封面 mask 两段式（实→虚）。歌词遮罩不再与封面镜像，改为
+   * 左缘探出 --band*0.4、淡入同宽 —— 满罩点正好落在歌词列起点（content-x）。
+   * 两条都是「只给两端点的连续插值」（离散多段 stop 会出 8bit 竖纹）。 */
+  const band = parseFloat(ambient.dark.band) || 0;
+  const coverM = /linear-gradient/.test(ambient.dark.coverMask);
+  const coverTwoStop = (ambient.dark.coverMask.match(/(?:px|%)/g) || []).length >= 2;
+  assert('cover-mask-two-stop-continuous',
+    coverM && coverTwoStop && band > 0 && band < 320,
+    JSON.stringify({ band, cm: ambient.dark.coverMask.slice(0, 80) }));
+  /* 歌词遮罩左缘 = content-x - band*0.4，且淡入带宽同值 → 满罩点落列首 */
+  const expectLeftOffset = band * 0.4;
+  const actualLeftOffset = ambient.dark.contentX - ambient.dark.scrimLeft;
+  const scrimFade = ambient.dark.scrimMask;
+  assert('lyric-scrim-full-opacity-at-column-start',
+    ambient.dark.scrim !== 'none' &&
+    Math.abs(actualLeftOffset - expectLeftOffset) <= 2 &&
+    /linear-gradient/.test(scrimFade) &&
     Math.abs(ambient.dark.scrimTop - ambient.dark.lyricTop) <= 1,
-    JSON.stringify({ left: ambient.dark.scrimLeft, x: ambient.dark.contentX, top: ambient.dark.scrimTop, lyricTop: ambient.dark.lyricTop }));
+    JSON.stringify({ expectLeftOffset: Math.round(expectLeftOffset), actualLeftOffset: Math.round(actualLeftOffset), scrimLeft: ambient.dark.scrimLeft, x: ambient.dark.contentX, top: ambient.dark.scrimTop, lyricTop: ambient.dark.lyricTop, sm: scrimFade.slice(0, 80) }));
   assert('ambient-nocover-fallback',
     ambient.nocover.nocover === true && ambient.nocover.polarity === 'none' && ambient.nocover.ambientColor === null,
     JSON.stringify({ nocover: ambient.nocover.nocover, p: ambient.nocover.polarity, c: ambient.nocover.ambientColor }));

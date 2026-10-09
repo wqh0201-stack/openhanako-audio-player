@@ -95,6 +95,12 @@
   --veil-ink-a: 0.42;
   /* 歌词字自带一点点反差阴影，可读性不再全交在一层厚纱上 */
   --lyric-shadow: 0 1px 2px color-mix(in srgb, var(--veil-paper) 72%, transparent);
+  /* 当前句柔光（正在唱的那句）：accent 光晕由内到外，叠在反差阴影之上。
+   * 只加 text-shadow，不动字号/字距 —— 不重排、不 jank。 */
+  --lyric-glow:
+    0 0 1px color-mix(in srgb, var(--hk-accent) 70%, transparent),
+    0 0 7px color-mix(in srgb, var(--hk-accent) 55%, transparent),
+    0 0 16px color-mix(in srgb, var(--hk-accent) 30%, transparent);
   /* 在线曲目有 pic 时由 JS 写入 url(...)；没有就只剩兜底 */
   --cover-image: none;
   /* 兜底：主题色 + 极淡斜纹纹理，不是彩色糊渐变，也不硬编码山景 */
@@ -147,6 +153,11 @@
   --lyric-far: color-mix(in srgb, var(--on-veil-ink) 50%, transparent);
   --sb-color: color-mix(in srgb, var(--on-veil-ink) 34%, transparent);
   --lyric-shadow: 0 1px 2px color-mix(in srgb, var(--veil-paper) 78%, transparent);
+  /* 浅纱上光晕要更收一点，否则发糊 */
+  --lyric-glow:
+    0 0 1px color-mix(in srgb, var(--hk-accent) 62%, var(--on-veil-ink)),
+    0 0 6px color-mix(in srgb, var(--hk-accent) 40%, transparent),
+    0 0 13px color-mix(in srgb, var(--hk-accent) 20%, transparent);
 }
 
 /* 深底封面：深纱 + 纸字（可读 > 还原度） */
@@ -163,6 +174,11 @@
   --lyric-far: color-mix(in srgb, var(--on-veil-paper) 52%, transparent);
   --sb-color: color-mix(in srgb, var(--on-veil-paper) 38%, transparent);
   --lyric-shadow: 0 1px 3px color-mix(in srgb, var(--veil-ink) 55%, transparent);
+  /* 深纱上光晕可亮一点，把当前句从暗底里挑出来 */
+  --lyric-glow:
+    0 0 1px color-mix(in srgb, var(--hk-accent) 80%, var(--on-veil-paper)),
+    0 0 8px color-mix(in srgb, var(--hk-accent) 60%, transparent),
+    0 0 18px color-mix(in srgb, var(--hk-accent) 34%, transparent);
 }
 
 /* 无封面兜底态：没有封面要压，顶部与歌词遮罩都不需要。
@@ -416,19 +432,22 @@ button:disabled { cursor: default; }
   position: absolute;
   top: var(--lyric-top, 108px);
   bottom: 0;
-  left: var(--content-x, 34%);
+  /* 左缘往封面方向多探出一点（0.4 带），把「淡入段」放在歌词文字左侧的
+   * 空白里 —— 文字本身整列都落在满罩区。
+   * 注意：mask 的 px 坐标是相对元素自身的（元素 left≠0），所以不能直接用
+   * 相对舞台的 --seam，否则整条 mask 会被右移 content-x，左半句就掉进透明区。 */
+  left: calc(var(--content-x, 34%) - var(--band, 180px) * 0.4);
   right: 0;
   z-index: 2;
   background: var(--lyric-scrim);
-  /* 镜像双羽化：与封面右缘共用 --seam/--band。
-   * 只给两个端点（透明→不透明），中间交给浏览器连续插值 ——
-   * 多段离散 stop 会在 8bit alpha 上出可见色阶（那条条竖纹）。 */
+  /* 左缘淡入、其余满罩。淡入带与封面右缘淡出带同宽（--band），
+   * 只给两端点连续插值（离散多段 stop 会出 8bit 竖纹）。 */
   -webkit-mask-image: linear-gradient(90deg,
-      transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
+      transparent 0,
+      #000 calc(var(--band, 180px) * 0.4));
   mask-image: linear-gradient(90deg,
-      transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
-      #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
+      transparent 0,
+      #000 calc(var(--band, 180px) * 0.4));
   pointer-events: none;
 }
 /* 歌词 ⇄ 频谱：由显示态切换。呼出时有一道淡入+轻微位移（可打断，只动 opacity/transform）。
@@ -528,16 +547,17 @@ button:disabled { cursor: default; }
   font-size: 13px;
   line-height: 1.7;
   color: var(--lyric-far);
-  /* 只过渡颜色/字重/透明度 —— 不拿 font-size 做过渡（会重排、会 jank） */
+  /* 只过渡颜色/字重/透明度/阴影 —— 不拿 font-size 做过渡（会重排、会 jank） */
   text-shadow: var(--lyric-shadow);
-  transition: color 0.25s ease, opacity 0.25s ease;
+  transition: color 0.25s ease, opacity 0.25s ease, text-shadow 0.25s ease;
   overflow-wrap: anywhere;
 }
 .lyric-line.is-near { color: var(--lyric-near); }
 .lyric-line.is-current {
   color: var(--lyric-current);
   font-weight: 600;
-  line-height: 1.5;
+  /* 反差阴影垫底（保可读）+ accent 柔光（把当前句从纱上挑出来） */
+  text-shadow: var(--lyric-shadow), var(--lyric-glow);
 }
 /* 3 行聚焦（仅 long / compact）：非邻行淡到几乎不可见；滚动浏览时全部显形。
  * 统一由 opacity 驱动，不逐行改字号。 */
