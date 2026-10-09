@@ -723,28 +723,29 @@
     img.src = ambientUrl(pic);
   }
 
-  /* 舞台指标（纯呈现）：封面锚定「左/上/下」三边、填满左边一列。
-   * 封面宽度 = 舞台高 × 画幅比（方图就是方的），贴左满高，超出裁掉。
-   * 右侧多出来的空间用主色底填；歌词列独立（不拿封面去迁就它）。 */
+  /* 舞台指标（纯呈现）：封面锚定「左/上/下」三边、满高贴左；
+   * 宽度 = 舞台高 × 画幅比（方图就是方的），溢出交给 scene 裁。
+   * 过渡：封面右缘与歌词底层共用同一个「接缝」--seam 和「带宽」--band，
+   * 在一个水平带里做镜像 alpha mask（网易式）——两边严丝合缝交汇。 */
   function updateStageMetrics() {
     var sceneEl = $('scene');
     if (!sceneEl) return;
     var w = sceneEl.clientWidth;
     var h = sceneEl.clientHeight;
     if (!(w > 0) || !(h > 0)) return;
-    var wide = player.getAttribute('data-layout') === 'wide';
     var ar = coverAR > 0 ? coverAR : 1;
-    /* 封面：满高 + 按画幅定宽（左/上/下三边锚定）。溢出交给 scene 裁。 */
     var coverW = Math.max(96, h * ar);
+    /* 带宽：跟舞台宽走（宽窗 ~196、窄卡 ~140），夹在 130~240 */
+    var band = Math.max(130, Math.min(240, w * 0.19));
+    /* 接缝：在封面右缘略靠内，且不低于舞台 34%、不高于 62% */
+    var seam = Math.min(coverW - band * 0.4, w * 0.60);
+    seam = Math.max(w * 0.34, seam);
+    /* 歌词列起点：叠进过渡带（在接缝左侧一点），与封面右缘重叠 */
+    var contentX = Math.max(w * 0.34, seam - band * 0.30);
     player.style.setProperty('--cover-w', Math.round(coverW) + 'px');
-    /* 右缘淡出宽度：跟封面宽走，夹在 28~140px */
-    var fade = Math.max(28, Math.min(140, coverW * 0.18));
-    player.style.setProperty('--cover-fade-a', Math.round(Math.max(0, coverW - fade)) + 'px');
-    player.style.setProperty('--cover-fade-b', Math.round(coverW) + 'px');
-    /* 内容列（歌词/标题）：独立一列，不随封面宽跑；封面色底在这一列上
-     * 用一层渐变和封面融合。宽窗靠右一点、竖卡靠中一点。 */
-    var x = wide ? w * 0.42 : Math.min(w * 0.46, Math.max(w * 0.40, w * 0.42));
-    player.style.setProperty('--content-x', Math.round(x) + 'px');
+    player.style.setProperty('--seam', Math.round(seam) + 'px');
+    player.style.setProperty('--band', Math.round(band) + 'px');
+    player.style.setProperty('--content-x', Math.round(contentX) + 'px');
     if (stagePic) probeAmbient(stagePic, coverProbeToken);
     measureLyricTop();
   }

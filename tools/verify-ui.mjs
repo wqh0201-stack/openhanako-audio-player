@@ -1000,7 +1000,10 @@ const AMBIENT_PROBE = async () => {
       const r = cover.getBoundingClientRect();
       return Math.abs(r.left - sb.left) <= 1 && Math.abs(r.top - sb.top) <= 1 && Math.abs(r.bottom - sb.bottom) <= 1;
     })(),
-    coverAspect: (() => { const r = cover.getBoundingClientRect(); return r.height > 0 ? +(r.width / r.height).toFixed(2) : null; })(),
+    seam: pcs.getPropertyValue('--seam').trim(),
+    band: pcs.getPropertyValue('--band').trim(),
+    coverMask: (getComputedStyle(cover).maskImage || getComputedStyle(cover).webkitMaskImage || '').slice(0, 120),
+    scrimMask: (getComputedStyle(scrim).maskImage || getComputedStyle(scrim).webkitMaskImage || '').slice(0, 120),
     lyricsTextAlign: getComputedStyle(document.getElementById('lyrics')).textAlign,
     contrastMid: { current: contrastAt('.lyric-line.is-current', ambColor), near: contrastAt('.lyric-line.is-near', ambColor) },
     contrastWorst: { current: contrastAt('.lyric-line.is-current', ambColor), near: contrastAt('.lyric-line.is-near', ambColor) },
@@ -1093,6 +1096,13 @@ let ambient = {};
   assert('cover-anchored-left-top-bottom',
     ambient.dark.coverAnchored === true,
     JSON.stringify({ anchored: ambient.dark.coverAnchored, box: ambient.dark.coverBox }));
+  /* 镜像双羽化：封面 mask 从实到虚、歌词遮罩 mask 从虚到实，共用 seam/band */
+  assert('mirror-feather-same-seam-band',
+    /linear-gradient/.test(ambient.dark.coverMask) && /linear-gradient/.test(ambient.dark.scrimMask) &&
+    ambient.dark.coverMask.indexOf(ambient.dark.seam.split('px')[0]) !== -1 &&
+    ambient.dark.scrimMask.indexOf(ambient.dark.seam.split('px')[0]) !== -1 &&
+    parseFloat(ambient.dark.band) > 0 && parseFloat(ambient.dark.band) < 320,
+    JSON.stringify({ seam: ambient.dark.seam, band: ambient.dark.band, cm: ambient.dark.coverMask.slice(0, 60), sm: ambient.dark.scrimMask.slice(0, 60) }));
   assert('lyric-scrim-covers-column',
     ambient.dark.scrim !== 'none' && Math.abs(ambient.dark.scrimLeft - ambient.dark.contentX) <= 1 &&
     Math.abs(ambient.dark.scrimTop - ambient.dark.lyricTop) <= 1,

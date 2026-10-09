@@ -358,15 +358,9 @@ button:disabled { cursor: default; }
   background-image: none;
   pointer-events: none;
 }
-/* 主色层与封面之间的柔和过渡：封面右缘向主色榛开（不硬缝） */
+/* 主色层：满铺。封面右缘与歌词区左缘的过渡交给各自元素，这里不再加渐变。 */
 .player.ambient-ok .stage-ambient::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg,
-      transparent 0,
-      color-mix(in srgb, var(--ambient-color) 55%, transparent) var(--content-x, 34%),
-      var(--ambient-color) calc(var(--content-x, 34%) + 14%));
+  content: none;
 }
 
 /* 封面晖开层：取色失败/无封面时的兑底 —— 同一张封面的模糊放大副本。
@@ -388,7 +382,7 @@ button:disabled { cursor: default; }
 
 /* 封面本体：锚定「左 / 上 / 下」三边 —— 贴左、满高（top:0 bottom:0），
  * 宽度由 JS 按画幅比写成 --cover-w（方图就是方的），溢出的交给 scene 裁。
- * 右侧多出来的空间用主色底填；右缘淡出融入主色。 */
+ * 右缘用 --seam/--band 做向右淡出（网易式镜像双羽化的一半）。 */
 .cover {
   position: absolute;
   top: 0;
@@ -402,9 +396,19 @@ button:disabled { cursor: default; }
   background-size: cover;
   background-position: left center;
   background-repeat: no-repeat;
-  /* 右缘淡出：让封面「化」进主色底。起点/终点由 JS 按封面宽写入 */
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
-  mask-image: linear-gradient(90deg, #000 0, #000 var(--cover-fade-a, 100%), transparent var(--cover-fade-b, 100%));
+  /* 右缘淡出：接缝 --seam 处 opacity .5，两侧对称展开 --band/2 */
+  -webkit-mask-image: linear-gradient(90deg, #000 0%,
+      #000 calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
+      rgba(0,0,0,.84) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
+      rgba(0,0,0,.50) var(--seam, 60%),
+      rgba(0,0,0,.16) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
+      transparent calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
+  mask-image: linear-gradient(90deg, #000 0%,
+      #000 calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
+      rgba(0,0,0,.84) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
+      rgba(0,0,0,.50) var(--seam, 60%),
+      rgba(0,0,0,.16) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
+      transparent calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
 }
 .player.nocover .cover {
   background-image: var(--cover-fallback);
@@ -419,7 +423,8 @@ button:disabled { cursor: default; }
   background-position: center;
 }
 
-/* 歌词薄纱：只罩阅读列，橢圆柔光四边渐隐（不再是一块硬边矩形）。
+/* 歌词薄纱：只罩阅读列。左缘在「过渡带」（--fade-w 宽）里从 0 淡入，
+ * 与封面右缘的淡出对齐/镜像 —— 两边在同一个带里均匀交汇。
  * 歌词与频谱共用，歌词关闭时也不许消失（R4）。 */
 .lyric-scrim {
   position: absolute;
@@ -429,6 +434,20 @@ button:disabled { cursor: default; }
   right: 0;
   z-index: 2;
   background: var(--lyric-scrim);
+  /* 镜像双羽化：与封面右缘用同一个 --seam/--band，
+   * 从接缝左侧渐入、到接缝右侧满 —— 两道严丝合缝交汇（网易式）。 */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%,
+      transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
+      rgba(0,0,0,.16) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
+      rgba(0,0,0,.50) var(--seam, 60%),
+      rgba(0,0,0,.84) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
+      #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
+  mask-image: linear-gradient(90deg, transparent 0%,
+      transparent calc(var(--seam, 60%) - var(--band, 180px) * 0.5),
+      rgba(0,0,0,.16) calc(var(--seam, 60%) - var(--band, 180px) * 0.25),
+      rgba(0,0,0,.50) var(--seam, 60%),
+      rgba(0,0,0,.84) calc(var(--seam, 60%) + var(--band, 180px) * 0.25),
+      #000 calc(var(--seam, 60%) + var(--band, 180px) * 0.5));
   pointer-events: none;
 }
 /* 歌词 ⇄ 频谱：由显示态切换。呼出时有一道淡入+轻微位移（可打断，只动 opacity/transform）。
