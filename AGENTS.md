@@ -147,7 +147,18 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      卡片不裁；`.frame` 底色改 `--hk-surface`，让角上露出卡面色而不是页面色。
   断言 `bottom-blend-dissolves-into-ambient` / `top-corners-rounded` / `corner-reveals-card-surface`（59/59）。
   详情 `docs/player-ui/REFINE-DONE-AMBIENT.md` §五-3
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 59/59 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
+- 红心 / 我的喜欢（2026-10-09，**已部署**，构建号 1003131576）：
+  新增固定列表 `fav`「我的喜欢」——排切换条**最前**、当默认首页（`state.activeList` 初值 `fav`）、
+  **不可删**（长按不出浮层，`deleteList`/`openListPop` 都挡）、**不可重命名**（`startRename` 挡）。
+  判定红心按**稳定 id**（`t.id`）而非 uid —— 同一首歌在不同列表 uid 不同，用 uid 会「原歌单点过、
+  我的喜欢里灭」。加入 = 在 fav 放一份副本（`addFav` 借 `toStoredTrack` 保 pic/author/lrcUrl/raw）；
+  取消 = 只摘 fav 那份（`removeFav`），原歌单纹丝不动；若正播 fav 那份，有其他副本则转指针，
+  否则打 `detached`（播完不落盘）。入口两处：队列行右侧 `.q-fav` + 播放页 `.fav-btn`（meta 行内）。
+  图标 `i-heart` 线描，点亮 `fill:currentColor` + 强调色。
+  ⚠️ **fav 是「无归属」的额外列表**，会出现在切换条最前；与 `local` 一样不吃 `imp:N` 编号。
+  断言 `fav-row-toggles-on` / `fav-list-collects-and-labels` / `fav-state-by-stable-id-cross-list` /
+  `fav-unfav-keeps-original-list` / `fav-not-deletable` / `stage-fav-toggles-and-syncs-row`。
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + 65/65 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state / playlist-meta，10/10）
 - 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
   §五-3（底部 72px 渐隐）已改（第六轮）：化进环境色 + 硬切底边；顶部圆角一并补上，均待真机复核。
 
