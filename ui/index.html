@@ -44,8 +44,11 @@
         </div>
 
         <header class="queue-head" id="queueHead">
-          <h2 class="queue-title">播放队列 <span class="queue-count"><span id="queueCount">12</span> 首</span></h2>
+          <h2 class="queue-title"><span id="queueTitle">播放队列</span> <span class="queue-count"><span id="queueCount">12</span> 首</span></h2>
           <div class="queue-head-actions">
+            <button class="icon-btn" id="renameBtn" type="button" aria-label="重命名歌单" title="重命名歌单" hidden>
+              <svg class="icon" aria-hidden="true"><use href="#i-pencil"></use></svg>
+            </button>
             <button class="icon-btn" id="importBtn" type="button" aria-label="添加曲目" title="添加曲目" aria-expanded="false">
               <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
             </button>
@@ -135,6 +138,10 @@
     </footer>
 
     <div class="toast" id="toast" hidden></div>
+    <button class="resume-chip" id="resumeBtn" type="button" hidden>
+      <svg class="icon icon-sm" aria-hidden="true"><use href="#i-play"></use></svg>
+      <span>继续播放</span>
+    </button>
     <pre class="report" id="report" hidden></pre>
   </div>
 </div>
@@ -190,10 +197,11 @@
     <path d="M5.6 7.4h12.8M9.6 7.4V5.6h4.8v1.8M7.2 7.4l.8 11h8l.8-11M10.4 10.6v4.8M13.6 10.6v4.8"/>
   </symbol>
   <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5.6v11.2M7.6 12.6 12 17l4.4-4.4"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M5 19h3.2L18.6 8.6a2.26 2.26 0 0 0-3.2-3.2L5 15.8z"/><path d="M14.4 6.6l3 3"/></symbol>
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131546";</script>
+<script>window.__HANA_BUILD = "1003131547";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

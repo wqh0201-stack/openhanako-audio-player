@@ -23,15 +23,15 @@ const API = '/api/apps/hanako-audio-player/routes';
 const COVER_FILE = path.join(repo, 'docs/player-ui/assets/demo-cover.png');
 fs.mkdirSync(outDir, { recursive: true });
 
-/* ---------- 假音频：1 秒静音 WAV ---------- */
-const pcm = Buffer.alloc(44100 * 2);
+/* ---------- 假音频：30 秒静音 WAV（够长，便于测进度与跨文档续播） ---------- */
+const pcm = Buffer.alloc(44100 * 2 * 30);
 const wav = Buffer.alloc(44 + pcm.length);
 wav.write('RIFF', 0); wav.writeUInt32LE(36 + pcm.length, 4); wav.write('WAVEfmt ', 8);
 wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
 wav.writeUInt32LE(44100, 24); wav.writeUInt32LE(44100 * 2, 28); wav.writeUInt16LE(2, 32);
 wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(pcm.length, 40);
 pcm.copy(wav, 44);
-const WAV_URL = 'data:audio/wav;base64,' + wav.toString('base64');
+const WAV_URL = `${API}/_fixture/audio.wav`;
 const COVER = `${API}/_fixture/cover.png`;
 const goUrl = (id) => `${API}/widget/api/music/go/${id}?server=netease`;
 
@@ -79,6 +79,8 @@ for (let i = 0; i < 2; i++) OLD_TRACKS.push({ name: `未分类曲 ${i + 1}`, url
 /* 假后端状态：POST /playlist 会落盘，GET 优先返回落盘值（测迁移幂等） */
 let fixtureMode = 'main';
 let persistedPlaylist = null;
+/* 播放状态（跨文档）：POST 落盘，GET 取回 */
+let playbackState = null;
 
 function lrcFor(name) {
   return Array.from({ length: 40 }, (_, i) => `[00:0${Math.floor(i / 10)}.${String((i % 10) * 10).padStart(2, '0')}]${name} 第 ${i + 1} 行歌词`).join('\n');
@@ -92,6 +94,26 @@ function text(res, code, body, type) {
   res.statusCode = code;
   res.setHeader('content-type', type || 'text/plain; charset=utf-8');
   res.end(body);
+}
+/* 假音频流：带 Range 支持（真实后端 /widget/media 也是 Range；无 Range 会不可 seek） */
+function serveAudio(req, res) {
+  const total = wav.length;
+  res.setHeader('content-type', 'audio/wav');
+  res.setHeader('accept-ranges', 'bytes');
+  const range = req.headers.range;
+  if (range) {
+    const m = /^bytes=(\d+)-(\d*)$/.exec(range);
+    if (m) {
+      const start = parseInt(m[1], 10);
+      const end = m[2] ? parseInt(m[2], 10) : total - 1;
+      res.statusCode = 206;
+      res.setHeader('content-range', `bytes ${start}-${end}/${total}`);
+      res.setHeader('content-length', String(end - start + 1));
+      return res.end(wav.subarray(start, end + 1));
+    }
+  }
+  res.setHeader('content-length', String(total));
+  return res.end(wav);
 }
 
 const server = http.createServer((req, res) => {
@@ -126,7 +148,20 @@ const server = http.createServer((req, res) => {
   if (p === API + '/__fixture/reset') {
     fixtureMode = u.searchParams.get('mode') || 'main';
     persistedPlaylist = null;
+    playbackState = null;
     return json(res, 200, { ok: true, mode: fixtureMode });
+  }
+  if (p === API + '/api/playback-state') {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        try { playbackState = JSON.parse(body); } catch { playbackState = null; }
+        json(res, 200, { ok: true });
+      });
+      return;
+    }
+    return json(res, 200, { ok: true, state: playbackState });
   }
   if (p === API + '/api/track' && req.method === 'DELETE') {
     // 带上 list 时只删该列表里的那一份
@@ -145,6 +180,7 @@ const server = http.createServer((req, res) => {
     res.setHeader('content-type', 'image/png');
     return fs.createReadStream(COVER_FILE).pipe(res);
   }
+  if (p === API + '/_fixture/audio.wav') return serveAudio(req, res);
   if (p === API + '/widget/api/music/search') {
     const kw = u.searchParams.get('keyword') || '';
     return json(res, 200, { ok: true, results: [{ id: `netease:${770000 + kw.length}`, title: `命中 ${kw}`, author: '搜索歌手', url: goUrl(770000 + kw.length), pic: '', lrc: 'http://mock/lrc/' + encodeURIComponent(kw) }], host: 'mock', total: 1 });
@@ -164,8 +200,8 @@ const server = http.createServer((req, res) => {
     const files = Array.from({ length: 3 }, (_, i) => ({ id: `scan-${i + 1}.mp3`, name: `扫描曲目 ${i + 1}`, url: WAV_URL, mode: '本地' }));
     return json(res, 200, { ok: true, files, count: files.length });
   }
-  if (p.startsWith(API + '/widget/api/music/go/')) { res.setHeader('content-type', 'audio/wav'); return res.end(wav); }
-  if (p.startsWith(API + '/widget/media/')) { res.setHeader('content-type', 'audio/wav'); return res.end(wav); }
+  if (p.startsWith(API + '/widget/api/music/go/')) return serveAudio(req, res);
+  if (p.startsWith(API + '/widget/media/')) return serveAudio(req, res);
   if (p.startsWith(API + '/')) return json(res, 200, { ok: true });
 
   // ui/ 静态文件
@@ -204,7 +240,12 @@ async function newPage() {
     if (/Failed to load resource.*404/.test(t)) return;
     report.runtimeErrors.push('console: ' + t);
   });
-  page.on('requestfailed', (r) => report.runtimeErrors.push('reqfail: ' + r.url() + ' ' + (r.failure() && r.failure().errorText)));
+  page.on('requestfailed', (r) => {
+    const err = (r.failure() && r.failure().errorText) || '';
+    // 文档卸载/重载时正在加载的媒体会被 abort，属预期
+    if (err.includes('ERR_ABORTED')) return;
+    report.runtimeErrors.push('reqfail: ' + r.url() + ' ' + err);
+  });
   await page.evaluateOnNewDocument(() => {
     window.__fixtureTheme = (mode) => {
       const light = { '--bg': '#F8F4ED', '--bg-card': '#FCFAF5', '--text': '#3B3D3F', '--text-muted': '#8E9196', '--text-light': '#6B6F73', '--accent': '#537D96', '--border': 'rgba(122,96,88,0.18)' };
@@ -397,7 +438,24 @@ for (const [name, w, h, file] of CASES) {
   };
   await page.screenshot({ path: path.join(outDir, 'list-imported-465x930-light.png') });
 
-  // 导入在线单曲 → 归入当前导入列表
+  // 重命名当前导入列表（内联编辑，不用模态）
+  await page.evaluate(() => document.getElementById('renameBtn').click());
+  await sleep(150);
+  const hasInput = await page.evaluate(() => !!document.getElementById('listNameInput'));
+  await page.evaluate(() => {
+    const inp = document.getElementById('listNameInput');
+    inp.value = '我的歌单';
+    inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  await sleep(200);
+  w.rename = {
+    hasInput,
+    headerTitle: await page.$eval('#queueTitle', (e) => e.textContent),
+    tabTitle: await page.$eval('#listTabs .list-tab.is-active', (e) => e.getAttribute('title'))
+  };
+  await page.screenshot({ path: path.join(outDir, 'rename-465x930-light.png') });
+
+  // 导入在线单曲 → 归入当前激活列表（当前是刚导入的歌单）
   const beforeSingle = await rowCount(page);
   await page.evaluate(() => {
     document.getElementById('importBtn').click();
@@ -512,6 +570,97 @@ let migration = {};
   await page.close();
 }
 
+/* ============ 5) 拖拽生命周期：pagehide 落盘 → reload 恢复 + 续播 ============ */
+let lifecycle = {};
+{
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const page = await newPage();
+  await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await page.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await page.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(800);
+
+  // 切到歌单 1，播第一首，等它播到 > 0s
+  await clickTab(page, 'imp:1');
+  await sleep(200);
+  await page.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(1200);
+  const before = await page.evaluate(() => ({
+    playing: document.getElementById('player').getAttribute('data-playing'),
+    title: document.getElementById('trackTitle').textContent,
+    cur: document.getElementById('audio').currentTime
+  }));
+
+  // 模拟卸载：pagehide（拖进/拖出 = 整份文档被换掉）。
+  // sendBeacon 是异步投递，轮询等它落到后端。
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  let saved = null;
+  for (let i = 0; i < 25; i++) {
+    const r = await (await fetch(`${BASE}${API}/api/playback-state?appSurfaceSession=fake-ticket`)).json();
+    saved = r;
+    if (r.state && r.state.playing === true && r.state.progress >= before.cur - 0.3) break;
+    await sleep(100);
+  }
+
+  // 新文档：reload（模拟拖出后新 iframe 从零 rehydrate）
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(1000);
+  const after = await page.evaluate(() => ({
+    playing: document.getElementById('player').getAttribute('data-playing'),
+    title: document.getElementById('trackTitle').textContent,
+    cur: document.getElementById('audio').currentTime,
+    activeList: document.querySelector('#listTabs .list-tab.is-active').getAttribute('data-list'),
+    resumeHidden: document.getElementById('resumeBtn').hidden
+  }));
+  lifecycle.crossDocument = { before, saved: saved && saved.state, after };
+  lifecycle.crossOk =
+    before.playing === '1' && before.cur > 0 &&
+    !!saved && !!saved.state && saved.state.playing === true &&
+    saved.state.currentId === 'imp:1|netease:900000' && saved.state.progress > 0 &&
+    after.playing === '1' && after.title === '歌单一曲目 1' && after.activeList === 'imp:1' &&
+    after.cur >= saved.state.progress - 0.35;
+
+  // 关掉旧文档（它的 pagehide 会再落一次盘），等它落完再播种一个进度=12s 的快照
+  await page.close();
+  await sleep(500);
+
+  // 自动播放被拦：保留进度 + 「继续播放」引导（不归零）
+  const seed = { currentId: 'imp:1|netease:900000', activeList: 'imp:1', progress: 12, volume: 0.8, muted: false, mode: 'list', lyricsVisible: true, playing: true };
+  for (let i = 0; i < 4; i++) {
+    await fetch(`${BASE}${API}/api/playback-state?appSurfaceSession=fake-ticket`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(seed)
+    });
+    await sleep(150);
+    const chk = await (await fetch(`${BASE}${API}/api/playback-state?appSurfaceSession=fake-ticket`)).json();
+    if (chk.state && chk.state.progress === 12) break;
+  }
+  const blocked = await newPage();
+  await blocked.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await blocked.evaluateOnNewDocument(() => {
+    HTMLMediaElement.prototype.play = function () {
+      return Promise.reject(Object.assign(new Error('blocked'), { name: 'NotAllowedError' }));
+    };
+  });
+  await blocked.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await blocked.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(900);
+  const blockedState = await blocked.evaluate(() => ({
+    resumeShown: !document.getElementById('resumeBtn').hidden,
+    curTime: document.getElementById('curTime').textContent,
+    seekVal: document.getElementById('seek').value,
+    playing: document.getElementById('player').getAttribute('data-playing'),
+    title: document.getElementById('trackTitle').textContent
+  }));
+  lifecycle.autoplayBlocked = blockedState;
+  lifecycle.blockedOk =
+    blockedState.resumeShown === true && blockedState.curTime === '0:12' &&
+    blockedState.playing === '0' && blockedState.title === '歌单一曲目 1';
+  await blocked.screenshot({ path: path.join(outDir, 'resume-chip-465x930-light.png') });
+  await blocked.close();
+  report.lifecycle = lifecycle;
+}
+
 await browser.close();
 server.closeAllConnections();
 server.close();
@@ -529,13 +678,17 @@ const wiringOk =
   report.wiring.importPlaylist && report.wiring.importPlaylist.tabsAfter === report.wiring.importPlaylist.tabsBefore + 1 &&
   report.wiring.importSingle && report.wiring.importSingle.after === report.wiring.importSingle.before + 1 &&
   report.wiring.removed === 1 &&
+  report.wiring.rename && report.wiring.rename.hasInput === true &&
+  report.wiring.rename.headerTitle === '我的歌单' && report.wiring.rename.tabTitle === '我的歌单' &&
   report.darkFallback.changed === true;
 const migrationOk = report.migration && report.migration.idempotent === true &&
-  report.migration.firstTabs.map((t) => t.label).join(',') === '本地,1,2,3' &&
-  report.migration.firstCounts.per['local'] === 3 &&
-  report.migration.firstCounts.per['imp:1'] === 4 &&
-  report.migration.firstCounts.per['imp:2'] === 3 &&
-  report.migration.firstCounts.per['imp:3'] === 2;
+  report.migration.firstTabs.map((t) => t.label).join(',') === '本地,1,2,3,4' &&
+  report.migration.firstCounts.per['local'] === 0 &&
+  report.migration.firstCounts.per['imp:1'] === 3 &&
+  report.migration.firstCounts.per['imp:2'] === 4 &&
+  report.migration.firstCounts.per['imp:3'] === 3 &&
+  report.migration.firstCounts.per['imp:4'] === 2;
+const lifecycleOk = report.lifecycle && report.lifecycle.crossOk === true && report.lifecycle.blockedOk === true;
 
 fs.writeFileSync(path.join(outDir, 'verify.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({
@@ -544,10 +697,12 @@ console.log(JSON.stringify({
   failedCases: failed.map((f) => ({ case: f.case, failed: f.failed.map((x) => x.name + ' | ' + x.detail) })),
   wiringOk,
   migrationOk,
+  lifecycleOk,
+  lifecycle: report.lifecycle,
   migration: report.migration,
   wiring: report.wiring,
   darkFallback: report.darkFallback,
   runtimeErrors: [...new Set(report.runtimeErrors)].slice(0, 20),
   outDir
 }, null, 2));
-process.exit(failed.length || !wiringOk || !migrationOk || report.runtimeErrors.length ? 1 : 0);
+process.exit(failed.length || !wiringOk || !migrationOk || !lifecycleOk || report.runtimeErrors.length ? 1 : 0);

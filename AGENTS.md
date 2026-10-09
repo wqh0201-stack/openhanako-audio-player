@@ -108,9 +108,10 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
 
 - 交接与结论：`docs/player-ui/WIRING-DONE.md`（宿主主题变量、旧列表 searchKey 形状、部署回路）
 - 多歌单改造（列表精简 + 顶部切换 + 本地固定文件夹 + 夜间兜底）：`docs/player-ui/REFINE-DONE-LISTS.md`
+- 第二轮（四项拍板 + 拖进/拖出生命周期修复）：`docs/player-ui/REFINE-DONE-LISTS-2.md`
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 接线冒烟 + 迁移）；`node tools/verify-backend.mjs`（后端去重键 / DELETE）
-- 待办：独立窗/小卡音频不中断（需先核实宿主能力）；本地文件夹选择需真机点一次确认。
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 接线冒烟 + 迁移 + 跨文档生命周期）；`node tools/verify-backend.mjs`（去重键 / DELETE / playback-state）
+- 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认。
 
 > 注：早期 `docs/REFACTOR-BRIEF.md` 里的「PV / 唱盘 / 主题面板」等要求已被 2026-10-08 的
 > `CONTRACT.md` 取代，以极简版为准。

@@ -60,7 +60,8 @@
     musicPlaylist: API + '/widget/api/music/playlist',
     search: API + '/widget/api/music/search',
     importFile: API + '/widget/api/import-file',
-    scanFolder: API + '/widget/api/scan-folder'
+    scanFolder: API + '/widget/api/scan-folder',
+    playbackState: API + '/api/playback-state'
   };
 
   function apiJson(url, init) {
@@ -179,6 +180,7 @@
     mode: 'list',
     lyrics: true,      // 对外字段名 lyricsVisible
     playing: false,
+    needsResume: false, // 自动播放被拦时的「继续播放」引导
     follow: true,
     page: 'play',
     drawer: false,
@@ -186,8 +188,12 @@
     loadError: ''
   };
 
-  /* ---------- 记忆：hana.storage.global（不写 localStorage） ---------- */
-  var STORE_KEY = 'player-playback-state';
+  /* ---------- 记忆：播放状态走后端路由，歌单元数据走 hana.storage.global ----------
+   * 播放状态改后端路由的原因（拖进/拖出 bug）：hana.storage.global.set 是异步 IPC，
+   * 页面卸载时可能来不及发出；而「拖进/拖出 = 整份文档被换掉」需要旧文档在 pagehide
+   * 时把快照可靠地交给宿主。后端路由可以用 sendBeacon / keepalive fetch，专为卸载时
+   * 发一次请求设计，能跨文档存活。快照落 app-data/playback.json。
+   * 歌单元数据（顺序 + 名字）与本地文件夹路径仍走 hana.storage.global，它们不涉及卸载竞速。 */
   function hanaStorage() {
     return (window.hana && window.hana.storage && window.hana.storage.global) || null;
   }
@@ -208,17 +214,17 @@
     };
   }
 
-  /* 写入：串行链 + 节流；切歌/暂停/导入/删除走立即写 */
+  /* 常规写入：串行链 + 节流；切歌/暂停/导入/删除走立即写 */
   var writeChain = Promise.resolve();
   var writeTimer = 0;
   function persistNow() {
     clearTimeout(writeTimer);
     var snap = snapshot();
     writeChain = writeChain.then(function () {
-      var st = hanaStorage();
-      if (!st) return null;
-      return Promise.resolve(st.set(STORE_KEY, snap)).catch(function (e) {
-        console.warn('[player] playback-state 写入失败', e);
+      return apiPostJson(ENDPOINT.playbackState, snap).then(function (res) {
+        if (!res.ok) console.warn('[player] playback-state 写入失败', res.status);
+      }).catch(function (e) {
+        console.warn('[player] playback-state 写入异常', e);
       });
     });
     return writeChain;
@@ -229,16 +235,37 @@
   }
   function persistState() { persistThrottled(); }
 
+  /* 卸载落盘：sendBeacon（首选）→ keepalive fetch（兜底）。
+   * 票走 query（同 withSession 口径，宿主 header/query 两种都认）。 */
+  function beaconPlayback() {
+    var snap = snapshot();
+    var url = withSession(ENDPOINT.playbackState);
+    var body = JSON.stringify(snap);
+    try {
+      if (navigator.sendBeacon) {
+        var blob = new Blob([body], { type: 'application/json' });
+        if (navigator.sendBeacon(url, blob)) return true;
+      }
+    } catch (e) { /* 落到 keepalive fetch */ }
+    try {
+      apiFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body,
+        keepalive: true
+      });
+      return true;
+    } catch (e) { /* 都不行就算了 */ }
+    return false;
+  }
+
   function loadPlaybackState() {
-    var st = hanaStorage();
-    if (!st) return Promise.resolve(null);
-    return Promise.resolve(st.get(STORE_KEY, { timeoutMs: 3000 })).then(function (raw) {
-      var v = unwrapStored(raw);
-      return v && typeof v === 'object' ? v : null;
-    }).catch(function (e) {
-      console.warn('[player] playback-state 读取失败', e);
+    return apiGetJson(ENDPOINT.playbackState).then(function (res) {
+      if (res.ok && res.body && res.body.ok && res.body.state && typeof res.body.state === 'object') {
+        return res.body.state;
+      }
       return null;
-    });
+    }).catch(function () { return null; });
   }
 
   /* ---------- 歌单：列表元数据 + 本地固定文件夹 ----------
@@ -283,6 +310,12 @@
     var m = /^imp:(\d+)$/.exec(String(id || ''));
     return m ? parseInt(m[1], 10) : 999999;
   }
+  /* 没有保存名字时的默认显示名（元数据丢失时用，避免标题显示 imp:1） */
+  function defaultListName(id) {
+    if (id === 'local') return '本地';
+    var m = /^imp:(\d+)$/.exec(String(id || ''));
+    return m ? '歌单 ' + m[1] : String(id || '');
+  }
   function nextImportId() {
     var max = 0;
     for (var i = 0; i < state.lists.length; i++) {
@@ -310,8 +343,8 @@
   }
 
   /* 旧数据迁移（幂等）：
-   *  · mode==="本地" → list "local"
-   *  · 其余（在线）→ 按原 group 各自成一个导入列表，按首次出现顺序编 1/2/3…
+   *  · 本地列表 = 严格等于那个固定文件夹（拍板），所以旧数据不再往 local 塞；
+   *    一律按原 group 各自成一个导入列表，按首次出现顺序编 1/2/3…
    *  · group 缺失 → "未分类"
    *  · 每个列表内按稳定 id 去重；跨列表不去重
    *  · 已经带 list 字段的数据原样保留，再跑一次不改变结构
@@ -331,13 +364,9 @@
         t = tracks[i];
         var list = String(t.list || '').trim();
         if (!list) {
-          if (t.mode === '本地') {
-            list = 'local';
-          } else {
-            var g = String(t.group || '').trim() || '未分类';
-            if (!groupToId[g]) { seq++; groupToId[g] = { id: 'imp:' + seq, name: g }; ordered.push(groupToId[g]); }
-            list = groupToId[g].id;
-          }
+          var g = String(t.group || '').trim() || '未分类';
+          if (!groupToId[g]) { seq++; groupToId[g] = { id: 'imp:' + seq, name: g }; ordered.push(groupToId[g]); }
+          list = groupToId[g].id;
         }
         t.list = list;
         t.uid = uidOf(t);
@@ -355,7 +384,7 @@
       }
       for (i = 0; i < tracks.length; i++) {
         t = tracks[i];
-        if (t.list && t.list !== 'local') ensureList(t.list, t.list);
+        if (t.list && t.list !== 'local') ensureList(t.list, defaultListName(t.list));
         t.uid = uidOf(t);
       }
     }
@@ -609,6 +638,17 @@
     var n = vis.length;
     $('queueCount').textContent = String(n);
     $('queueBtnCount').textContent = String(n);
+    // 队列头显示当前列表名（重命名后这里可见）；本地页固定「本地」
+    var act = findList(state.activeList);
+    var qt = $('queueTitle');
+    if (qt && !renaming) qt.textContent = (act && act.name) || '播放队列';
+    var rb = $('renameBtn');
+    if (rb) rb.hidden = !(act && act.id !== 'local');
+  }
+
+  function renderResume() {
+    var btn = $('resumeBtn');
+    if (btn) btn.hidden = !state.needsResume;
   }
 
   function renderProgress() {
@@ -900,6 +940,7 @@
     }
     pendingSeek = seekTo > 0 ? seekTo : 0;
     pendingAutoplay = !!autoplay;
+    scheduleSeekRetry();
     if (same && pendingAutoplay && audio.paused) {
       // 同一首（恢复场景）：直接播
       audio.play().catch(onAutoplayBlocked);
@@ -907,22 +948,64 @@
     }
   }
 
+  /* 卸载期：拖进/拖出 = 整份文档被换掉，audio 销毁可能补发一次 pause。
+   * 那一下不能当成「用户暂停」写回 playing=false，否则新文档读到 false 就永不续播。 */
+  var unloading = false;
+
+  function flushOnTeardown() {
+    unloading = true;   // 之后 audio 销毁补发的 pause 不写回
+    // 每次 pagehide / 隐藏都立即把完整快照交给宿主（sendBeacon / keepalive，跨文档可靠）。
+    // 不做「只落一次」的锁：重复落同一份快照无害，漏落才会丢状态。
+    try { beaconPlayback(); } catch (e) {}
+  }
+  window.addEventListener('pagehide', flushOnTeardown);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushOnTeardown();
+    else unloading = false;   // 只是被隐藏后又回来（并未真卸载）
+  });
+  window.addEventListener('pageshow', function () { unloading = false; });
+
   function onAutoplayBlocked(e) {
     if (e && e.name === 'AbortError') return;
+    // 不归零：保留进度与暂停态，给一个轻量的「继续播放」引导（而不是 toast 完就停死）
     state.playing = false;
+    state.needsResume = true;
     renderPlayState();
-    toast('需要点击播放');
+    renderResume();
+    toast('自动播放被拦，点「继续播放」');
+  }
+
+  /* 恢复进度：loadedmetadata 时媒体往往还不可 seek（seekable=[0,0]），此时赋
+   * currentTime 会被忽略或夹到已缓冲范围。把 seek 挂到多个就绪事件上，并配一个短重试
+   * 定时器，可 seek 了再落。落成功后清 pendingSeek。这是续播能接上位置的关键。 */
+  var seekRetryTimer = 0;
+  function scheduleSeekRetry() {
+    if (seekRetryTimer || !(pendingSeek > 0)) return;
+    var tries = 0;
+    seekRetryTimer = setInterval(function () {
+      tries++;
+      applyPendingSeek();
+      if (pendingSeek <= 0 || tries > 20) { clearInterval(seekRetryTimer); seekRetryTimer = 0; }
+    }, 150);
+  }
+  function applyPendingSeek() {
+    if (!(pendingSeek > 0) || audio.seeking) return;
+    var sk = audio.seekable;
+    if (!sk || !sk.length || sk.end(0) <= 0) return;   // 还不可 seek，等下一个事件/重试
+    var dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    var target = dur ? Math.min(pendingSeek, Math.max(0, dur - 0.25)) : pendingSeek;
+    // 目标超出当前可 seek 范围就先不落，等缓冲跟上来
+    if (sk.end(0) < target) return;
+    try { audio.currentTime = target; } catch (e) { return; }
+    pendingSeek = 0;
+    renderProgress();
   }
 
   audio.addEventListener('loadedmetadata', function () {
     var t = currentTrack();
     var real = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
     if (t && real > 0 && !(Number(t.dur) > 0)) { t.dur = real; scheduleDurSave(); }
-    if (pendingSeek > 0) {
-      var max = real;
-      audio.currentTime = max ? Math.min(pendingSeek, Math.max(0, max - 0.25)) : pendingSeek;
-    }
-    pendingSeek = 0;
+    applyPendingSeek();
     renderTrack();
     renderQueue();
     renderProgress();
@@ -930,6 +1013,15 @@
       pendingAutoplay = false;
       audio.play().catch(onAutoplayBlocked);
     }
+  });
+  audio.addEventListener('loadeddata', applyPendingSeek);
+  audio.addEventListener('canplay', applyPendingSeek);
+  audio.addEventListener('progress', applyPendingSeek);
+  audio.addEventListener('seeked', function () {
+    if (!isFinite(audio.currentTime)) return;
+    state.progress = audio.currentTime;
+    renderProgress();
+    updateLyricIndex(true);
   });
 
   audio.addEventListener('timeupdate', function () {
@@ -942,9 +1034,13 @@
 
   audio.addEventListener('play', function () {
     state.playing = true;
+    state.needsResume = false;
     renderPlayState();
+    renderResume();
   });
   audio.addEventListener('pause', function () {
+    // 卸载逼出的暂停不写回（否则新文档永不续播）
+    if (unloading) return;
     state.playing = false;
     renderPlayState();
   });
@@ -1036,10 +1132,12 @@
       lyricBack.hidden = true;
     }
     state.playing = true;
+    state.needsResume = false;
     renderTrack();
     renderQueue();
     renderProgress();
     renderPlayState();
+    renderResume();
     updateLyricIndex(true);
     if (changed) loadLyrics(t);
     if (t.url) {
@@ -1067,6 +1165,18 @@
     else audio.pause();
     persistNow();
   });
+
+  /* 「继续播放」引导：自动播放被拦时点一下恢复 */
+  if ($('resumeBtn')) {
+    $('resumeBtn').addEventListener('click', function () {
+      if (!currentTrack()) return;
+      audio.play().then(function () {
+        state.needsResume = false;
+        renderResume();
+      }).catch(function () { /* 仍被拦就留着按钮 */ });
+      persistNow();
+    });
+  }
 
   $('prevBtn').addEventListener('click', function () {
     var i = stepIndex(-1);
@@ -1216,12 +1326,49 @@
       if (!tab) return;
       var id = tab.getAttribute('data-list');
       if (!id || id === state.activeList) return;
+      renaming = false;
       state.activeList = id;
       renderQueue();
       renderTrack();
       persistState();
     });
+    // 双击当前项 → 重命名（内联输入，轻量）
+    listTabs.addEventListener('dblclick', function (e) {
+      var tab = e.target.closest('.list-tab.is-active');
+      if (tab) startRename();
+    });
   }
+
+  /* ---------- 歌单重命名（内联编辑，不用模态） ---------- */
+  var renaming = false;
+  function startRename() {
+    var l = findList(state.activeList);
+    if (!l || l.id === 'local') return;  // 本地名固定
+    var host = $('queueTitle');
+    if (!host || host.querySelector('input')) return;
+    renaming = true;
+    host.innerHTML = '<input class="list-name-input" id="listNameInput" type="text" maxlength="40" aria-label="歌单名">';
+    var inp = $('listNameInput');
+    inp.value = l.name || '';
+    inp.focus();
+    try { inp.select(); } catch (e) {}
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+    });
+    inp.addEventListener('blur', commitRename);
+  }
+  function commitRename() {
+    var inp = $('listNameInput');
+    if (!inp) return;
+    var l = findList(state.activeList);
+    var v = String(inp.value || '').trim();
+    if (l && v) { l.name = v; saveLists(); }
+    renaming = false;
+    renderQueue();  // 重渲染队列头，输入框自然移除
+  }
+  function cancelRename() { renaming = false; renderQueue(); }
+  if ($('renameBtn')) $('renameBtn').addEventListener('click', function (e) { e.stopPropagation(); startRename(); });
 
   /* 删除：先本地移除（即时反馈），再叫后端删列表 + 清 media/lyrics；失败回滚 */
   $('removeBtn').addEventListener('click', function () {
@@ -1315,10 +1462,27 @@
     return id;
   }
 
+  /* 单曲 / 本地文件的归处（拍板 1）：归到**当前激活列表**；
+   * 当前页是本地列表时（本地严格等于固定文件夹，塞不进去）退化为新建/复用
+   * 一个名为 nameIfLocal 的导入列表（复用同名列表，避免越建越多），并切过去。 */
+  function resolveImportTarget(nameIfLocal) {
+    if (/^imp:/.test(state.activeList) && findList(state.activeList)) return state.activeList;
+    for (var i = 0; i < state.lists.length; i++) {
+      if (state.lists[i].id !== 'local' && state.lists[i].name === nameIfLocal) {
+        state.activeList = state.lists[i].id;
+        return state.lists[i].id;
+      }
+    }
+    var id = nextImportId();
+    state.lists.push({ id: id, name: nameIfLocal });
+    saveLists();
+    state.activeList = id;
+    return id;
+  }
+
   /* 在线链接导入：单曲 / 歌单
-   *  · 歌单 → 新建一个导入列表（按导入顺序编号），并切过去
-   *  · 单曲 → 归入当前选中的导入列表；当前是本地列表时新建一个导入列表
-   *    （单曲归处是需罐头拍板的点，暂取此默认，见交付说明） */
+   *  · 歌单 → 新建一个导入列表（按导入顺序编号，名「歌单 N」，可重命名），并切过去
+   *  · 单曲 → 归入当前激活列表；当前是本地列表时新建/复用名为「单曲」的导入列表 */
   function importLink(raw) {
     var v = String(raw || '').trim();
     if (!v) { setNote('请先粘贴链接'); return; }
@@ -1336,12 +1500,7 @@
         return;
       }
       var list = isPlaylist ? (res.body.tracks || []) : (res.body.track ? [res.body.track] : []);
-      var targetId;
-      if (isPlaylist) {
-        targetId = newImportList('歌单');
-      } else {
-        targetId = /^imp:/.test(state.activeList) ? state.activeList : newImportList('单曲');
-      }
+      var targetId = isPlaylist ? newImportList('歌单') : resolveImportTarget('单曲');
       var added = mergeTracks(list, targetId);
       afterImport(added, isPlaylist ? '在线歌单' : '在线单曲');
       var input = $('linkInput');
@@ -1358,7 +1517,8 @@
     return window.hana.resources.pick(input);
   }
 
-  /* 扫描本地固定文件夹，并入 local 列表（幂等：同 id 不重复加）。 */
+  /* 扫描本地固定文件夹，**替换** local 列表内容（拍板：本地 = 严格等于该文件夹）。
+   * 扫描失败时不动已存内容（不误删）。 */
   function syncLocalFolder(announce) {
     if (!state.localDir) return Promise.resolve(0);
     ensureList('local', '本地');
@@ -1367,10 +1527,13 @@
         if (announce) toast('扫描失败：' + ((r.body && r.body.error) || r.status));
         return 0;
       }
+      // 先拿掉旧的 local 曲目，再放入本次扫描结果（替换语义）
+      state.tracks = state.tracks.filter(function (x) { return x.list !== 'local'; });
       var added = mergeTracks(r.body.files || [], 'local');
+      // 正在播的那首若被本次替换移除，保留当前播放指针不强行切歌
       savePlaylist();
       renderQueue();
-      if (announce) toast(added > 0 ? '本地文件夹：新增 ' + added + ' 首' : '本地文件夹：没有新文件');
+      if (announce) toast(added > 0 ? '本地文件夹：' + added + ' 首' : '文件夹里没有音频文件');
       return added;
     }).catch(function () { if (announce) toast('扫描失败：网络错误'); return 0; });
   }
@@ -1409,9 +1572,10 @@
           .then(function (r) { return (r.ok && r.body && r.body.ok) ? r.body : null; })
           .catch(function () { return null; });
       })).then(function (items) {
-        // 本地文件归本地列表（本地列表 = 固定文件夹 + 手动导入的本地文件）
-        ensureList('local', '本地');
-        afterImport(mergeTracks(items.filter(Boolean), 'local'), '本地文件');
+        // 本地文件不再往「本地列表」（那严格等于固定文件夹），归到当前导入列表；
+        // 当前页是本地时新建/复用名为「本地文件」的导入列表。
+        var target = resolveImportTarget('本地文件');
+        afterImport(mergeTracks(items.filter(Boolean), target), '本地文件');
       });
     }).catch(function (e) {
       setNote(e && e.message ? e.message : '文件选择不可用');
@@ -1500,6 +1664,7 @@
     renderPlayState();
     renderLyricToggle();
     renderLyrics();
+    renderResume();
     renderChrome();
   }
 

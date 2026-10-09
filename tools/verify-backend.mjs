@@ -31,6 +31,8 @@ const handler = (method, p) => {
 };
 const POST_PLAYLIST = handler('POST', '/widget/api/playlist');
 const DELETE_TRACK = handler('DELETE', '/api/track');
+const GET_PLAYBACK = handler('GET', '/api/playback-state');
+const POST_PLAYBACK = handler('POST', '/api/playback-state');
 
 function fakeC({ json, query }) {
   return {
@@ -90,6 +92,16 @@ check('delete-with-list', res.body.ok === true && disk.length === 1 && disk[0].l
 res = await DELETE_TRACK(fakeC({ query: { id: 'netease:9' } }));
 disk = readDisk();
 check('delete-without-list-legacy', res.body.ok === true && disk.length === 0, JSON.stringify(disk));
+
+/* 6) 播放状态：POST 落盘 → GET 取回（跨文档续播的持久层） */
+const snap = { currentId: 'imp:1|netease:1', activeList: 'imp:1', progress: 12.5, volume: 0.8, muted: false, mode: 'list', lyricsVisible: true, playing: true };
+await POST_PLAYBACK(fakeC({ json: snap }));
+const got = await GET_PLAYBACK(fakeC({}));
+check('playback-roundtrip', got.body.ok === true && got.body.state && got.body.state.playing === true && got.body.state.progress === 12.5, JSON.stringify(got.body));
+
+/* 7) 非法播放状态被拒 */
+const bad = await POST_PLAYBACK(fakeC({ json: null }));
+check('playback-reject-invalid', bad.status === 400, JSON.stringify(bad));
 
 fs.rmSync(dataDir, { recursive: true, force: true });
 

@@ -426,7 +426,22 @@ button:disabled { cursor: default; }
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--hk-text);
+  min-width: 0;
 }
+/* 内联重命名输入（不用模态） */
+.list-name-input {
+  width: 150px;
+  max-width: 46vw;
+  padding: 3px 7px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--hk-accent);
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+.list-name-input:focus-visible { outline: none; }
 /* 计数是普通信息，不占强调色（强调色只给当前/激活/强调） */
 .queue-count {
   margin-left: 2px;
@@ -863,6 +878,26 @@ button:disabled { cursor: default; }
   text-align: center;
 }
 .toast[hidden] { display: none; }
+
+/* 「继续播放」引导：自动播放被拦时的轻量恢复入口 */
+.resume-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 156px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-size: 12px;
+  box-shadow: var(--hk-pop-shadow);
+}
+.resume-chip[hidden] { display: none; }
+.resume-chip .icon { stroke: currentColor; fill: currentColor; }
 
 .report { display: none; }
 
