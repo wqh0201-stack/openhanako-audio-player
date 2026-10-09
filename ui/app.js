@@ -60,6 +60,10 @@
     musicPlaylist: API + '/widget/api/music/playlist',
     search: API + '/widget/api/music/search',
     hot: API + '/widget/api/music/hot',
+    charts: API + '/widget/api/music/charts',
+    chartTracks: API + '/widget/api/music/chart-tracks',
+    radios: API + '/widget/api/music/radios',
+    radioPrograms: API + '/widget/api/music/radio-programs',
     importFile: API + '/widget/api/import-file',
     scanFolder: API + '/widget/api/scan-folder',
     playbackState: API + '/api/playback-state'
@@ -2745,7 +2749,11 @@
   var searchResults = [];
   var searchBusy = false;
   var searchSeq = 0;   // 代次：连打两次搜索，旧响应不许覆盖新结果
-  var hotResults = null;   // 热门推荐缓存（搜索页空白时预置）
+  var discoverLoaded = false;   // 推荐区是否已拉过
+  var hotSongs = [];            // 热门推荐（歌曲）
+  var discoverCharts = [];      // 榜单
+  var discoverSheets = [];      // 推荐歌单
+  var discoverRadios = [];      // 热门电台
   var searchPage = $('searchPage');
   var searchList = $('searchList');
   var searchNoteEl = $('searchNote');
@@ -2753,6 +2761,10 @@
   var searchServersEl = $('searchServers');
   var searchScopeEl = $('searchScope');
   var searchSectionEl = $('searchSection');
+  var searchDiscoverEl = $('searchDiscover');
+  var hotListEl = $('hotList');
+  var chartsGridEl = $('chartsGrid');
+  var radiosGridEl = $('radiosGrid');
 
   function setSearchNote(msg) { if (searchNoteEl) searchNoteEl.textContent = msg || ''; }
   function setSearchSection(msg) {
@@ -2843,7 +2855,7 @@
     renderSearchServers();
     renderSearchScope();
     renderSearchResults();
-    if (!searchResults.length) loadHot();   // 空白页预置热门推荐
+    if (!String((searchInput && searchInput.value) || '').trim()) loadDiscover();   // 空白页预置推荐
     if (searchInput) setTimeout(function () { try { searchInput.focus(); } catch (e) {} }, 30);
   }
   function closeSearch() {
@@ -2851,31 +2863,193 @@
     searchPage.hidden = true;
   }
 
-  /* 热门推荐（搜索页空白时的预置内容）。只拉一次并缓存。
-   * 竞态防护：拉取期间用户若已发起搜索（searchSeq 前进）或输入了关键词，
-   * 回来的热门不得覆盖当前结果 —— 与 doSearch 的代次是同一套思路。 */
-  function loadHot() {
-    var gen = searchSeq;
-    if (hotResults) {
-      if (searchSeq !== gen || String((searchInput && searchInput.value) || '').trim()) return;
-      searchResults = hotResults.slice(); markSearchInList(); renderSearchResults();
-      setSearchSection('热门推荐'); setSearchNote(''); return;
-    }
-    setSearchSection('热门推荐');
-    setSearchNote('正在加载推荐…');
+  /* 推荐区显示/隐藏：未搜索时显示推荐区、隐藏结果表；搜索时相反。
+   * 两者共用同一个滚动容器高度（.search-discover 与 .search-list 都 flex:1，
+   * 同时只显示一个，布局不跳）。 */
+  function setDiscoverVisible(on) {
+    if (searchDiscoverEl) searchDiscoverEl.hidden = !on;
+    if (searchList) searchList.hidden = on;
+    if (searchSectionEl && on) setSearchSection('');
+  }
+  function discoverActive() {
+    return !!(searchDiscoverEl && !searchDiscoverEl.hidden);
+  }
+
+  /* 推荐区：热门歌曲 + 榜单/歌单 + 热门电台，三块各自并行拉（拉不到就空着）。
+   * 只在搜索页空白时拉一次，后续缓存。 */
+  function loadDiscover() {
+    setDiscoverVisible(true);
+    if (discoverLoaded) { setSearchNote(''); return; }
+    discoverLoaded = true;
+    if (hotListEl) hotListEl.innerHTML = '<li class="discover-loading">加载中…</li>';
+    if (chartsGridEl) chartsGridEl.innerHTML = '<p class="discover-loading">加载中…</p>';
+    if (radiosGridEl) radiosGridEl.innerHTML = '<p class="discover-loading">加载中…</p>';
+
     apiGetJson(ENDPOINT.hot + '?limit=12').then(function (res) {
+      hotSongs = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
+      renderHotSongs();
+    }).catch(function () { hotSongs = []; renderHotSongs(); });
+
+    apiGetJson(ENDPOINT.charts + '?limit=8').then(function (res) {
+      var b = (res.ok && res.body) || {};
+      discoverCharts = b.charts || [];
+      discoverSheets = b.sheets || [];
+      renderCharts();
+    }).catch(function () { discoverCharts = []; discoverSheets = []; renderCharts(); });
+
+    apiGetJson(ENDPOINT.radios + '?limit=8').then(function (res) {
+      discoverRadios = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
+      renderRadios();
+    }).catch(function () { discoverRadios = []; renderRadios(); });
+  }
+
+  function coverVars(el, pic) {
+    if (!el) return;
+    pic = String(pic || '').trim();
+    if (pic) {
+      el.style.setProperty('--cover-image', 'url("' + pic.replace(/"/g, '') + '")');
+      el.style.setProperty('--cover-fallback', 'none');
+    } else {
+      el.style.removeProperty('--cover-image');
+      el.style.setProperty('--cover-fallback', 'var(--hk-surface)');
+    }
+  }
+
+  /* 热门歌曲：复用搜索结果行的样子（可直接加入） */
+  function renderHotSongs() {
+    if (!hotListEl) return;
+    if (!hotSongs.length) {
+      hotListEl.innerHTML = '<li class="discover-loading">（推荐暂时拉不到）</li>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < hotSongs.length; i++) {
+      var r = hotSongs[i];
+      var inList = hotSongInList(r);
+      html += '<li class="search-row" data-hot="' + i + '">' +
+        '<span class="q-cover"></span>' +
+        '<span class="q-meta"><span class="q-title">' + esc(String(r.title || '').trim()) + '</span>' +
+        '<span class="q-artist">' + esc(String(r.author || '').trim()) + '</span></span>' +
+        '<button class="search-add' + (inList ? ' is-added' : '') + '" type="button" data-hot="' + i + '"' +
+          (inList ? ' disabled' : '') + ' aria-label="' + (inList ? '已加入' : '加入曲单') + '">' +
+          (inList ? '已加入' : (icon('i-plus', 'icon-sm') + '<span>加入</span>')) +
+        '</button></li>';
+    }
+    hotListEl.innerHTML = html;
+    var rows = hotListEl.querySelectorAll('.search-row');
+    for (var j = 0; j < rows.length; j++) {
+      coverVars(rows[j].querySelector('.q-cover'), hotSongs[Number(rows[j].getAttribute('data-hot'))].pic);
+    }
+  }
+
+  function hotSongInList(r) {
+    var target = searchTargetList();
+    var id = deriveId(r, r.url);
+    for (var j = 0; j < state.tracks.length; j++) {
+      if (state.tracks[j].id === id && state.tracks[j].list === target) return true;
+    }
+    return false;
+  }
+
+  /* 榜单 / 推荐歌单：横向卡片，点一张拉它的前 N 首进结果区 */
+  function renderCharts() {
+    if (!chartsGridEl) return;
+    var items = discoverCharts.map(function (x) { return Object.assign({}, x, { _kind: 'chart' }); })
+      .concat(discoverSheets.map(function (x) { return Object.assign({}, x, { _kind: 'sheet' }); }));
+    if (!items.length) { chartsGridEl.innerHTML = '<p class="discover-loading">（榜单暂时拉不到）</p>'; return; }
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var c = items[i];
+      html += '<button class="discover-card" type="button" data-kind="' + c._kind + '" data-id="' + esc(c.id) + '" data-name="' + esc(c.name) + '">' +
+        '<span class="discover-card-cover"></span>' +
+        '<span class="discover-card-name">' + esc(c.name) + '</span>' +
+        (c.note ? '<span class="discover-card-note">' + esc(c.note) + '</span>' : '') +
+      '</button>';
+    }
+    chartsGridEl.innerHTML = html;
+    var cards = chartsGridEl.querySelectorAll('.discover-card');
+    for (var j = 0; j < cards.length; j++) {
+      coverVars(cards[j].querySelector('.discover-card-cover'), c_picAt(items, cards[j].getAttribute('data-id')));
+    }
+  }
+  function c_picAt(items, id) {
+    for (var i = 0; i < items.length; i++) if (items[i].id === id) return items[i].pic;
+    return '';
+  }
+
+  /* 热门电台：横向卡片，点一张拉它的节目（每期是可播长音频） */
+  function renderRadios() {
+    if (!radiosGridEl) return;
+    if (!discoverRadios.length) { radiosGridEl.innerHTML = '<p class="discover-loading">（电台暂时拉不到）</p>'; return; }
+    var html = '';
+    for (var i = 0; i < discoverRadios.length; i++) {
+      var r = discoverRadios[i];
+      html += '<button class="discover-card" type="button" data-radio="' + esc(r.id) + '" data-name="' + esc(r.name) + '">' +
+        '<span class="discover-card-cover"></span>' +
+        '<span class="discover-card-name">' + esc(r.name) + '</span>' +
+        '<span class="discover-card-note">' + esc(r.category || '') + (r.programCount ? ' · ' + r.programCount + ' 期' : '') + '</span>' +
+      '</button>';
+    }
+    radiosGridEl.innerHTML = html;
+    var cards = radiosGridEl.querySelectorAll('.discover-card');
+    for (var j = 0; j < cards.length; j++) {
+      var rid = cards[j].getAttribute('data-radio');
+      var pic = ''; for (var k = 0; k < discoverRadios.length; k++) if (String(discoverRadios[k].id) === rid) pic = discoverRadios[k].pic;
+      coverVars(cards[j].querySelector('.discover-card-cover'), pic);
+    }
+  }
+
+  /* 点开一张榜单/歌单 → 拉前 N 首，改由结果列表展示（可逐首加入/播放） */
+  function openChart(id, name) {
+    if (!id) return;
+    setDiscoverVisible(false);
+    setSearchSection(name || '榜单');
+    searchBusy = true;
+    var gen = ++searchSeq;
+    searchResults = [];
+    renderSearchResults();
+    setSearchNote('正在拉取曲目…');
+    apiGetJson(ENDPOINT.chartTracks + '?id=' + encodeURIComponent(id) + '&n=30').then(function (res) {
+      if (gen !== searchSeq) return;
+      searchBusy = false;
       var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
-      hotResults = list;
-      if (searchSeq !== gen) return;                                        // 已发起搜索，不覆盖
-      if (String((searchInput && searchInput.value) || '').trim()) return;  // 已输入关键词，不覆盖
-      searchResults = list.slice();
+      searchResults = list;
       markSearchInList();
       renderSearchResults();
-      if (list.length) setSearchNote('');
-      else setSearchNote('在上方输入歌名或歌手，回车开始搜索');
+      setSearchNote(list.length ? ('共 ' + list.length + ' 首') : '这个榜单暂时取不到曲目');
     }).catch(function () {
-      if (searchSeq !== gen) return;
-      setSearchNote('在上方输入歌名或歌手，回车开始搜索');
+      if (gen !== searchSeq) return;
+      searchBusy = false;
+      searchResults = [];
+      renderSearchResults();
+      setSearchNote('拉取失败：网络错误');
+    });
+  }
+
+  /* 点开一档电台 → 拉它的节目（每期是个可播长音频） */
+  function openRadio(id, name) {
+    if (!id) return;
+    setDiscoverVisible(false);
+    setSearchSection(name || '电台');
+    searchBusy = true;
+    var gen = ++searchSeq;
+    searchResults = [];
+    renderSearchResults();
+    setSearchNote('正在拉取节目…');
+    apiGetJson(ENDPOINT.radioPrograms + '?radioId=' + encodeURIComponent(id) + '&limit=30').then(function (res) {
+      if (gen !== searchSeq) return;
+      searchBusy = false;
+      var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
+      searchResults = list;
+      markSearchInList();
+      renderSearchResults();
+      setSearchNote(list.length ? ('共 ' + list.length + ' 期（每期是可播的长音频）') : '这档电台暂时取不到节目');
+    }).catch(function () {
+      if (gen !== searchSeq) return;
+      searchBusy = false;
+      searchResults = [];
+      renderSearchResults();
+      setSearchNote('拉取失败：网络错误');
     });
   }
 
@@ -2885,6 +3059,7 @@
     if (!kw) { setSearchNote('先输入关键词'); return; }
     searchBusy = true;
     var gen = ++searchSeq;
+    setDiscoverVisible(false);
     setSearchSection(searchScope === 'artist' ? '歌手结果' : '歌曲结果');
     setSearchNote('正在搜索…');
     searchResults = [];
@@ -2914,13 +3089,15 @@
       });
   }
 
-  /* 清空搜索：回到热门推荐 */
+  /* 清空搜索：回到推荐区 */
   function clearSearch() {
     if (searchInput) searchInput.value = '';
     searchSeq++;
     searchBusy = false;
-    if (hotResults) { searchResults = hotResults.slice(); markSearchInList(); renderSearchResults(); setSearchSection('热门推荐'); setSearchNote(''); }
-    else { searchResults = []; renderSearchResults(); setSearchSection(''); loadHot(); }
+    searchResults = [];
+    renderSearchResults();
+    setSearchSection('');
+    loadDiscover();
   }
 
   /* 标记搜索结果里已在当前列表的曲目（按稳定 id 判，和红心同一套） */
@@ -2950,9 +3127,9 @@
     return id;
   }
 
-  function addSearchHit(idx) {
-    var r = searchResults[idx];
-    if (!r) return;
+  /* 把一条曲目加进当前目标列表（搜索结果、热门、榜单、电台共用同一落库路径） */
+  function addTrackToTarget(r) {
+    if (!r) return false;
     var target = searchTargetList();
     var added = mergeTracks([r], target);
     var l = findList(target);
@@ -2963,6 +3140,13 @@
     } else {
       toast('「' + ((l && l.name) || '搜索') + '」里已有这首');
     }
+    return added > 0;
+  }
+
+  function addSearchHit(idx) {
+    var r = searchResults[idx];
+    if (!r) return;
+    addTrackToTarget(r);
     markSearchInList();
     renderSearchResults();
   }
@@ -2986,7 +3170,7 @@
       renderSearchScope();
       if (searchInput) searchInput.placeholder = sc === 'artist' ? '搜歌手名' : '搜歌名 / 歌手';
       if (searchInput && String(searchInput.value || '').trim()) doSearch();   // 换范围自动重搜
-      else loadHot();
+      else clearSearch();   // 无关键词 → 回推荐区（搜索服务不适用，重新展示）
     });
   }
   if (searchServersEl) {
@@ -3007,6 +3191,32 @@
       addSearchHit(Number(btn.getAttribute('data-i')));
     });
   }
+  /* 推荐区交互：热门歌曲逐首加；榜单/歌单/电台卡片点开拉列表 */
+  function bindDiscover() {
+    if (hotListEl) {
+      hotListEl.addEventListener('click', function (e) {
+        var btn = e.target.closest('.search-add');
+        if (!btn || btn.disabled) return;
+        var i = Number(btn.getAttribute('data-hot'));
+        if (hotSongs[i]) { addTrackToTarget(hotSongs[i]); renderHotSongs(); }
+      });
+    }
+    if (chartsGridEl) {
+      chartsGridEl.addEventListener('click', function (e) {
+        var card = e.target.closest('.discover-card');
+        if (!card) return;
+        openChart(card.getAttribute('data-id'), card.getAttribute('data-name'));
+      });
+    }
+    if (radiosGridEl) {
+      radiosGridEl.addEventListener('click', function (e) {
+        var card = e.target.closest('.discover-card');
+        if (!card) return;
+        openRadio(card.getAttribute('data-radio'), card.getAttribute('data-name'));
+      });
+    }
+  }
+  bindDiscover();
 
   importPop.addEventListener('click', function (e) {
     var item = e.target.closest('[data-import]');
@@ -3541,9 +3751,15 @@
     /* 搜索页（测试用）：不依赖真实网络，直接喂结果验证渲染/落库。 */
     openSearch: openSearch,
     closeSearch: closeSearch,
-    renderResults: function (list) { searchSeq++; searchBusy = false; searchResults = list || []; markSearchInList(); renderSearchResults(); },
+    renderResults: function (list) { searchSeq++; searchBusy = false; setDiscoverVisible(false); searchResults = list || []; markSearchInList(); renderSearchResults(); },
     setScope: function (sc) { searchScope = sc; renderSearchScope(); },
     clearSearch: clearSearch,
-    searchState: function () { return { server: searchServer, scope: searchScope, results: searchResults.length, open: !!(searchPage && !searchPage.hidden) }; }
+    renderDiscover: function (o) {
+      o = o || {};
+      hotSongs = o.hot || []; discoverCharts = o.charts || []; discoverSheets = o.sheets || []; discoverRadios = o.radios || [];
+      discoverLoaded = true;
+      renderHotSongs(); renderCharts(); renderRadios();
+    },
+    searchState: function () { return { server: searchServer, scope: searchScope, results: searchResults.length, open: !!(searchPage && !searchPage.hidden), discoverVisible: discoverActive() }; }
   };
 })();

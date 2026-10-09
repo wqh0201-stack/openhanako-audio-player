@@ -189,6 +189,21 @@
         <button class="search-scope-btn is-active" type="button" data-scope="song" aria-pressed="true">搜歌曲</button>
         <button class="search-scope-btn" type="button" data-scope="artist" aria-pressed="false">搜歌手</button>
       </div>
+      <!-- 推荐区：仅在未搜索时显示（搜索时整块隐去，改由结果列表接管） -->
+      <div class="search-discover" id="searchDiscover">
+        <section class="discover-block">
+          <h3 class="discover-title">热门推荐</h3>
+          <ol class="discover-songs" id="hotList"></ol>
+        </section>
+        <section class="discover-block" id="chartsBlock">
+          <h3 class="discover-title">榜单 · 歌单</h3>
+          <div class="discover-grid" id="chartsGrid"></div>
+        </section>
+        <section class="discover-block" id="radiosBlock">
+          <h3 class="discover-title">热门电台</h3>
+          <div class="discover-grid" id="radiosGrid"></div>
+        </section>
+      </div>
       <p class="search-section" id="searchSection" hidden></p>
       <ol class="search-list" id="searchList"></ol>
       <p class="search-note" id="searchNote"></p>
@@ -256,7 +271,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131584";</script>
+<script>window.__HANA_BUILD = "1003131585";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

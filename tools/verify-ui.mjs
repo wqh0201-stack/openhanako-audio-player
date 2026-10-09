@@ -252,6 +252,28 @@ const server = http.createServer((req, res) => {
     const results = Array.from({ length: 3 }, (_, i) => ({ id: `netease:${780000 + i}`, title: `热门推荐 ${i + 1}`, author: `推荐歌手 ${i + 1}`, url: goUrl(780000 + i), pic: '', lrc: '' }));
     return json(res, 200, { ok: true, results, host: 'mock' });
   }
+  if (p === API + '/widget/api/music/charts') {
+    return json(res, 200, { ok: true,
+      charts: [{ id: '3778678', name: '热歌榜', pic: '', note: '每天更新', kind: 'chart' }],
+      sheets: [{ id: '8904187604', name: '超火rap', pic: '', note: '109 首', kind: 'sheet' }],
+      host: 'mock' });
+  }
+  if (p === API + '/widget/api/music/chart-tracks') {
+    const id = u.searchParams.get('id') || '0';
+    const results = Array.from({ length: 2 }, (_, i) => ({ id: `netease:${id}${i}`, title: `榜单曲 ${i + 1}`, author: '榜单歌手', url: goUrl(`${id}${i}`), pic: '', lrc: '' }));
+    return json(res, 200, { ok: true, results, name: '热歌榜', host: 'mock' });
+  }
+  if (p === API + '/widget/api/music/radios') {
+    return json(res, 200, { ok: true, results: [
+      { id: '1230174483', name: '你，静不下来', pic: '', category: '情感', programCount: 73, subCount: 11595 },
+      { id: '1225587488', name: '有声短剧', pic: '', category: '有声书', programCount: 46, subCount: 2097 }
+    ], host: 'mock' });
+  }
+  if (p === API + '/widget/api/music/radio-programs') {
+    const rid = u.searchParams.get('radioId') || '0';
+    const results = Array.from({ length: 2 }, (_, i) => ({ id: `netease:${rid}0${i}`, title: `电台节目 ${i + 1}`, author: '主播', url: goUrl(`${rid}0${i}`), pic: '', dur: 2900, lrc: '' }));
+    return json(res, 200, { ok: true, results, host: 'mock' });
+  }
   if (p === API + '/widget/api/music/playlist') {
     const id = u.searchParams.get('id') || '0';
     const tracks = Array.from({ length: 5 }, (_, i) => ({ id: `netease:${id}${i}`, title: `歌单曲目 ${i + 1}`, author: '测试', url: goUrl(`${id}${i}`), pic: '', lrc: '' }));
@@ -1188,13 +1210,14 @@ const motion = {};
   });
   assert('search-entry-hidden-in-card', s.entryHiddenCard === true, String(s.entryHiddenCard));
 
-  // 回到独立窗，开搜索页 → 喂假结果 → 点加入 → 曲目落进当前列表
+  // 回到独立窗，开搜索页 → 直接喂假结果 → 点加入 → 曲目落进当前列表
   await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
   await sleep(300);
   await clickTab(page, 'imp:1');
   await sleep(200);
   const beforeRows = await page.evaluate(() => document.querySelectorAll('#queueList .q-row').length);
   await page.evaluate(() => {
+    window.__playerDebug.renderDiscover({ hot: [], charts: [], sheets: [], radios: [] });
     window.__playerDebug.openSearch();
     window.__playerDebug.renderResults([
       { id: 'netease:770001', title: '搜索命中曲', author: '搜索歌手', url: '/api/apps/hanako-audio-player/routes/widget/api/music/go/770001?server=netease', pic: '' }
@@ -1225,7 +1248,7 @@ const motion = {};
   assert('search-page-esc-closes', s.closed === false, String(s.closed));
 
   // 搜歌手 / 搜歌曲：范围切换按钮存在且能切（后台同一关键词接口，侧重不同）
-  await page.evaluate(() => window.__playerDebug.openSearch());
+  await page.evaluate(() => { window.__playerDebug.renderDiscover({ hot: [], charts: [], sheets: [], radios: [] }); window.__playerDebug.openSearch(); });
   await sleep(150);
   s.scopeButtons = await page.evaluate(() => Array.from(document.querySelectorAll('#searchScope .search-scope-btn')).map((b) => b.getAttribute('data-scope')));
   await page.evaluate(() => document.querySelector('#searchScope .search-scope-btn[data-scope="artist"]').click());
@@ -1235,18 +1258,58 @@ const motion = {};
     s.scopeButtons.join(',') === 'song,artist' && s.scopeAfter === 'artist',
     JSON.stringify({ buttons: s.scopeButtons, after: s.scopeAfter }));
 
-  // 热门推荐：清空关键词/重开搜索时预置内容（拉一次 /music/hot，缓存）
-  await page.evaluate(() => window.__playerDebug.clearSearch());
-  await sleep(400);
-  s.hot = await page.evaluate(() => ({
-    section: (document.getElementById('searchSection') || {}).textContent || '',
-    rows: document.querySelectorAll('#searchList .search-row').length,
-    firstTitle: (document.querySelector('#searchList .q-title') || {}).textContent || ''
+  // 推荐区：清空关键词/重开搜索时展示热门 + 榜单 + 电台三块
+  await page.evaluate(() => {
+    window.__playerDebug.renderDiscover({
+      hot: [{ id: 'netease:780001', title: '热门推荐 1', author: '推荐歌手 1', url: '/api/apps/hanako-audio-player/routes/widget/api/music/go/780001?server=netease', pic: '' }],
+      charts: [{ id: '3778678', name: '热歌榜', pic: '', note: '每天更新' }],
+      sheets: [{ id: '8904187604', name: '超火rap', pic: '', note: '109 首' }],
+      radios: [{ id: '1230174483', name: '你，静不下来', pic: '', category: '情感', programCount: 73 }]
+    });
+    window.__playerDebug.openSearch();
+    window.__playerDebug.clearSearch();
+  });
+  await sleep(500);
+  s.discover = await page.evaluate(() => ({
+    discoverVisible: window.__playerDebug.searchState().discoverVisible,
+    hotRows: document.querySelectorAll('#hotList .search-row').length,
+    hotFirst: (document.querySelector('#hotList .q-title') || {}).textContent || '',
+    chartCards: document.querySelectorAll('#chartsGrid .discover-card').length,
+    chartFirst: (document.querySelector('#chartsGrid .discover-card-name') || {}).textContent || '',
+    radioCards: document.querySelectorAll('#radiosGrid .discover-card').length,
+    radioFirst: (document.querySelector('#radiosGrid .discover-card-name') || {}).textContent || ''
   }));
-  assert('search-hot-recommendations',
-    s.hot.section === '热门推荐' && s.hot.rows === 3 && s.hot.firstTitle === '热门推荐 1',
-    JSON.stringify(s.hot));
-  await page.screenshot({ path: path.join(outDir, 'search-hot-1040x780-light.png') });
+  assert('search-discover-three-blocks',
+    s.discover.discoverVisible === true && s.discover.hotRows === 1 && s.discover.hotFirst === '热门推荐 1' &&
+    s.discover.chartCards === 2 && s.discover.chartFirst === '热歌榜' &&
+    s.discover.radioCards === 1 && s.discover.radioFirst === '你，静不下来',
+    JSON.stringify(s.discover));
+  await page.screenshot({ path: path.join(outDir, 'search-discover-1040x780-light.png') });
+
+  // 点一张榜单 → 拉曲目进结果区（推荐区隐去）
+  await page.evaluate(() => document.querySelector('#chartsGrid .discover-card').click());
+  await sleep(400);
+  s.chartOpen = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#searchList .search-row').length,
+    discoverVisible: window.__playerDebug.searchState().discoverVisible,
+    first: (document.querySelector('#searchList .q-title') || {}).textContent || ''
+  }));
+  assert('search-chart-opens-tracks',
+    s.chartOpen.rows === 2 && s.chartOpen.discoverVisible === false && s.chartOpen.first === '榜单曲 1',
+    JSON.stringify(s.chartOpen));
+
+  // 点一档电台 → 拉节目进结果区（每期是可播长音频）
+  await page.evaluate(() => { window.__playerDebug.clearSearch(); });
+  await sleep(400);
+  await page.evaluate(() => document.querySelector('#radiosGrid .discover-card').click());
+  await sleep(400);
+  s.radioOpen = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#searchList .search-row').length,
+    first: (document.querySelector('#searchList .q-title') || {}).textContent || ''
+  }));
+  assert('search-radio-opens-programs',
+    s.radioOpen.rows === 2 && s.radioOpen.first === '电台节目 1',
+    JSON.stringify(s.radioOpen));
 
   report.search = s;
   await page.close();

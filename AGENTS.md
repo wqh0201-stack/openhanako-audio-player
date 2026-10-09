@@ -184,7 +184,18 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   动效/视觉沿用现有语言（同一条 cubic-bezier、轻位移不抢镜、统一按压反馈、reduced-motion 退为纯淡入）。
   后端 `verify-backend.mjs` 仍 10/10（新增路由不改既有单测）。⚠️ **搜索结果会引入非网易云曲目**，
   即前面那颗「跨源静音雷」的真实验证场景。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **77/77** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页）
+- 推荐区（2026-10-10，**已部署**，构建号 1003131585）：搜索页空白时开**三个推荐区**
+  （罐头要「两种都要」）——
+  ① 热门推荐（歌曲，可逐首加入）；② 榜单 · 歌单（点开拉前 30 首）；③ 热门电台（点开拉节目）。
+  后端四个新路由（均走 `music.163.com` 官方接口，已在白名单；拿不到静默回空）：
+  `/widget/api/music/hot`（已有）、`/charts`（toplist + personalized/playlist）、
+  `/chart-tracks`（v6 详情取曲目）、`/radios`（djradio/recommend/v1）、
+  `/radio-programs`（dj/program/byradio，**必须带 Referer** 否则 code:-462）。
+  电台节目音轨（`mainSong.id`）走 Meting `type=url` 跳板即可播（302 → `*.music.126.net`，与普通歌同路）。
+  ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
+  接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
+  断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **79/79** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区）
 - 第六轮（舞台底部渐隐 + 顶部圆角，2026-10-09 罐头拍板）：
   ① `.scene::after` 的舞台底部渐隐**已整个撤掉**：先是从「固定 72px 刷主题面色」改成「按舞台高比例
      `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，真机看过之后罐头拍板**连这道也去掉** ——
