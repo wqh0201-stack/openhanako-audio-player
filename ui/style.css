@@ -1006,7 +1006,7 @@ button:disabled { cursor: default; }
    ------------------------------------------------------------
    层序：封面(z1) → 薄纱(z3) → 涟漪(z3) → 歌词/标题(z4)。
    涟漪在薄纱之上、文字之下 —— 封面区与歌词区都看得见，又不压字。
-   强度两档：无词 0.30（放），有词 0.19（收）；数值对齐 ripple-lab 的「波澜」滑杆。
+   强度两档：无词 0.50（放），有词 0.32（收）；数值对齐 ripple-lab 的「波澜」滑杆。
    颜色只从 CSS 变量取（Canvas 读计算后的 color），跟随主题。
    方案与行为约定见 docs/player-ui/RIPPLE-LAB.md。
    ============================================================ */
@@ -1034,11 +1034,12 @@ button:disabled { cursor: default; }
   background: var(--hk-surface);
   border-top: 1px solid var(--hk-hairline);
 }
-/* 控制条居中歌名（宽窗专属）：只显示歌名一行，居中；窄卡/长条不显示。 */
+/* 控制条歌名（宽窗专属）：居中、限宽（不抢右侧空间），超出省略号；窄卡/长条不显示。 */
 .ctl-title {
   display: none;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 240px;
   text-align: center;
   font-size: 13px;
   color: var(--hk-text);

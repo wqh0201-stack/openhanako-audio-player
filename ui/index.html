@@ -167,7 +167,7 @@
 
         <!-- 控制条第二行：🔍 歌名 ♡ ⟳ ⏮ (⏸) ⏭ 🔊 | ☰。
              最左「搜索」、最右「队列」都是纯图标（宽窗专属），左右对称；
-             歌名居中，只在宽窗显示。中间是常驻的播放控件。 -->
+             歌名居中、限宽（不挤右侧），只在宽窗显示。中间是常驻的播放控件。 -->
         <div class="btn-row">
           <button class="search-entry" id="searchEntryBtn" type="button" aria-label="搜索歌曲" title="搜索歌曲">
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
@@ -270,7 +270,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131597";</script>
+<script>window.__HANA_BUILD = "1003131599";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

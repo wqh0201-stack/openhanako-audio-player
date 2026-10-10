@@ -226,7 +226,8 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      最左端，收成**纯图标**；最右的队列也收成**纯图标**（宽窗隐藏 `.qb-label`，数字/「正在播放」
      提示不再占位）。两端同高、左右呼应。
   ② **歌名回到控制条**（罐头拍板）：把 `f2c7269` 那步删掉的歌名加回来 —— 新元素 `#ctlTitle`
-     （在 `renderTrack()` 里跟当前曲同步），落在「搜索」与「随机 ⟳」之间、**居中**，只显示歌名一行。
+     （在 `renderTrack()` 里跟当前曲同步），落在「搜索」与「随机 ⟳」之间、居中，**限宽**
+     （`max-width: 240px`，超出省略号），不挤右侧播放控件；只显示歌名一行。
   ③ **大卡片专属**：搜索图标与歌名都只在 `data-layout="wide"`（独立窗口）显示；窄卡/长条不显示
      （那里本来就没搜索这格）。`.controls-info` / `.ci-title` / `.ci-artist` 旧规则已删。
   断言：`search-entry-visible-in-window`（改判自身 display + 位置）/ `ctl-endpoints-symmetric-wide`（新）/
