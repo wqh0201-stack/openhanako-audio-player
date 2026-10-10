@@ -1037,7 +1037,7 @@ button:disabled { cursor: default; }
 /* 控制条歌名（宽窗专属）：占固定宽度（长短歌名不影响右侧），居中，超出省略号；窄卡/长条不显示。 */
 .ctl-title {
   display: none;
-  flex: 0 0 240px;
+  flex: 0 0 160px;
   min-width: 0;
   text-align: center;
   font-size: 13px;
@@ -1061,19 +1061,37 @@ button:disabled { cursor: default; }
 }
 #durTime { color: var(--hk-faint); }
 
-/* 设计稿第二行是三段式网格：左格（🔍 歌名 ♥ ⟳）｜中格（⏮ ▶ ⏭）｜右格（🔊 | ☰）。
-   grid 1fr auto 1fr 让中格恒居中 → 播放键固定落在底栏正中，左右内容宽窄不影响它。 */
+/* 第二行三段式网格：左格（🔍 歌名 ♡ ⟳）｜中格（⏮ ▶ ⏭）｜右格（🔊 — ☰）。
+   grid 1fr auto 1fr 让中格恒居中 → 播放键固定落在底栏正中，左右内容宽窄不影响它。
+   左格 space-between：🔍 与歌名不再贴脸、四项等距；右格靠右成组。 */
 .btn-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  column-gap: 12px;
+  column-gap: 24px;
   margin-top: 10px;
 }
-.cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.cell-left { justify-content: flex-start; }
-.cell-center { justify-content: center; }
-.cell-right { justify-content: flex-end; }
+.cell { display: flex; align-items: center; min-width: 0; }
+.cell-left { justify-content: space-between; }
+.cell-center { justify-content: center; gap: 18px; }
+.cell-right { justify-content: flex-end; gap: 20px; }
+/* 窄卡：按钮行展平为 7 等分（中心等距、play 落正中）；搜索/歌名本就只在宽窗显示；
+   队列也收成纯图标（与宽窗一致，且不带文字才撑得住等分格） */
+.player[data-layout="compact"] .cell,
+.player[data-layout="compact"] .vol-group { display: contents; }
+.player[data-layout="compact"] .ctl-divider,
+.player[data-layout="compact"] .qb-label { display: none; }
+.player[data-layout="compact"] .queue-btn {
+  width: 30px;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+}
+.player[data-layout="compact"] .btn-row {
+  grid-template-columns: repeat(7, 1fr);
+  column-gap: 0;
+  justify-items: center;
+}
 .vol-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
 /* 「歌词」与「队列」同一套文字按钮语言：常态弱化、激活只用强调色 */
@@ -1339,7 +1357,7 @@ button:disabled { cursor: default; }
 .player[data-layout="wide"] .ctl-title { display: block; }
 .player[data-layout="wide"] .search-entry { display: inline-flex; }
 .player[data-layout="wide"] .qb-label { display: none; }
-.player[data-layout="wide"] .range-vol { display: block; width: 88px; }
+.player[data-layout="wide"] .range-vol { display: block; width: 96px; }
 
 /* 宽窗：阅读列位置由 --content-x 决定，右边界固定 20px。
  * 抽屉是【浮在上层的独立面板】（.queue 为 absolute + z-index:6），
