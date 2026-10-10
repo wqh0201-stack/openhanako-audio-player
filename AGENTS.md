@@ -221,6 +221,16 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      照 `docs/player-ui/ripple-lab.html` 移植；仍**不读音频**。层序 z-index 2 → 3
      （薄纱之上、文字之下），强度两档（有词收 1.0 / 无词放 1.9，由 `data-haslyrics` 决定）。
   断言：`search-fav-toggles-fav`（原 `search-add-goes-to-fav`）/ `play-does-not-fav`。
+- 控制条重排：搜索/队列对称 + 歌名回控制条（2026-10-10，**已部署**，构建号 1003131597）：
+  ① **搜索与队列两端对称**（罐头拍板）：搜索入口从左侧竖列（原 `.controls-info`）挪进按钮行
+     最左端，收成**纯图标**；最右的队列也收成**纯图标**（宽窗隐藏 `.qb-label`，数字/「正在播放」
+     提示不再占位）。两端同高、左右呼应。
+  ② **歌名回到控制条**（罐头拍板）：把 `f2c7269` 那步删掉的歌名加回来 —— 新元素 `#ctlTitle`
+     （在 `renderTrack()` 里跟当前曲同步），落在「搜索」与「随机 ⟳」之间、**居中**，只显示歌名一行。
+  ③ **大卡片专属**：搜索图标与歌名都只在 `data-layout="wide"`（独立窗口）显示；窄卡/长条不显示
+     （那里本来就没搜索这格）。`.controls-info` / `.ci-title` / `.ci-artist` 旧规则已删。
+  断言：`search-entry-visible-in-window`（改判自身 display + 位置）/ `ctl-endpoints-symmetric-wide`（新）/
+  `search-entry-hidden-in-card` / `ctl-title-hidden-in-card`（新）。
 - 推荐区（2026-10-10，**已部署**，构建号 1003131585）：搜索页空白时开**三个推荐区**
   （罐头要「两种都要」）——
   ① 热门推荐（歌曲，可逐首加入）；② 榜单 · 歌单（点开拉前 30 首）；③ 热门电台（点开拉节目）。
@@ -232,7 +242,7 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
   接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
   断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **86/86** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **88/88** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名）
 - 指针涟漪（2026-10-10，**已部署**，构建号 1003131586）：**旧「频谱」整层替换为 Canvas 2D 指针涟漪**。
   方案与行为约定：`docs/player-ui/RIPPLE-CANVAS-2D.md`（罐头拿提示词请教前端高手后的作品，已落地）。
   层序改为：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)；涟漪落在文字与蒙层下方，

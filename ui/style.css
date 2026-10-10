@@ -1002,11 +1002,11 @@ button:disabled { cursor: default; }
    ============================================================ */
 
 /* ============================================================
-   指针涟漪（Canvas 2D 等高线波场）
+   指针涟漪（Canvas 2D 流光波场）
    ------------------------------------------------------------
    层序：封面(z1) → 薄纱(z3) → 涟漪(z3) → 歌词/标题(z4)。
    涟漪在薄纱之上、文字之下 —— 封面区与歌词区都看得见，又不压字。
-   强度两档：无词更放（当主角），有词更收（不扰读词）。
+   强度两档：无词 0.30（放），有词 0.19（收）；数值对齐 ripple-lab 的「波澜」滑杆。
    颜色只从 CSS 变量取（Canvas 读计算后的 color），跟随主题。
    方案与行为约定见 docs/player-ui/RIPPLE-LAB.md。
    ============================================================ */
@@ -1034,19 +1034,14 @@ button:disabled { cursor: default; }
   background: var(--hk-surface);
   border-top: 1px solid var(--hk-hairline);
 }
-.controls-info { display: none; min-width: 0; flex: 0 1 220px; }
-.ci-title {
+/* 控制条居中歌名（宽窗专属）：只显示歌名一行，居中；窄卡/长条不显示。 */
+.ctl-title {
+  display: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
   font-size: 13px;
-  font-weight: 600;
   color: var(--hk-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ci-artist {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--hk-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1125,6 +1120,13 @@ button:disabled { cursor: default; }
 .queue-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
 .queue-btn.is-static { opacity: 0.85; }
 .queue-btn.is-static:hover { background: none; color: var(--hk-muted); }
+/* 宽窗：队列收成纯图标（与最左搜索左右对称）。 */
+.player[data-layout="wide"] .queue-btn {
+  width: 30px;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+}
 
 /* 矮卡队列页：底栏右键语义变「正在播放」（纯呈现层切换，不动 app.js） */
 .qb-now { display: none; }
@@ -1328,7 +1330,9 @@ button:disabled { cursor: default; }
    布局三 · 宽窗：舞台在左，队列从右侧浮层打开
    ============================================================ */
 .player[data-layout="wide"] .scene { flex: 1 1 auto; }
-.player[data-layout="wide"] .controls-info { display: block; }
+.player[data-layout="wide"] .ctl-title { display: block; }
+.player[data-layout="wide"] .search-entry { display: inline-flex; }
+.player[data-layout="wide"] .qb-label { display: none; }
 .player[data-layout="wide"] .range-vol { display: block; width: 88px; }
 
 /* 宽窗：阅读列位置由 --content-x 决定，右边界固定 20px。
@@ -1436,26 +1440,24 @@ body.is-shot *::after {
 /* ============================================================
    搜索：左下角入口（仅独立窗口）+ 整页搜索层
    ------------------------------------------------------------
-   入口长在 .controls-info（只在 wide 布局显示）—— 也就是独立窗口底部
-   控制条最左那块。窄卡/长卡不显示（那里 control bar 本来就没这格）。
+   入口长在控制条按钮行最左（.search-entry，只在 wide 布局显示）—— 也就是独立窗口
+   底部那行的最左端，与最右的队列左右对称。窄卡/长卡不显示。
    搜索页是整页浮层（盖住 stage + controls），用 absolute 不用 fixed。
    动效沿用现有语言：cubic-bezier(0.22,0.61,0.36,1)、轻位移不抢镜、
    统一按压反馈，reduced-motion 下退为纯淡入（与队列/歌词同口径）。
    ============================================================ */
+/* 控制条最左搜索入口：纯图标（宽窗专属，与最右队列左右对称）。 */
 .search-entry {
-  display: inline-flex;
+  display: none;
   align-items: center;
-  gap: 7px;
-  max-width: 100%;
-  padding: 7px 12px;
-  border-radius: var(--radius-m, 8px);
-  border: 1px solid var(--hk-hairline);
-  background: var(--hk-surface);
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-s, 5px);
   color: var(--hk-muted);
-  font: inherit;
-  font-size: 13px;
   cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.1s ease-out;
+  transition: background-color 0.16s ease, color 0.16s ease, transform 0.1s ease-out;
 }
 .search-entry:hover { background: var(--hk-hover); color: var(--hk-text); }
 .search-entry:active { transform: scale(0.97); }

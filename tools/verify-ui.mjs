@@ -1214,23 +1214,35 @@ const motion = {};
   await sleep(700);
 
   const s = {};
-  // 入口仅独立窗口（wide）可见；留在控制条左侧原位置
+  // 入口仅独立窗口（wide）可见；现在长在按钮行最左，与最右队列左右对称；歌名居中显示
   s.entryVisibleWide = await page.evaluate(() => {
     const b = document.getElementById('searchEntryBtn');
     const r = b.getBoundingClientRect();
-    const host = b.closest('.controls-info');
-    return { shown: getComputedStyle(host).display !== 'none' && r.width > 0, left: Math.round(r.left) };
+    const row = b.closest('.btn-row');
+    const qb = document.getElementById('queueBtn');
+    const ct = document.getElementById('ctlTitle');
+    return {
+      shown: getComputedStyle(b).display !== 'none' && r.width > 0,
+      firstInRow: !!row && row.firstElementChild === b,
+      qbIconOnly: getComputedStyle(qb.querySelector('.qb-label')).display === 'none',
+      titleShown: getComputedStyle(ct).display !== 'none' && ct.textContent.trim().length > 0
+    };
   });
   assert('search-entry-visible-in-window', s.entryVisibleWide.shown === true, JSON.stringify(s.entryVisibleWide));
+  assert('ctl-endpoints-symmetric-wide',
+    s.entryVisibleWide.firstInRow === true && s.entryVisibleWide.qbIconOnly === true && s.entryVisibleWide.titleShown === true,
+    JSON.stringify(s.entryVisibleWide));
 
-  // 窄卡（compact 高<560）下入口应隐藏
+  // 窄卡（compact 高<560）下入口与歌名都应隐藏
   await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
   await sleep(300);
   s.entryHiddenCard = await page.evaluate(() => {
     const b = document.getElementById('searchEntryBtn');
-    return getComputedStyle(b.parentElement).display === 'none' || b.getBoundingClientRect().width === 0;
+    return getComputedStyle(b).display === 'none' || b.getBoundingClientRect().width === 0;
   });
   assert('search-entry-hidden-in-card', s.entryHiddenCard === true, String(s.entryHiddenCard));
+  s.titleHiddenCard = await page.evaluate(() => getComputedStyle(document.getElementById('ctlTitle')).display === 'none');
+  assert('ctl-title-hidden-in-card', s.titleHiddenCard === true, String(s.titleHiddenCard));
 
   // 回到独立窗，开搜索页 → 直接喂假结果 → 点行尾红心 → 曲目落进「我的喜欢」
   await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });

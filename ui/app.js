@@ -1017,12 +1017,14 @@
     var t = currentTrack();
     var favBtn = $('stageFavBtn');
     var favTextBtn = $('favBtn');
+    var ctlTitle = $('ctlTitle');   // 控制条居中歌名（宽窗专属）
     /* 播放页红心是空标签（只有外壳），图标得自己塞（只塞一次）。 */
     if (favBtn && !favBtn.querySelector('use')) favBtn.innerHTML = icon('i-heart');
     if (!t) {
       $('trackTitle').textContent = '还没有曲目';
       $('trackArtist').textContent = '用右上角的 ＋ 导入';
       $('trackMeta').textContent = '';
+      if (ctlTitle) { ctlTitle.textContent = ''; ctlTitle.title = ''; }
       paintFav(favBtn, null);
       paintFav(favTextBtn, null);
       if (favBtn) favBtn.hidden = true;   // 没曲目可喜欢，不留孤零零一颗心
@@ -1036,6 +1038,7 @@
     /* 副标题只放真歌手：拿不到就留空省略，不把来源/分组冒充歌手（R3） */
     $('trackArtist').textContent = t.author || '';
     $('trackMeta').textContent = metaLine(t);
+    if (ctlTitle) { ctlTitle.textContent = t.title || ''; ctlTitle.title = t.title || ''; }
     paintFav(favBtn, t);
     paintFav(favTextBtn, t);
     if (favBtn) favBtn.hidden = false;
@@ -1204,10 +1207,11 @@
   /* ============================================================
      指针涟漪（Canvas 2D 装饰层）：兼顶旧「频谱」的位置
      ------------------------------------------------------------
-     2026-10-10 换为「等高线波场」：照 docs/player-ui/ripple-lab.html 移植
-     双缓冲高度场 + 等高线（每 3 行一条横线，纵坐标被波场推开）+ 压扁圆环。
+     2026-10-10 采用「流光」：照 docs/player-ui/ripple-lab.html 的 light 模式移植
+     双缓冲高度场 → 水面法线化成明暗（低分辨率放大成柔光）+ 压扁圆环。
      仍然**不读音频**——纯指针驱动，跨源静音雷不复存在。
-     强度两档（由 #player[data-haslyrics] 决定）：无词 1.9（放），有词 1.0（收）。
+     强度两档（由 #player[data-haslyrics] 决定）：无词 0.30（放），有词 0.19（收）；
+     数值对齐 lab 的「波澜」滑杆（0.3 比 lab 最低档 0.6 还轻一半）。
      层序：涟漪在薄纱之上、文字之下 —— 封面区与歌词区都可见，又不压字。
      行为约定：
        · 指针移动累计路程才落波；按下 → 更大的多层环；
@@ -1229,12 +1233,14 @@
     var cols = 0, rows = 0, field = null, previous = null, fieldEnergy = 0;
     var playing = !!(audio && !audio.paused && !audio.ended);
     var destroyed = false, inView = true, drain = 0;
-    var point = null, travel = 0, emitted = 0, inputAt = 0;
+    var point = null, travel = 0, emitted = 0, inputAt = 0, sinceInject = 0;
+    var low = null, lc = null, pixels = null, rgbCache = null, rgbKey = '';
     var dprQuery;
     var pointerOptions = { passive: true, capture: true };
-    var MAX_WAVES = 18, MAX_TRAIL = 40;
-    /* 强度两档：无词更放（水面当主角），有词更收（不扰读词）。 */
-    function strength() { return (player && player.getAttribute('data-haslyrics') === '1') ? 1.0 : 1.9; }
+    var MAX_WAVES = 22, MAX_TRAIL = 40;
+    /* 强度两档：无词更放（水面当主角），有词更收（不扰读词）。
+       数值对齐 docs/player-ui/ripple-lab.html 的「波澜」滑杆 —— 0.3 比 lab 最低档 0.6 还轻一半。 */
+    function strength() { return (player && player.getAttribute('data-haslyrics') === '1') ? 0.19 : 0.30; }
 
     function shot() { return document.body.classList.contains('is-shot'); }
     function blocked() {
@@ -1243,7 +1249,7 @@
     }
     function clear() { ctx.clearRect(0, 0, width, height); }
     function stop() { cancelAnimationFrame(raf); clearTimeout(timer); raf = timer = last = accumulator = 0; }
-    function resetPointer() { point = null; travel = 0; }
+    function resetPointer() { point = null; travel = 0; sinceInject = 0; }
     function needsFrame() {
       return !!(waves.length || trail.length || fieldEnergy > 0.00002 || drain > 0);
     }
@@ -1262,6 +1268,10 @@
       rows = Math.max(3, Math.min(160, Math.round(height / 4.8)));
       field = new Float32Array(cols * rows);
       previous = new Float32Array(cols * rows);
+      /* 流光要一块低分辨率画布：高度场先化成明暗图，再放大成柔光。 */
+      if (!low) { low = document.createElement('canvas'); lc = low.getContext('2d'); }
+      low.width = cols; low.height = rows;
+      pixels = lc.createImageData(cols, rows);
       fieldEnergy = 0;
       resetPointer();
       if (!blocked()) draw();
@@ -1306,20 +1316,39 @@
       fieldEnergy = sum / (cols * rows);
     }
 
-    /* 等高线：每 3 行一条横线，纵坐标被高度场推开 —— 波过处线网起伏。 */
-    function paintContours(fade, s) {
-      var sx = width / (cols - 1), sy = height / (rows - 1);
-      ctx.strokeStyle = getComputedStyle(canvas).color;
-      ctx.lineWidth = 0.7;
-      for (var y = 3; y < rows - 3; y += 3) {
-        ctx.globalAlpha = 0.09 * s * fade;
-        ctx.beginPath();
-        for (var x = 1; x < cols - 1; x++) {
-          var px = x * sx, py = y * sy + field[y * cols + x] * 9 * s;
-          if (x === 1) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-        }
-        ctx.stroke();
+    /* 把 --hl-accent 解成 [r,g,b]：能从 rgb() 串直接取就直接取，取不到用 1×1 画布兜底。 */
+    function resolveRGB(col) {
+      if (col === rgbKey && rgbCache) return rgbCache;
+      var out, m = /rgba?\(([^)]+)\)/.exec(col);
+      if (m) {
+        var q = m[1].split(/[,\s\/]+/);
+        out = [parseFloat(q[0]) || 0, parseFloat(q[1]) || 0, parseFloat(q[2]) || 0];
+      } else {
+        var probe = document.createElement('canvas'); probe.width = probe.height = 1;
+        var pc = probe.getContext('2d'); pc.fillStyle = col; pc.fillRect(0, 0, 1, 1);
+        var d = pc.getImageData(0, 0, 1, 1).data; out = [d[0], d[1], d[2]];
       }
+      rgbCache = out; rgbKey = col; return out;
+    }
+
+    /* 流光：把高度场当水面法线，用「边缘 + 坡度」化成明暗，低分辨率放大 —— 波过处一片柔光漫开。 */
+    function paintField(fade, s) {
+      if (!pixels) return;
+      var rgb = resolveRGB(getComputedStyle(canvas).color);
+      var data = pixels.data;
+      for (var y = 1; y < rows - 1; y++) {
+        for (var x = 1; x < cols - 1; x++) {
+          var i = y * cols + x, o = i * 4;
+          var dx = field[i + 1] - field[i - 1], dy = field[i + cols] - field[i - cols];
+          var edge = Math.abs(dx * 0.65 + dy * 0.85), slope = Math.sqrt(dx * dx + dy * dy);
+          var a = Math.min(0.64, (edge * 0.22 + slope * 0.06) * s);
+          data[o] = rgb[0]; data[o + 1] = rgb[1]; data[o + 2] = rgb[2]; data[o + 3] = Math.round(a * 255);
+        }
+      }
+      lc.putImageData(pixels, 0, 0);
+      ctx.globalAlpha = fade;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(low, 0, 0, width, height);
     }
 
     /* 压扁的椭圆环（水面透视），形状带一点随机扰动。 */
@@ -1342,7 +1371,7 @@
       ctx.strokeStyle = getComputedStyle(canvas).color;
       var fade = drain > 0 ? Math.min(1, drain / 0.4) : 1;
       var s = strength();
-      if (fieldEnergy > 0.00001) paintContours(fade, s);
+      if (fieldEnergy > 0.00001) paintField(fade, s);
       for (var i = 0; i < waves.length; i++) {
         var w = waves[i], p = w.age / w.life;
         var birth = Math.min(1, w.age / 0.10), end = Math.pow(1 - p, 1.8);
@@ -1364,7 +1393,7 @@
       if (trail.length > 1) {
         for (var t = 1; t < trail.length; t++) {
           ctx.strokeStyle = getComputedStyle(canvas).color;
-          ctx.globalAlpha = Math.max(0, 1 - trail[t].age / 0.65) * 0.45 * fade;
+          ctx.globalAlpha = Math.max(0, 1 - trail[t].age / 0.65) * 0.45 * Math.min(1, s) * fade;
           ctx.lineWidth = 0.65 + 1.8 * (1 - trail[t].age / 0.65);
           ctx.beginPath();
           ctx.moveTo(trail[t - 1].x * width, trail[t - 1].y * height);
@@ -1467,14 +1496,17 @@
         var dist = Math.sqrt(dx * dx + dy * dy);
         var speed = dist / Math.max(1, p.t - point.t);
         travel = speed > 0.055 ? travel + dist : 0;
-        if (speed > 0.07 && dist > 1) {
+        sinceInject = speed > 0.055 ? sinceInject + dist : 0;
+        /* 指针不再「见动就喂」：累计走够 8px 才落一笔，波才散得开；慢速游走完全不落笔。 */
+        if (speed > 0.07 && sinceInject > 8) {
           trail.push({ x: p.x, y: p.y, age: 0 });
           if (trail.length > MAX_TRAIL) trail.shift();
           inject(p.x, p.y, 1.6, Math.min(1.4, speed) * strength() * 0.35);
+          sinceInject = 0;
           wake();
         }
-        if (travel > 18 && p.t - emitted > 65) {
-          drop(p.x, p.y, Math.min(1.2, 0.4 + speed * 0.35));
+        if (travel > 30 && p.t - emitted > 130) {
+          drop(p.x, p.y, Math.min(1.0, 0.35 + speed * 0.3));
           travel = 0; emitted = p.t;
         }
       }

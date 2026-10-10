@@ -34,7 +34,7 @@
           <div class="lyrics" id="lyrics"></div>
         </div>
 
-        <!-- 指针涟漪：Canvas 2D 等高线波场，不读音频。落在封面/薄纱之上、文字之下，
+        <!-- 指针涟漪：Canvas 2D 流光波场，不读音频。落在封面/薄纱之上、文字之下，
              封面区与歌词区都可见。方案见 docs/player-ui/RIPPLE-LAB.md。 -->
         <canvas class="ripple-canvas" id="rippleCanvas" aria-hidden="true"></canvas>
       </div>
@@ -158,13 +158,6 @@
 
     <!-- 底部播放控制：三种布局常驻 -->
     <footer class="controls" id="controls">
-      <div class="controls-info">
-        <button class="search-entry" id="searchEntryBtn" type="button" aria-label="搜索歌曲" title="搜索歌曲">
-          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
-          <span>搜索歌曲</span>
-        </button>
-      </div>
-
       <div class="controls-main">
         <div class="progress-row">
           <span class="time" id="curTime">1:03</span>
@@ -172,10 +165,15 @@
           <span class="time" id="durTime">4:44</span>
         </div>
 
-        <!-- 控制条第二行：设计稿节奏 ♡ ⟳ ⏮ (⏸) ⏭ 🔊 | ☰ 队列，整行均分间距。
-             最左是「喜欢」红心（常驻，任何时候够得着），点亮加/取消当前曲。
-             纯图标，与队列行红心同一套视觉（不再带「喜欢」文字）。 -->
+        <!-- 控制条第二行：🔍 歌名 ♡ ⟳ ⏮ (⏸) ⏭ 🔊 | ☰。
+             最左「搜索」、最右「队列」都是纯图标（宽窗专属），左右对称；
+             歌名居中，只在宽窗显示。中间是常驻的播放控件。 -->
         <div class="btn-row">
+          <button class="search-entry" id="searchEntryBtn" type="button" aria-label="搜索歌曲" title="搜索歌曲">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
+          </button>
+          <div class="ctl-title" id="ctlTitle"></div>
+
           <button class="fav-btn fav-btn-bar" id="favBtn" type="button" aria-pressed="false" aria-label="加入我的喜欢" title="加入我的喜欢">
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-heart"></use></svg>
           </button>
@@ -272,7 +270,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131594";</script>
+<script>window.__HANA_BUILD = "1003131597";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
