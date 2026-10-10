@@ -2307,6 +2307,43 @@ let lifecycle = {};
     blockedState.playing === '0' && blockedState.title === '在线曲目 1';
   await blocked.screenshot({ path: path.join(outDir, 'resume-chip-465x930-light.png') });
   await blocked.close();
+
+  /* 快照自带曲目：盘上 playlist.json 还没有它时（刚点搜索结果直接播就拖走，
+   * 没有任何 savePlaylist 触发过）也要能续上同一首，而不是回退到列表第一首。 */
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const orphan = {
+    id: 'netease:777777', list: 'recent', name: '孤儿曲目', url: goUrl(777777),
+    mode: '在线', dur: 0, group: '', author: '孤儿歌手'
+  };
+  const snapSeed = {
+    currentId: 'recent|netease:777777', activeList: 'recent', progress: 5,
+    volume: 0.8, muted: false, mode: 'list', playing: true, shuffleTrail: [], currentTrack: orphan
+  };
+  for (let i = 0; i < 4; i++) {
+    await fetch(`${BASE}${API}/api/playback-state?appSurfaceSession=fake-ticket`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(snapSeed)
+    });
+    await sleep(120);
+    const chk = await (await fetch(`${BASE}${API}/api/playback-state?appSurfaceSession=fake-ticket`)).json();
+    if (chk.state && chk.state.currentId === 'recent|netease:777777') break;
+  }
+  const orphanPage = await newPage();
+  await orphanPage.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await orphanPage.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await orphanPage.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(1000);
+  const orphanState = await orphanPage.evaluate(() => ({
+    title: document.getElementById('trackTitle').textContent,
+    activeList: document.querySelector('#listTabs .list-tab.is-active').getAttribute('data-list'),
+    queueText: document.getElementById('queueList').textContent,
+    cur: document.getElementById('audio').currentTime
+  }));
+  lifecycle.snapshotTrack = orphanState;
+  lifecycle.snapshotTrackOk =
+    orphanState.title === '孤儿曲目' && orphanState.activeList === 'recent' &&
+    orphanState.queueText.indexOf('孤儿曲目') >= 0 && orphanState.cur >= 4.5;
+  await orphanPage.close();
+
   report.lifecycle = lifecycle;
 }
 
@@ -2342,7 +2379,7 @@ const migrationOk = report.migration && report.migration.idempotent === true &&
   report.migration.firstCounts.per['imp:2'] === 4 &&
   report.migration.firstCounts.per['imp:3'] === 3 &&
   report.migration.firstCounts.per['imp:4'] === 2;
-const lifecycleOk = report.lifecycle && report.lifecycle.crossOk === true && report.lifecycle.blockedOk === true;
+const lifecycleOk = report.lifecycle && report.lifecycle.crossOk === true && report.lifecycle.blockedOk === true && report.lifecycle.snapshotTrackOk === true;
 
 fs.writeFileSync(path.join(outDir, 'verify.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({

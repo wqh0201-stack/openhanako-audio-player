@@ -254,7 +254,7 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
   接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
   断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **101/101** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名 + 切换条溢出/跟随 + 音量浮层）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **106/106** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期（含「快照自带曲目」续播）+ 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名 + 切换条溢出/跟随 + 音量浮层）
 - 指针涟漪（2026-10-10，**已部署**，构建号 1003131586）：**旧「频谱」整层替换为 Canvas 2D 指针涟漪**。
   方案与行为约定：`docs/player-ui/RIPPLE-CANVAS-2D.md`（罐头拿提示词请教前端高手后的作品，已落地）。
   层序改为：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)；涟漪落在文字与蒙层下方，
@@ -366,8 +366,23 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      （`vol-pop-hit-under-drawer` / `vol-pop-hit-under-search`）。
   验收：`node tools/verify-ui.mjs` **103/103** 断言（新增 `ctl-transport-geometry` / `ctl-flank-slots-wide`）、
   12/12 布局、4/4 窄卡、零运行时错误。交接：`docs/player-ui/QUIET-CONTROLS-DONE.md`。
+- 拖进/拖出「播放不割裂」（2026-10-10，**已部署**，构建号 1003131613）：修罐头报的
+  「独立窗播 B站歌 → 贴回卡片后停播/换歌/不进最近播放；网易云歌还在但从头播」。
+  机制前提：拆窗/停靠 = **每个窗口文档都是全新 iframe**，只能靠旧文档 `pagehide` 落快照、
+  新文档读回续播；旧快照只带 `currentId`，歌还得靠 `playlist.json` 认领，bug 出在认领。
+  ① **B站丢歌**：`playTrack` 换曲只写 playback-state、不写 playlist；过去只有「dur 未知 →
+     loadedmetadata 补时长 → 1.5s 后 savePlaylist」这条偶然路径会落盘。Meting 搜索结果被
+     `normalizeTrack` 丢了 `dur`（=0）所以会落；**B站 `dur` 在搜索结果里就有 → 不落 →
+     新文档认不到 → 回退到列表第一首（且最近播放里没有）**。修：快照新增
+     `currentTrack`（整条），新文档 uid/裸 id 都找不到时直接重建；`playTrack` 换曲即 `savePlaylist()`。
+  ② **网易云从头播**：起播后首个 `timeupdate`（t≈0）会把 `state.progress` 冲成 0 并落盘；
+     且 seek 重试窗口只有 3s（分片代理常来不及可 seek）。修：`pendingSeek>0` 时 `timeupdate`
+     不写 progress；窗口 3s→9s，放弃时清 `pendingSeek`；快照 `playing` 加兜底（卸载时「刚还在播」
+     <1.2s 仍算在播，防 `pause` 抢在 `pagehide` 前写回 false）。
+  断言新增 `lifecycle.snapshotTrackOk`（播种「当前曲目不在 playlist 里」的快照，新文档必须
+  恢复成同一首 + 进度≥4.5s）。验收 **106/106** 断言。交接：`docs/player-ui/REFINE-DONE-RESUME.md`。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
-- 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
+- 待办：独立窗/小卡音频不中断（pagehide/beacon 落盘 + 续播，2026-10-10 已补「快照自带曲目 + 换曲即落盘 + 进度护栏」，构建号 1003131613，**仍需真机拖拽复核一次**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
   §五-3（底部渐隐）已改（第六轮）：**底部渐隐整个撤掉**（底边硬切，只留歌词那侧往左的淡入）；
   顶部圆角一并补上（14px），均待真机复核。
 

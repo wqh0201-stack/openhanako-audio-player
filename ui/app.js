@@ -208,6 +208,10 @@
     return v;
   }
   function snapshot() {
+    var ct = currentTrack();
+    /* 在播判定：正常看 state.playing；但卸载时若刚还在播（<1.2s），
+     * 即便 audio 已被迫 pause 也仍算在播 —— 否则新文档不会续播。 */
+    var playing = !!state.playing || (unloading && lastPlayingAt && (Date.now() - lastPlayingAt) < 1200);
     return {
       currentId: state.currentUid,
       activeList: state.activeList,
@@ -215,9 +219,14 @@
       volume: state.volume,
       muted: !!state.muted,
       mode: state.mode,
-      playing: !!state.playing,
+      playing: !!playing,
       /* 随机模式的来路：拖进/拖出会整份换文档，不落盘就丢了 */
-      shuffleTrail: shuffleTrail.slice(-SHUFFLE_TRAIL_MAX)
+      shuffleTrail: shuffleTrail.slice(-SHUFFLE_TRAIL_MAX),
+      /* 当前曲目整条带上（拖进/拖出 = 整份文档被换掉）。
+       * playlist.json 的写入是异步的：点搜索结果直接播的那一刻，盘上可能还没有这条
+       * （没有任何 savePlaylist 触发过），新文档按 currentId 找不到 → 回退到列表第一首。
+       * 把整条曲目放进快照，新文档可直接重建，不再赌盘上的 playlist 够不够新。 */
+      currentTrack: ct ? toStoredTrack(ct) : null
     };
   }
 
@@ -2095,8 +2104,11 @@
   }
 
   /* 卸载期：拖进/拖出 = 整份文档被换掉，audio 销毁可能补发一次 pause。
-   * 那一下不能当成「用户暂停」写回 playing=false，否则新文档读到 false 就永不续播。 */
+   * 那一下不能当成「用户暂停」写回 playing=false，否则新文档读到 false 就永不续播。
+   * 但 pause 有时跑在 pagehide 前面（那时 unloading 还没置位）—— 所以另记
+   * lastPlayingAt，快照时若「刚还在播」就仍算在播，不让一次被迫暂停把续播灭掉。 */
   var unloading = false;
+  var lastPlayingAt = 0;
 
   function flushOnTeardown() {
     unloading = true;   // 之后 audio 销毁补发的 pause 不写回
@@ -2128,10 +2140,15 @@
   function scheduleSeekRetry() {
     if (seekRetryTimer || !(pendingSeek > 0)) return;
     var tries = 0;
+    /* 续播落点可能要等媒体缓冲/可 seek 才能落（分片代理尤甚），窗口给宽一点（约 9s）；
+     * 仍落不下去就放弃并清 pendingSeek，否则 timeupdate 会永远被挡住、进度条冻死。 */
     seekRetryTimer = setInterval(function () {
       tries++;
       applyPendingSeek();
-      if (pendingSeek <= 0 || tries > 20) { clearInterval(seekRetryTimer); seekRetryTimer = 0; }
+      if (pendingSeek <= 0 || tries > 60) {
+        clearInterval(seekRetryTimer); seekRetryTimer = 0;
+        if (pendingSeek > 0) { pendingSeek = 0; renderProgress(); }
+      }
     }, 150);
   }
   function applyPendingSeek() {
@@ -2173,6 +2190,10 @@
 
   audio.addEventListener('timeupdate', function () {
     if (!isFinite(audio.currentTime)) return;
+    if (!audio.paused) lastPlayingAt = Date.now();
+    /* 续播落点还没到位时，不要拿刚起播的 0 把 state.progress 冲掉 ——
+     * 那会让刚落盘的位置立刻变 0（下一次拖走就从头播）。落点到位或放弃后自动恢复。 */
+    if (pendingSeek > 0) { updateLyricIndex(false); syncPositionState(); return; }
     state.progress = audio.currentTime;
     renderProgress();
     updateLyricIndex(false);
@@ -2433,6 +2454,10 @@
     if (changed && !t.detached) recordRecent(t);
     if (changed && state.mode === 'shuffle') shuffleTrailPush(uid);
     if (changed && !keepProgress) state.progress = 0;
+    /* 换曲时立刻把列表落盘：最近播放/当前曲目必须能在下一次拖进拖出时被找到。
+     * 以前只有「dur 未知」的曲目会因 loadedmetadata 触发一次 savePlaylist，
+     * 搜索/榜单里带 dur 的曲目（尤其 B站）就永远不落盘 —— 拖走即丢歌。 */
+    if (changed) savePlaylist();
     if (changed) {
       lyricIndex = -1;
       state.follow = true;
@@ -4096,6 +4121,28 @@
     if (!t && pb && pb.currentId) {
       for (var i = 0; i < state.tracks.length; i++) {
         if (state.tracks[i].id === pb.currentId) { t = state.tracks[i]; break; }
+      }
+    }
+    // 盘上都没有：用快照里自带的整条曲目重建（刚播就拖走，playlist.json 还没落盘）
+    if (!t && pb && pb.currentTrack && typeof pb.currentTrack === 'object') {
+      var ct = normalizeTrack(pb.currentTrack);
+      if (ct.id && ct.url) {
+        var wantList = listOf(ct) || 'recent';
+        if (!findList(wantList)) {
+          wantList = findList('recent') ? 'recent' : (findList('local') ? 'local' : (state.lists[0] ? state.lists[0].id : 'local'));
+        }
+        ct.list = wantList;
+        ct.uid = uidOf(ct);
+        var already = trackByUid(ct.uid);
+        if (already) {
+          t = already;
+        } else {
+          ensureList(wantList, defaultListName(wantList));
+          state.tracks.push(ct);
+          t = ct;
+          savePlaylist();   // 重建完顺手落盘，下次拖进拖出就不用再靠快照了
+          saveLists();
+        }
       }
     }
     if (!t) t = visibleTracks()[0] || state.tracks[0] || null;
