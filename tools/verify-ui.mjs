@@ -280,7 +280,9 @@ const server = http.createServer((req, res) => {
     const id = u.searchParams.get('id') || '0';
     const tracks = Array.from({ length: 5 }, (_, i) => ({ id: `netease:${id}${i}`, title: `歌单曲目 ${i + 1}`, author: '测试', url: goUrl(`${id}${i}`), pic: '', lrc: '' }));
     const server = u.searchParams.get('server') || 'netease';
-    return json(res, 200, { ok: true, tracks, host: 'mock', ...(server === 'netease' ? { meta: PLAYLIST_META } : {}) });
+    /* id=888 固定返回真名夹具；其余按 id 生成不同名 —— 溢出测试要能造出多个歌单 */
+    const meta = id === '888' ? PLAYLIST_META : { name: '歌单 ' + id, creator: 'Can_0201', cover: '', trackCount: 12 };
+    return json(res, 200, { ok: true, tracks, host: 'mock', ...(server === 'netease' ? { meta } : {}) });
   }
   if (p === API + '/widget/api/import-file') {
     const src = u.searchParams.get('path') || '';
@@ -1075,6 +1077,61 @@ const motion = {};
     !!imported && imported.label === 'Can_0201' && imported.title === 'Can_0201喜欢的音乐',
     JSON.stringify(imported));
   await page.screenshot({ path: path.join(outDir, 'list-realname-465x930-light.png') });
+
+  // ---- (e2) 切换条溢出：两侧按需渐隐 + 切列表时当前项自动滚入视野
+  // 再导 3 个歌单把切换条撑溢（窄卡 465 宽：4 个固定列表 + 4 个导入歌单必然溢出）
+  for (const pid of ['901', '902', '903']) {
+    await page.evaluate((id) => {
+      document.getElementById('importBtn').click();
+      document.getElementById('linkInput').value = 'https://music.163.com/#/playlist?id=' + id;
+      document.getElementById('linkAddBtn').click();
+    }, pid);
+    await sleep(700);
+  }
+  await clickTab(page, 'fav');   // 回到第一个 tab：此时只有右侧还有内容
+  await sleep(300);
+  const tabOverflow = await page.evaluate(() => {
+    const el = document.getElementById('listTabs');
+    const cs = getComputedStyle(el);
+    return {
+      count: el.querySelectorAll('.list-tab').length,
+      scrollW: el.scrollWidth, clientW: el.clientWidth,
+      overflow: el.scrollWidth - el.clientWidth > 1,
+      fadeR: el.classList.contains('is-scroll-r'),
+      fadeL: el.classList.contains('is-scroll-l'),
+      scrollLeft: Math.round(el.scrollLeft),
+      mask: String(cs.maskImage || cs.webkitMaskImage || '')
+    };
+  });
+  // 切到最后一个 tab —— 它应被自动带进视野（scrollLeft > 0 且右边缘不越界）
+  await page.evaluate(() => {
+    const tabs = document.querySelectorAll('#listTabs .list-tab');
+    tabs[tabs.length - 1].click();
+  });
+  await sleep(400);
+  const lastTab = await page.evaluate(() => {
+    const el = document.getElementById('listTabs');
+    const tabs = el.querySelectorAll('.list-tab');
+    const t = tabs[tabs.length - 1];
+    const cr = el.getBoundingClientRect(), tr = t.getBoundingClientRect();
+    return {
+      activeIsLast: t.classList.contains('is-active'),
+      scrollLeft: Math.round(el.scrollLeft),
+      rightGap: Math.round(cr.right - tr.right),
+      fadeL: el.classList.contains('is-scroll-l'),
+      fadeR: el.classList.contains('is-scroll-r')
+    };
+  });
+  w2.tabOverflow = { tabOverflow, lastTab };
+  assert('list-tabs-overflow-fade',
+    tabOverflow.overflow === true && tabOverflow.fadeR === true && tabOverflow.fadeL === false &&
+    tabOverflow.scrollLeft === 0 && /gradient/.test(tabOverflow.mask),
+    JSON.stringify(tabOverflow));
+  assert('list-tabs-active-scrolls-into-view',
+    lastTab.activeIsLast === true && lastTab.scrollLeft > 0 && lastTab.rightGap >= -1 &&
+    lastTab.fadeL === true && lastTab.fadeR === false,
+    JSON.stringify(lastTab));
+  await page.screenshot({ path: path.join(outDir, 'list-tabs-overflow-465x930-light.png') });
 
   // ---- (f) 长按导入列表 → 弹删除浮层（不误切列表），取消后无变化
   await clickTab(page, 'imp:2');

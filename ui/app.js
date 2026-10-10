@@ -1050,6 +1050,27 @@
     syncMediaSession();
   }
 
+  /* 歌单切换条的溢出处理：原生横向滚 + 两侧按需渐隐 + 当前项跟随。
+   * 为什么不能只靠 overflow-x：滚动条藏了，用户看不出「后面还有」。
+   * 为什么不能每次重渲染都把当前项滚进来：点心/移出也会重渲染，那会抢走用户手动滚的位置；
+   * 所以只在「激活项真的换了」时才滚（lastActiveTabId 比对）。 */
+  var lastActiveTabId = null;
+  var TAB_PAD = 14;   // 与 .list-tabs 左右 padding 一致，改 CSS 要同步
+  function updateTabFade() {
+    if (!listTabs) return;
+    var max = listTabs.scrollWidth - listTabs.clientWidth;
+    var over = max > 1;
+    listTabs.classList.toggle('is-scroll-l', over && listTabs.scrollLeft > 1);
+    listTabs.classList.toggle('is-scroll-r', over && listTabs.scrollLeft < max - 1);
+  }
+  function ensureTabVisible(tab) {
+    if (!tab || !listTabs) return;
+    var sl = listTabs.scrollLeft, vw = listTabs.clientWidth;
+    var l = tab.offsetLeft, r = l + tab.offsetWidth;
+    if (l < sl + TAB_PAD) listTabs.scrollLeft = Math.max(0, l - TAB_PAD);
+    else if (r > sl + vw - TAB_PAD) listTabs.scrollLeft = r - vw + TAB_PAD;
+    updateTabFade();
+  }
   function renderListTabs() {
     if (!listTabs) return;
     var html = '';
@@ -1062,6 +1083,11 @@
         ' title="' + esc(l.name || label) + '">' + esc(label) + '</button>';
     }
     listTabs.innerHTML = html;
+    if (state.activeList !== lastActiveTabId) {
+      lastActiveTabId = state.activeList;
+      ensureTabVisible(listTabs.querySelector('.list-tab.is-active'));
+    }
+    updateTabFade();
   }
 
   /* 列表空时的安静引导（不是空白） */
@@ -2703,6 +2729,17 @@
   /* 顶部歌单切换条 */
   var suppressTabId = '';   // 长按弹删除浮层后，紧随释放的 click 不当作切列表
   if (listTabs) {
+    // 溢出提示：滚动位置一变就重算两侧渐隐；宿主改宽（ResizeObserver）也要跟着重算
+    listTabs.addEventListener('scroll', updateTabFade, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(updateTabFade).observe(listTabs);
+    // 鼠标竖滚轮 → 横向滚（触控板/触摸本来就能横滑；鼠标用户原来只能按住 shift）
+    listTabs.addEventListener('wheel', function (e) {
+      if (listTabs.scrollWidth - listTabs.clientWidth <= 1) return;
+      var d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!d) return;
+      e.preventDefault();
+      listTabs.scrollLeft += d;
+    }, { passive: false });
     listTabs.addEventListener('click', function (e) {
       var tab = e.target.closest('.list-tab');
       if (!tab) return;

@@ -706,8 +706,16 @@ button:disabled { cursor: default; }
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  /* 溢出提示：滚动条藏了以后完全看不出「后面还有」，所以两侧按需渐隐。
+   * 两个变量由 JS 依 scrollLeft 切（is-scroll-l / is-scroll-r），只在真溢出且那一侧还有内容时亮。 */
+  --tab-fade-l: 0px;
+  --tab-fade-r: 0px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--tab-fade-l), #000 calc(100% - var(--tab-fade-r)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--tab-fade-l), #000 calc(100% - var(--tab-fade-r)), transparent 100%);
 }
 .list-tabs::-webkit-scrollbar { height: 0; }
+.list-tabs.is-scroll-l { --tab-fade-l: 22px; }
+.list-tabs.is-scroll-r { --tab-fade-r: 22px; }
 .list-tab {
   flex: 0 0 auto;
   min-width: 32px;
