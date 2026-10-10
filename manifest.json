@@ -23,7 +23,11 @@
       "music.163.com",
       "amll-ttml-db.stevexmh.net",
       "*.music.126.net",
-      "u.y.qq.com"
+      "u.y.qq.com",
+      "api.bilibili.com",
+      "*.hdslb.com",
+      "*.bilivideo.cn",
+      "*.bilivideo.com"
     ],
     "methods": [
       "GET"

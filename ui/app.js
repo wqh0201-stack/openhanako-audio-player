@@ -1968,7 +1968,7 @@
       var kw = [t.title, t.author].filter(Boolean).join(' ').trim();
       if (!kw) return Promise.resolve();
       var cur = onlineServerOf(t);
-      var servers = ['netease', 'tencent', 'kugou', 'kuwo', 'baidu'].filter(function (s) { return s !== cur; });
+      var servers = ['netease', 'tencent', 'kugou'].filter(function (s) { return s !== cur; });
       var i = 0;
       function next() {
         if (gen !== lyricGen || i >= servers.length) return Promise.resolve();
@@ -2332,7 +2332,7 @@
     var key = String(raw.searchKey || '').trim();
     if (!key) { toast('无法获取音频：' + t.title); return Promise.resolve(null); }
     var primary = raw.searchServer || 'netease';
-    var servers = [primary].concat(['netease', 'tencent', 'kugou', 'kuwo', 'baidu'].filter(function (s) { return s !== primary; }));
+    var servers = [primary].concat(['netease', 'tencent', 'kugou'].filter(function (s) { return s !== primary; }));
     var token = ++resolveGen;
     toast('搜索 ' + t.title + '…');
     function tryServer(i) {
@@ -3139,10 +3139,9 @@
      ============================================================ */
   var SEARCH_SERVERS = [
     { id: 'netease', label: '网易云' },
+    { id: 'bilibili', label: 'B站' },
     { id: 'tencent', label: 'QQ' },
-    { id: 'kugou', label: '酷狗' },
-    { id: 'kuwo', label: '酷我' },
-    { id: 'baidu', label: '百度' }
+    { id: 'kugou', label: '酷狗' }
   ];
   var searchServer = 'netease';
   var searchScope = 'song';   // 'song' 搜歌曲 / 'artist' 搜歌手（后台同一关键词接口）
