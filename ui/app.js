@@ -1204,14 +1204,15 @@
   /* ============================================================
      指针涟漪（Canvas 2D 装饰层）：兼顶旧「频谱」的位置
      ------------------------------------------------------------
-     2026-10-10 整层替换频谱，方案见 docs/player-ui/RIPPLE-CANVAS-2D.md。
-     与旧频谱最大的不同：**不读音频**——纯指针对应。
-     顺带拆了那颗「跨源静音雷」：不再有 captureStream / AnalyserNode /
-     createMediaElementSource，歌曲同源与否都与它无关。
-     行为约定（照专家方案）：
-       · 指针移动到一定距离才落波，限制频率；按下 → 更大一圈；
-       · 播放且空闲时低频自起（一呼一吸）；等波期间不起 rAF；
-       · 暂停后约 350ms 收敛，随后停止；暂停期间忽略指针，不会被鼠标唤醒；
+     2026-10-10 换为「等高线波场」：照 docs/player-ui/ripple-lab.html 移植
+     双缓冲高度场 + 等高线（每 3 行一条横线，纵坐标被波场推开）+ 压扁圆环。
+     仍然**不读音频**——纯指针驱动，跨源静音雷不复存在。
+     强度两档（由 #player[data-haslyrics] 决定）：无词 1.9（放），有词 1.0（收）。
+     层序：涟漪在薄纱之上、文字之下 —— 封面区与歌词区都可见，又不压字。
+     行为约定：
+       · 指针移动累计路程才落波；按下 → 更大的多层环；
+       · 播放且空闲时低频自起（一呼一吸）；无波期间不起 rAF；
+       · 暂停后约 400ms 收敛，随后停止；暂停期间忽略指针，不会被鼠标唤醒；
        · 截图模式冻结当前帧；reduced-motion / 页面隐藏 / 离开视口 → 停调度。
      ============================================================ */
   var rippleHandle = null;
@@ -1223,14 +1224,17 @@
     var ctx = canvas.getContext('2d');
     if (!ctx) return null;
     var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
-    var waves = [], raf = 0, timer = 0, last = 0;
+    var waves = [], trail = [], raf = 0, timer = 0, last = 0, accumulator = 0;
     var width = 0, height = 0, dpr = 1;
+    var cols = 0, rows = 0, field = null, previous = null, fieldEnergy = 0;
     var playing = !!(audio && !audio.paused && !audio.ended);
     var destroyed = false, inView = true, drain = 0;
-    var point = null, distance = 0, emitted = 0, inputAt = 0;
+    var point = null, travel = 0, emitted = 0, inputAt = 0;
     var dprQuery;
     var pointerOptions = { passive: true, capture: true };
-    var MAX_WAVES = 18;
+    var MAX_WAVES = 18, MAX_TRAIL = 40;
+    /* 强度两档：无词更放（水面当主角），有词更收（不扰读词）。 */
+    function strength() { return (player && player.getAttribute('data-haslyrics') === '1') ? 1.0 : 1.9; }
 
     function shot() { return document.body.classList.contains('is-shot'); }
     function blocked() {
@@ -1238,48 +1242,137 @@
         !inView || !width || !height;
     }
     function clear() { ctx.clearRect(0, 0, width, height); }
-    function stop() { cancelAnimationFrame(raf); clearTimeout(timer); raf = timer = last = 0; }
-    function resetPointer() { point = null; distance = 0; }
+    function stop() { cancelAnimationFrame(raf); clearTimeout(timer); raf = timer = last = accumulator = 0; }
+    function resetPointer() { point = null; travel = 0; }
+    function needsFrame() {
+      return !!(waves.length || trail.length || fieldEnergy > 0.00002 || drain > 0);
+    }
 
     function size() {
       if (destroyed || shot()) return;   // 截图时连 backing store 都不改
       var w = canvas.clientWidth, h = canvas.clientHeight;
       var ratio = Math.min(window.devicePixelRatio || 1, 2);
-      if (w === width && h === height && ratio === dpr) return;
+      if (w === width && h === height && ratio === dpr && field) return;
       width = w; height = h; dpr = ratio;
       canvas.width = Math.max(1, Math.round(w * ratio));
       canvas.height = Math.max(1, Math.round(h * ratio));
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      /* 高度场网格：约每 4.8 CSS px 一格，封顶 260×160（照 lab）。 */
+      cols = Math.max(3, Math.min(260, Math.round(width / 4.8)));
+      rows = Math.max(3, Math.min(160, Math.round(height / 4.8)));
+      field = new Float32Array(cols * rows);
+      previous = new Float32Array(cols * rows);
+      fieldEnergy = 0;
       resetPointer();
       if (!blocked()) draw();
     }
 
-    function draw() {
-      clear();
-      // CSS 负责解析 var() / color-mix()，Canvas 只接收计算后的颜色。
-      ctx.strokeStyle = getComputedStyle(canvas).color;
-      ctx.lineWidth = 1;
-      for (var i = 0; i < waves.length; i++) {
-        var w = waves[i], p = w.age / w.life;
-        var fade = Math.min(1, w.age / 0.12) * Math.pow(1 - p, 2);
-        if (!playing) fade *= Math.max(0, drain / 0.35);
-        ctx.globalAlpha = w.alpha * fade;
-        ctx.beginPath();
-        ctx.arc(w.x * width, w.y * height,
-          3 + w.radius * (1 - Math.pow(1 - p, 1.5)), 0, Math.PI * 2);
-        ctx.stroke();
+    /* 局部高斯扰动：把一个波「注入」高度场。 */
+    function inject(nx, ny, radius, power) {
+      if (!field) return;
+      var x = nx * (cols - 1), y = ny * (rows - 1), r = Math.ceil(radius * 2.4);
+      for (var j = Math.max(1, Math.floor(y) - r); j < Math.min(rows - 1, Math.ceil(y) + r); j++) {
+        for (var i = Math.max(1, Math.floor(x) - r); i < Math.min(cols - 1, Math.ceil(x) + r); i++) {
+          var d = (i - x) * (i - x) + (j - y) * (j - y);
+          field[j * cols + i] += Math.exp(-d / (radius * radius)) * power;
+        }
       }
-      ctx.globalAlpha = 1;
+      fieldEnergy = 1;
     }
 
-    function add(x, y, strong) {
+    /* 落一个波包（按下 / 呼吸 / 指针累计路程）：环 + 高度场能量。 */
+    function drop(x, y, power) {
+      if (blocked()) return;
       if (waves.length >= MAX_WAVES) waves.shift();
       waves.push({
-        x: x, y: y, age: 0,
-        life: strong ? 2.4 : 1.8,
-        radius: Math.min(180, Math.min(width, height) * 0.32) * (strong ? 1.25 : 1),
-        alpha: strong ? 0.18 : 0.10
+        x: x, y: y, age: 0, power: power,
+        life: 2.9 + power * 0.35, phase: Math.random() * 6.28
       });
+      inject(x, y, 1.7 + power * 0.7, power * strength() * 1.8);
+      wake();
+    }
+
+    /* 双缓冲高度场推进：邻域平均 + 阻尼，波会真的传播与干涉。 */
+    function stepField() {
+      var sum = 0;
+      for (var y = 1; y < rows - 1; y++) {
+        for (var x = 1; x < cols - 1; x++) {
+          var i = y * cols + x;
+          var v = ((field[i - 1] + field[i + 1] + field[i - cols] + field[i + cols]) * 0.5 - previous[i]) * 0.976;
+          previous[i] = v; sum += v * v;
+        }
+      }
+      var swap = previous; previous = field; field = swap;
+      fieldEnergy = sum / (cols * rows);
+    }
+
+    /* 等高线：每 3 行一条横线，纵坐标被高度场推开 —— 波过处线网起伏。 */
+    function paintContours(fade, s) {
+      var sx = width / (cols - 1), sy = height / (rows - 1);
+      ctx.strokeStyle = getComputedStyle(canvas).color;
+      ctx.lineWidth = 0.7;
+      for (var y = 3; y < rows - 3; y += 3) {
+        ctx.globalAlpha = 0.09 * s * fade;
+        ctx.beginPath();
+        for (var x = 1; x < cols - 1; x++) {
+          var px = x * sx, py = y * sy + field[y * cols + x] * 9 * s;
+          if (x === 1) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+    }
+
+    /* 压扁的椭圆环（水面透视），形状带一点随机扰动。 */
+    function ringPath(w, r, phase) {
+      var x = w.x * width, y = w.y * height;
+      ctx.beginPath();
+      for (var n = 0; n <= 88; n++) {
+        var a = n / 88 * Math.PI * 2;
+        var def = 1 + Math.sin(a * 3 + w.phase + phase) * 0.014 + Math.sin(a * 7 - w.age) * 0.005;
+        var px = x + Math.cos(a) * r * def, py = y + Math.sin(a) * r * 0.68 * def;
+        if (n === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    }
+
+    function draw() {
+      clear();
+      if (reduce && reduce.matches) return;
+      // CSS 负责解析 var() / color-mix()，Canvas 只接收计算后的颜色。
+      ctx.strokeStyle = getComputedStyle(canvas).color;
+      var fade = drain > 0 ? Math.min(1, drain / 0.4) : 1;
+      var s = strength();
+      if (fieldEnergy > 0.00001) paintContours(fade, s);
+      for (var i = 0; i < waves.length; i++) {
+        var w = waves[i], p = w.age / w.life;
+        var birth = Math.min(1, w.age / 0.10), end = Math.pow(1 - p, 1.8);
+        var reach = Math.min(width, height) * (0.44 + w.power * 0.14);
+        var radius = 8 + reach * (1 - Math.pow(1 - p, 2));
+        for (var k = 0; k < 4; k++) {
+          var r = radius - k * (10 + w.power * 5) * (1 - p * 0.45);
+          if (r < 3) continue;
+          var alpha = birth * end * (0.60 - k * 0.105) * Math.min(1.4, s) * fade;
+          ringPath(w, r, k * 0.3);
+          ctx.lineWidth = k === 0 ? 5 : 2.5; ctx.globalAlpha = alpha * 0.075; ctx.stroke();
+          ctx.lineWidth = k === 0 ? 1.25 : 0.7; ctx.globalAlpha = alpha; ctx.stroke();
+        }
+        if (w.age < 0.55) {
+          ctx.globalAlpha = (1 - w.age / 0.55) * 0.8 * fade; ctx.lineWidth = 0.8;
+          ctx.beginPath(); ctx.arc(w.x * width, w.y * height, 2 + w.age * 14, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
+      if (trail.length > 1) {
+        for (var t = 1; t < trail.length; t++) {
+          ctx.strokeStyle = getComputedStyle(canvas).color;
+          ctx.globalAlpha = Math.max(0, 1 - trail[t].age / 0.65) * 0.45 * fade;
+          ctx.lineWidth = 0.65 + 1.8 * (1 - trail[t].age / 0.65);
+          ctx.beginPath();
+          ctx.moveTo(trail[t - 1].x * width, trail[t - 1].y * height);
+          ctx.lineTo(trail[t].x * width, trail[t].y * height);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
     }
 
     function breathe() {
@@ -1287,8 +1380,8 @@
       if (blocked() || !playing) return;
       // 鼠标仍在缓慢移动时，不让呼吸波与交互争抢。
       if (performance.now() - inputAt < 4500) { schedule(); return; }
-      add(0.25 + Math.random() * 0.5, 0.3 + Math.random() * 0.4, false);
-      wake();
+      drop(0.25 + Math.random() * 0.5, 0.3 + Math.random() * 0.4, 0.7);
+      schedule();
     }
     function schedule() {
       if (!timer && playing && !blocked()) {
@@ -1297,7 +1390,7 @@
     }
     function wake() {
       if (blocked() || (!playing && drain <= 0)) return;
-      if (!waves.length) { schedule(); return; }
+      if (!needsFrame()) { schedule(); return; }
       clearTimeout(timer); timer = 0;
       if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); }
     }
@@ -1308,21 +1401,42 @@
       last = now;
       if (!playing) {
         drain = Math.max(0, drain - dt);
-        if (!drain) { waves.length = 0; clear(); return; }
+        if (!drain) {
+          waves.length = 0; trail.length = 0;
+          if (field) { field.fill(0); previous.fill(0); }
+          fieldEnergy = 0; clear(); return;
+        }
       }
       for (var i = waves.length - 1; i >= 0; i--) {
         waves[i].age += dt;
         if (waves[i].age >= waves[i].life) waves.splice(i, 1);
       }
+      for (var t = trail.length - 1; t >= 0; t--) {
+        trail[t].age += dt;
+        if (trail[t].age > 0.65) trail.splice(t, 1);
+      }
+      accumulator += dt;
+      if (fieldEnergy > 0.00002) {
+        var steps = 0;
+        while (accumulator >= 1 / 60 && steps < 3) { stepField(); accumulator -= 1 / 60; steps++; }
+      } else accumulator = 0;
+      if (!waves.length && !trail.length && fieldEnergy < 0.00002) {
+        fieldEnergy = 0;
+        if (field) { field.fill(0); previous.fill(0); }
+      }
       draw();
-      if (waves.length) raf = requestAnimationFrame(frame);
+      if (needsFrame()) raf = requestAnimationFrame(frame);
       else { last = 0; schedule(); }
     }
 
     function sync() {
       if (destroyed) return;
       stop(); resetPointer();
-      if (reduce && reduce.matches) { waves.length = 0; drain = 0; clear(); return; }
+      if (reduce && reduce.matches) {
+        waves.length = 0; trail.length = 0;
+        if (field) { field.fill(0); previous.fill(0); }
+        fieldEnergy = 0; drain = 0; clear(); return;
+      }
       if (shot()) return;   // 保留最后一帧及波的年龄
       size();
       if (!blocked()) { draw(); wake(); }
@@ -1332,8 +1446,8 @@
       if (destroyed) return;
       if (!playing && immediate !== true) return;   // audio 的事件对象不视作 immediate
       playing = false;
-      drain = immediate === true ? 0 : 0.35;
-      if (immediate === true) waves.length = 0;
+      drain = immediate === true ? 0 : 0.4;
+      if (immediate === true) { waves.length = 0; trail.length = 0; }
       sync();
     }
 
@@ -1349,23 +1463,29 @@
       var p = position(e);
       inputAt = p.t;
       if (point) {
-        var dx = (p.x - point.x) * width;
-        var dy = (p.y - point.y) * height;
-        var step = Math.sqrt(dx * dx + dy * dy);
-        var speed = step / Math.max(1, p.t - point.t);
-        distance = speed >= 0.06 ? distance + step : 0;
-        if (distance >= 16 && p.t - emitted >= 60) {
-          add(p.x, p.y, false);
-          distance = 0; emitted = p.t; wake();
+        var dx = (p.x - point.x) * width, dy = (p.y - point.y) * height;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var speed = dist / Math.max(1, p.t - point.t);
+        travel = speed > 0.055 ? travel + dist : 0;
+        if (speed > 0.07 && dist > 1) {
+          trail.push({ x: p.x, y: p.y, age: 0 });
+          if (trail.length > MAX_TRAIL) trail.shift();
+          inject(p.x, p.y, 1.6, Math.min(1.4, speed) * strength() * 0.35);
+          wake();
+        }
+        if (travel > 18 && p.t - emitted > 65) {
+          drop(p.x, p.y, Math.min(1.2, 0.4 + speed * 0.35));
+          travel = 0; emitted = p.t;
         }
       }
       point = p;
     }
     function down(e) {
       if (!playing || blocked() || e.isPrimary === false || e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('button,input')) return;
       var p = position(e);
       inputAt = p.t;
-      add(p.x, p.y, true); wake();
+      drop(p.x, p.y, 1.8);
     }
 
     function watchDpr() {
@@ -1406,11 +1526,11 @@
       resume: resume,
       pause: pause,
       /* 测试用：读波数 / 手动喂一圈（与 __playerDebug 同类的探针） */
-      stats: function () { return { waves: waves.length, playing: playing, raf: !!raf, w: width, h: height }; },
-      poke: function (x, y, strong) { add(x, y, !!strong); wake(); return waves.length; },
+      stats: function () { return { waves: waves.length, trail: trail.length, field: fieldEnergy, playing: playing, raf: !!raf, w: width, h: height, cols: cols, rows: rows, strength: strength() }; },
+      poke: function (x, y, strong) { drop(x, y, strong ? 1.8 : 0.8); return waves.length; },
       destroy: function () {
         if (destroyed) return;
-        destroyed = true; stop(); waves.length = 0; clear();
+        destroyed = true; stop(); waves.length = 0; trail.length = 0; clear();
         if (resize) resize.disconnect();
         if (visibility) visibility.disconnect();
         if (classes) classes.disconnect();
@@ -2887,8 +3007,8 @@
      搜索页（罐头最初需求：左下角换搜索入口 + 一个搜索页）
      ------------------------------------------------------------
      入口长在独立窗口（wide）控制条最左；点开是一张整页浮层：
-     输入框 + 平台选择 + 结果列表，每行一个「加入」，把搜索结果
-     归入当前激活列表（本地列表时退化为新建/复用「搜索」列表）。
+     输入框 + 平台选择 + 结果列表，每行主体点一下直接播、行尾一颗红心
+     收藏到「我的喜欢」（加入 = 红心，同一件事；播放 ≠ 喜欢）。
      后端 /widget/api/music/search 已存在，这里只做界面与落库。
      ============================================================ */
   var SEARCH_SERVERS = [
@@ -2953,7 +3073,7 @@
     searchServersEl.innerHTML = html;
   }
 
-  /* 搜索结果行：封面 + 标题/歌手 + 加入。inList 标记该曲已在当前列表。 */
+  /* 搜索结果行：封面 + 标题/歌手 + 行尾红心（收藏到我的喜欢）。 */
   function renderSearchResults() {
     if (!searchList) return;
     if (!searchResults.length) {
@@ -2966,7 +3086,7 @@
       var r = searchResults[i];
       var title = String(r.title || r.name || '').trim() || '未命名';
       var author = String(r.author || '').trim();
-      var inList = !!r._inList;
+      var favOn = isFav(deriveId(r, r.url));
       html += '<li class="search-row" data-i="' + i + '">' +
         '<button class="search-hit" type="button" data-i="' + i + '" aria-label="播放 ' + esc(title) + '">' +
           '<span class="q-cover"></span>' +
@@ -2975,9 +3095,9 @@
             '<span class="q-artist">' + esc(author) + '</span>' +
           '</span>' +
         '</button>' +
-        '<button class="search-add' + (inList ? ' is-added' : '') + '" type="button" data-i="' + i + '"' +
-          (inList ? ' disabled' : '') + ' aria-label="' + (inList ? '已加入' : '加入曲单') + '">' +
-          (inList ? '已加入' : (icon('i-plus', 'icon-sm') + '<span>加入</span>')) +
+        '<button class="search-fav' + (favOn ? ' is-on' : '') + '" type="button" data-i="' + i + '"' +
+          ' aria-pressed="' + (favOn ? 'true' : 'false') + '" aria-label="' + (favOn ? '取消喜欢' : '加入我的喜欢') + '" title="' + (favOn ? '取消喜欢' : '加入我的喜欢') + '">' +
+          icon('i-heart', 'icon-sm') +
         '</button>' +
       '</li>';
     }
@@ -3110,7 +3230,7 @@
 
   var HOT_MAX = 6;   // 热门歌曲只显前 6 条：多了会把下面「榜单/电台」顶出屏（真机反馈）
 
-  /* 热门歌曲：复用搜索结果行的样子（可直接加入） */
+  /* 热门歌曲：复用搜索结果行的样子（行尾红心） */
   function renderHotSongs() {
     if (!hotListEl) return;
     if (!hotSongs.length) {
@@ -3121,16 +3241,16 @@
     var n = Math.min(hotSongs.length, HOT_MAX);
     for (var i = 0; i < n; i++) {
       var r = hotSongs[i];
-      var inList = hotSongInList(r);
+      var favOn = isFav(deriveId(r, r.url));
       html += '<li class="search-row" data-hot="' + i + '">' +
         '<button class="search-hit" type="button" data-hot="' + i + '" aria-label="播放 ' + esc(String(r.title || '').trim()) + '">' +
           '<span class="q-cover"></span>' +
           '<span class="q-meta"><span class="q-title">' + esc(String(r.title || '').trim()) + '</span>' +
           '<span class="q-artist">' + esc(String(r.author || '').trim()) + '</span></span>' +
         '</button>' +
-        '<button class="search-add' + (inList ? ' is-added' : '') + '" type="button" data-hot="' + i + '"' +
-          (inList ? ' disabled' : '') + ' aria-label="' + (inList ? '已加入' : '加入曲单') + '">' +
-          (inList ? '已加入' : (icon('i-plus', 'icon-sm') + '<span>加入</span>')) +
+        '<button class="search-fav' + (favOn ? ' is-on' : '') + '" type="button" data-hot="' + i + '"' +
+          ' aria-pressed="' + (favOn ? 'true' : 'false') + '" aria-label="' + (favOn ? '取消喜欢' : '加入我的喜欢') + '" title="' + (favOn ? '取消喜欢' : '加入我的喜欢') + '">' +
+          icon('i-heart', 'icon-sm') +
         '</button></li>';
     }
     hotListEl.innerHTML = html;
@@ -3138,15 +3258,6 @@
     for (var j = 0; j < rows.length; j++) {
       coverVars(rows[j].querySelector('.q-cover'), hotSongs[Number(rows[j].getAttribute('data-hot'))].pic);
     }
-  }
-
-  function hotSongInList(r) {
-    var target = searchTargetList();
-    var id = deriveId(r, r.url);
-    for (var j = 0; j < state.tracks.length; j++) {
-      if (state.tracks[j].id === id && state.tracks[j].list === target) return true;
-    }
-    return false;
   }
 
   /* 榜单 / 推荐歌单：横向卡片，点一张拉它的前 N 首进结果区 */
@@ -3197,7 +3308,7 @@
     }
   }
 
-  /* 点开一张榜单/歌单 → 拉前 N 首，改由结果列表展示（可逐首加入/播放） */
+  /* 点开一张榜单/歌单 → 拉前 N 首，改由结果列表展示（可逐首播放/收藏） */
   function openChart(id, name) {
     if (!id) return;
     setDiscoverVisible(false);
@@ -3212,7 +3323,6 @@
       searchBusy = false;
       var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
       searchResults = list;
-      markSearchInList();
       renderSearchResults();
       setSearchNote(list.length ? ('共 ' + list.length + ' 首') : '这个榜单暂时取不到曲目');
     }).catch(function () {
@@ -3239,7 +3349,6 @@
       searchBusy = false;
       var list = (res.ok && res.body && res.body.ok && Array.isArray(res.body.results)) ? res.body.results : [];
       searchResults = list;
-      markSearchInList();
       renderSearchResults();
       setSearchNote(list.length ? ('共 ' + list.length + ' 期（每期是可播的长音频）') : '这档电台暂时取不到节目');
     }).catch(function () {
@@ -3274,7 +3383,6 @@
           return;
         }
         searchResults = list;
-        markSearchInList();
         renderSearchResults();
         setSearchNote('共 ' + list.length + ' 条 · 来自' + serverLabel(searchServer));
       })
@@ -3298,23 +3406,9 @@
     loadDiscover();
   }
 
-  /* 标记搜索结果里已在当前列表的曲目（按稳定 id 判，和红心同一套） */
-  function markSearchInList() {
-    var target = searchTargetList();
-    for (var i = 0; i < searchResults.length; i++) {
-      var r = searchResults[i];
-      var id = deriveId(r, r.url);
-      var hit = false;
-      for (var j = 0; j < state.tracks.length; j++) {
-        if (state.tracks[j].id === id && state.tracks[j].list === target) { hit = true; break; }
-      }
-      r._inList = hit;
-    }
-  }
-
-  /* 搜索结果 / 推荐区的「加入」= 收藏，落到「我的喜欢」（与红心同一心智）。
+  /* 搜索结果 / 推荐区的行尾红心 = 收藏，落到「我的喜欢」（与红心同一心智）。
    * 之前错把导入的规矩（落当前歌单 / 新建隐形「搜索」歌单）套到搜索上，
-   * 而开卡默认就在「我的喜欢」，导致加入后人在原处、看不到 —— 罐头拍板修正。 */
+   * 而开卡默认就在「我的喜欢」，导致收藏后人在原处、看不到 —— 罐头拍板修正。 */
   function searchTargetList() {
     return 'fav';
   }
@@ -3342,12 +3436,21 @@
     return true;
   }
 
-  function addSearchHit(idx) {
-    var r = searchResults[idx];
+  /* 搜索 / 热门行尾红心：加入 = 收藏到「我的喜欢」，与队列行红心同一套心智。
+   * 搜索结果不一定已在库里，所以「加」借 addTrackToTarget（按稳定 id 落 fav），
+   * 「取消」走 removeFav。点行主体只播放，不落喜欢（罐头拍板：播放 ≠ 喜欢）。 */
+  function toggleSearchFav(r) {
     if (!r) return;
-    addTrackToTarget(r);
-    markSearchInList();
+    var id = deriveId(r, r.url);
+    if (isFav(id)) {
+      removeFav(id);
+      renderQueue(); renderTrack();
+      toast('已取消喜欢');
+    } else {
+      addTrackToTarget(r);   // 自带 toast「已加入我的喜欢」
+    }
     renderSearchResults();
+    renderHotSongs();
   }
 
   /* 点搜索结果/热门行 = 直接播（不需先加入）。
@@ -3372,8 +3475,6 @@
     }
     // 不切激活列表（不打断搜索上下文）；播放本身会由 recordRecent 把它记进最近播放
     playTrack(found.uid);
-    // 播后刷新一下搜索结果里的「已在列表」状态
-    markSearchInList();
     renderSearchResults();
   }
 
@@ -3414,9 +3515,9 @@
     searchList.addEventListener('click', function (e) {
       var play = e.target.closest('.search-hit');
       if (play) { playSearchHit(searchResults[Number(play.getAttribute('data-i'))]); return; }
-      var btn = e.target.closest('.search-add');
-      if (!btn || btn.disabled) return;
-      addSearchHit(Number(btn.getAttribute('data-i')));
+      var btn = e.target.closest('.search-fav');
+      if (!btn) return;
+      toggleSearchFav(searchResults[Number(btn.getAttribute('data-i'))]);
     });
   }
   /* 推荐区交互：热门歌曲逐首可播可加；榜单/歌单/电台卡片点开拉列表 */
@@ -3425,10 +3526,10 @@
       hotListEl.addEventListener('click', function (e) {
         var play = e.target.closest('.search-hit');
         if (play) { playSearchHit(hotSongs[Number(play.getAttribute('data-hot'))]); return; }
-        var btn = e.target.closest('.search-add');
-        if (!btn || btn.disabled) return;
+        var btn = e.target.closest('.search-fav');
+        if (!btn) return;
         var i = Number(btn.getAttribute('data-hot'));
-        if (hotSongs[i]) { addTrackToTarget(hotSongs[i]); renderHotSongs(); }
+        if (hotSongs[i]) toggleSearchFav(hotSongs[i]);
       });
     }
     if (chartsGridEl) {
@@ -3990,7 +4091,7 @@
     /* 搜索页（测试用）：不依赖真实网络，直接喂结果验证渲染/落库。 */
     openSearch: openSearch,
     closeSearch: closeSearch,
-    renderResults: function (list) { searchSeq++; searchBusy = false; setDiscoverVisible(false); searchResults = list || []; markSearchInList(); renderSearchResults(); },
+    renderResults: function (list) { searchSeq++; searchBusy = false; setDiscoverVisible(false); searchResults = list || []; renderSearchResults(); },
     setScope: function (sc) { searchScope = sc; renderSearchScope(); },
     clearSearch: clearSearch,
     renderDiscover: function (o) {

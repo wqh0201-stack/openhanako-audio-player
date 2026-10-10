@@ -1204,7 +1204,7 @@ const motion = {};
   await page.close();
 }
 
-/* ============ 2c) 搜索页：左下角入口（仅独立窗）+ 搜索/加入落库 ============ */
+/* ============ 2c) 搜索页：左下角入口（仅独立窗）+ 搜索行尾红心落库 + 点播 ============ */
 {
   await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
   const page = await newPage();
@@ -1232,7 +1232,7 @@ const motion = {};
   });
   assert('search-entry-hidden-in-card', s.entryHiddenCard === true, String(s.entryHiddenCard));
 
-  // 回到独立窗，开搜索页 → 直接喂假结果 → 点加入 → 曲目落进当前列表
+  // 回到独立窗，开搜索页 → 直接喂假结果 → 点行尾红心 → 曲目落进「我的喜欢」
   await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
   await sleep(300);
   await clickTab(page, 'imp:1');
@@ -1246,9 +1246,9 @@ const motion = {};
     ]);
   });
   await sleep(200);
-  s.pageOpen = await page.evaluate(() => ({ open: window.__playerDebug.searchState().open, rows: document.querySelectorAll('#searchList .search-row').length, addBtns: document.querySelectorAll('#searchList .search-add').length }));
+  s.pageOpen = await page.evaluate(() => ({ open: window.__playerDebug.searchState().open, rows: document.querySelectorAll('#searchList .search-row').length, favBtns: document.querySelectorAll('#searchList .search-fav').length }));
   assert('search-page-lists-results',
-    s.pageOpen.open === true && s.pageOpen.rows === 1 && s.pageOpen.addBtns === 1,
+    s.pageOpen.open === true && s.pageOpen.rows === 1 && s.pageOpen.favBtns === 1,
     JSON.stringify(s.pageOpen));
   // 搜索页只盖舞台，不得遮住底部控制条（罐头拍板）
   s.coversControls = await page.evaluate(() => {
@@ -1261,24 +1261,25 @@ const motion = {};
     JSON.stringify(s.coversControls));
   await page.screenshot({ path: path.join(outDir, 'search-page-1040x780-light.png') });
 
-  await page.evaluate(() => document.querySelector('#searchList .search-add').click());
+  // 行尾红心：点一下 = 收藏到「我的喜欢」（加入与心是同一件事）
+  await page.evaluate(() => document.querySelector('#searchList .search-fav').click());
   await sleep(300);
   s.afterAdd = await page.evaluate(() => ({
-    added: !!document.querySelector('#searchList .search-add.is-added'),
+    favOn: !!document.querySelector('#searchList .search-fav.is-on'),
     inFav: Array.prototype.some.call(document.querySelectorAll('#listTabs .list-tab'), (e) => e.getAttribute('data-list') === 'fav')
   }));
-  // 拍板：搜索「加入」= 收藏，落「我的喜欢」（不再新建隐形「搜索」歌单）
+  // 拍板：搜索行尾红心 = 收藏，落「我的喜欢」（不再新建隐形「搜索」歌单）
   await clickTab(page, 'fav');
   await sleep(250);
   s.favRows = await page.evaluate(() => ({
     count: document.querySelectorAll('#queueList .q-row').length,
     hasNew: Array.prototype.some.call(document.querySelectorAll('#queueList .q-title'), (e) => e.textContent === '搜索命中曲')
   }));
-  assert('search-add-goes-to-fav',
-    s.afterAdd.added === true && s.afterAdd.inFav === true && s.favRows.hasNew === true,
+  assert('search-fav-toggles-fav',
+    s.afterAdd.favOn === true && s.afterAdd.inFav === true && s.favRows.hasNew === true,
     JSON.stringify({ afterAdd: s.afterAdd, favRows: s.favRows }));
 
-  // 点搜索结果行 = 直接播（不需先加入）；播过的自动进「最近播放」
+  // 点搜索结果行 = 直接播（不落喜欢）；播过的自动进「最近播放」
   await page.evaluate(() => {
     window.__playerDebug.openSearch();
     window.__playerDebug.renderResults([
@@ -1297,6 +1298,13 @@ const motion = {};
   assert('search-hit-plays-directly',
     s.playHit.hits === 1 && s.afterPlay.playing === '1' && s.afterPlay.title === '点播命中曲' && s.afterPlay.recentTab === true,
     JSON.stringify({ playHit: s.playHit, afterPlay: s.afterPlay }));
+  // 播放 ≠ 喜欢：点行播放不点亮红心（罐头拍板：播放就是播放，不一定喜欢）
+  s.playNotLike = await page.evaluate(() => ({
+    favOn: !!document.querySelector('#searchList .search-fav.is-on')
+  }));
+  assert('play-does-not-fav',
+    s.playNotLike.favOn === false,
+    JSON.stringify(s.playNotLike));
   // 切到最近播放：刚才点播的那首应在里面
   await clickTab(page, 'recent');
   await sleep(300);

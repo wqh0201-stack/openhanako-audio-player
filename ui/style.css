@@ -1002,12 +1002,13 @@ button:disabled { cursor: default; }
    ============================================================ */
 
 /* ============================================================
-   指针涟漪（Canvas 2D 装饰层）
+   指针涟漪（Canvas 2D 等高线波场）
    ------------------------------------------------------------
-   层序：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)。
-   落在文字与蒙层下方，所以可常驻，不跟歌词互斥。
+   层序：封面(z1) → 薄纱(z3) → 涟漪(z3) → 歌词/标题(z4)。
+   涟漪在薄纱之上、文字之下 —— 封面区与歌词区都看得见，又不压字。
+   强度两档：无词更放（当主角），有词更收（不扰读词）。
    颜色只从 CSS 变量取（Canvas 读计算后的 color），跟随主题。
-   方案与行为约定见 docs/player-ui/RIPPLE-CANVAS-2D.md。
+   方案与行为约定见 docs/player-ui/RIPPLE-LAB.md。
    ============================================================ */
 .ripple-canvas {
   position: absolute;
@@ -1015,7 +1016,8 @@ button:disabled { cursor: default; }
   display: block;
   width: 100%;
   height: 100%;
-  z-index: 2;
+  /* 3 = 薄纱之上、文字之下：歌词区也能看见涟漪，又不压住字。 */
+  z-index: 3;
   pointer-events: none;
   color: var(--hl-accent, var(--hk-accent));
 }
@@ -1389,7 +1391,7 @@ body.is-shot *::after {
   .q-row:active { animation: none !important; transform: none !important; }
   .search-entry:active,
   .search-go:active,
-  .search-add:active { transform: none !important; }
+  .search-fav:active { transform: none !important; }
   /* 搜索页探出/收回也退为纯淡入淡出（去掉位移） */
   .player[data-search="1"] .search-page.is-anim,
   .player.is-s-leaving .search-page { animation: panelFadeIn 0.2s ease both !important; }
@@ -1659,7 +1661,7 @@ body.is-shot *::after {
   transition: background-color 0.16s ease;
 }
 .search-row:hover { background: var(--hk-hover); }
-/* 行主体（封面 + 标题/歌手）= 点一下直接播；行尾「加入」是独立按钮 */
+/* 行主体（封面 + 标题/歌手）= 点一下直接播；行尾红心是独立按钮 */
 .search-hit {
   flex: 1 1 auto;
   min-width: 0;
@@ -1677,25 +1679,26 @@ body.is-shot *::after {
 .search-row .q-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .search-row .q-title { font-size: 13px; color: var(--hk-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-row .q-artist { font-size: 11px; color: var(--hk-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-add {
+/* 行尾红心：与队列行红心同一套语义（未点亮撞色描线，点亮实心）。
+   搜索结果 / 热门行共用；加入 = 收藏到「我的喜欢」。 */
+.search-fav {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-s, 5px);
-  border: 1px solid var(--hk-hairline);
-  color: var(--hk-text);
-  font: inherit;
-  font-size: 12px;
-  white-space: nowrap;
+  color: var(--hl-accent);
+  opacity: 0.55;
   cursor: pointer;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.1s ease-out;
+  transition: background-color 0.16s ease, opacity 0.16s ease, transform 0.1s ease-out;
 }
-.search-add:hover { background: var(--hk-hover); border-color: var(--hk-accent); color: var(--hk-accent); }
-.search-add:active { transform: scale(0.96); }
-.search-add.is-added { color: var(--hk-faint); border-color: var(--hk-hairline); cursor: default; }
-.search-add .icon { width: 14px; height: 14px; }
+.search-fav:hover { background: var(--hk-hover); opacity: 1; }
+.search-fav:active { transform: scale(0.96); }
+.search-fav.is-on { opacity: 1; }
+.search-fav.is-on .icon { fill: currentColor; }
+.search-fav .icon { width: 16px; height: 16px; }
 .search-empty {
   padding: 40px 12px;
   text-align: center;
