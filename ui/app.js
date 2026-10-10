@@ -1281,7 +1281,9 @@
     vol.value = String(shown);
     vol.style.setProperty('--fill', shown + '%');
     var muted = state.muted || v === 0;
-    $('muteBtn').innerHTML = icon(muted ? 'i-volume-mute' : 'i-volume');
+    /* 音量档：弧线 1/2/3 条随音量递增（静音走 X）。三档弧线同心，越响越宽。 */
+    var lvl = v >= 67 ? 3 : (v >= 34 ? 2 : 1);
+    $('muteBtn').innerHTML = icon(muted ? 'i-volume-mute' : ('i-volume-' + lvl));
     $('muteBtn').setAttribute('aria-label', muted ? '取消静音' : '静音');
     $('muteBtn').title = muted ? '取消静音' : '静音';
   }
