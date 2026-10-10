@@ -497,14 +497,43 @@ button:disabled { cursor: default; }
   color: var(--cover-text);
   overflow-wrap: anywhere;
 }
+/* 歌手名 = 搜索入口：点一下用这位歌手去搜（搜索页三种布局都能开 —— 舞台上的歌手名
+ * 是三种尺寸共有的、不花额外控制条空间的入口）。视觉与原来的 <p> 一致，
+ * 只多一枚低透明度搜索字形作提示；没歌手时禁用并隐去字形。 */
 .track-artist {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
   margin: 5px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 13px;
   line-height: 1.45;
+  text-align: left;
   color: var(--cover-text-soft);
   overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: color 0.16s ease;
 }
-.track-artist:empty { display: none; }
+.track-artist[hidden] { display: none; }
+.track-artist:disabled { cursor: default; }
+.track-artist .ta-go {
+  display: inline-block;
+  vertical-align: -1.5px;
+  width: 12px;
+  height: 12px;
+  margin-left: 5px;
+  opacity: 0.45;
+  transition: opacity 0.16s ease;
+}
+.track-artist:disabled .ta-go { display: none; }
+.track-artist:not(:disabled):hover { color: var(--cover-text); }
+.track-artist:not(:disabled):hover .ta-name { text-decoration: underline; text-underline-offset: 2px; }
+.track-artist:not(:disabled):hover .ta-go { opacity: 1; }
+.track-artist:not(:disabled):active { opacity: 0.72; }
+.track-artist:focus-visible { outline: 2px solid var(--hl-accent); outline-offset: 3px; border-radius: 4px; }
 /* 元信息行：专辑 / 歌手 / 来源，拿不到的字段优雅省略（不显空标签） */
 .track-meta {
   margin: 0;

@@ -22,7 +22,13 @@
 
         <div class="scene-top" id="sceneTop">
           <h1 class="track-title" id="trackTitle">风经过的地方</h1>
-          <p class="track-artist" id="trackArtist">林间来信</p>
+          <!-- 歌手名 = 搜索入口：点一下用这位歌手去搜（搜索页三种布局都能开）。
+               视觉与原来的 <p> 一致，只多一枚低透明度搜索字形作提示；
+               没歌手（或还没曲目）时禁用并隐去字形。 -->
+          <button class="track-artist" id="trackArtist" type="button" hidden>
+            <span class="ta-name" id="trackArtistName"></span>
+            <svg class="icon ta-go" aria-hidden="true"><use href="#i-search"></use></svg>
+          </button>
           <div class="track-meta-row">
             <p class="track-meta" id="trackMeta"></p>
             <!-- 红心（我的喜欢）：跟着当前曲一起换。窄卡缩小但仍保留。 -->
@@ -287,7 +293,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131614";</script>
+<script>window.__HANA_BUILD = "1003131615";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

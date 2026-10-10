@@ -1074,6 +1074,21 @@
     flashCtlTrack._t = setTimeout(function () { box.classList.remove('is-changing'); }, 320);
   }
 
+  /* 歌手名行：舞台上的歌手名同时是「搜这位歌手」的入口（三种布局都能开搜索页）。
+   * actionable=false 时只当一行字看（无曲目时的引导语 / 拿不到歌手），禁用点击并隐去搜索字形。 */
+  function setArtistLine(text, actionable) {
+    var btn = $('trackArtist');
+    if (!btn) return;
+    var name = $('trackArtistName');
+    if (name) name.textContent = text || '';
+    btn.hidden = !text;
+    btn.disabled = !actionable;
+    var label = actionable ? ('搜索歌手：' + text) : '';
+    btn.title = label;
+    if (actionable) btn.setAttribute('aria-label', label);
+    else btn.removeAttribute('aria-label');
+  }
+
   function renderTrack() {
     var t = currentTrack();
     var favBtn = $('stageFavBtn');
@@ -1082,7 +1097,7 @@
     if (favBtn && !favBtn.querySelector('use')) favBtn.innerHTML = icon('i-heart');
     if (!t) {
       $('trackTitle').textContent = '还没有曲目';
-      $('trackArtist').textContent = '用右上角的 ＋ 导入';
+      setArtistLine('用右上角的 ＋ 导入', false);
       $('trackMeta').textContent = '';
       setCtlTrack(null);
       paintFav(favBtn, null);
@@ -1095,8 +1110,9 @@
       return;
     }
     $('trackTitle').textContent = t.title;
-    /* 副标题只放真歌手：拿不到就留空省略，不把来源/分组冒充歌手（R3） */
-    $('trackArtist').textContent = t.author || '';
+    /* 副标题只放真歌手：拿不到就留空省略，不把来源/分组冒充歌手（R3）。
+     * 有歌手时它同时是「搜这位歌手」的入口。 */
+    setArtistLine(t.author || '', !!t.author);
     $('trackMeta').textContent = metaLine(t);
     setCtlTrack(t);
     paintFav(favBtn, t);
@@ -3467,6 +3483,18 @@
     if (searchPage && !searchPage.hidden) closeSearch(); else openSearch();
   }
 
+  /* 点歌手名：以这位歌手为关键词直接搜歌手 —— 关键词预填、范围切「搜歌手」、立刻出结果。
+   * 搜索页在三种布局都能开：入口不必占控制条空间，舞台上的歌手名就是入口。 */
+  function openArtistSearch(name) {
+    name = String(name || '').trim();
+    if (!name) return;
+    if (searchInput) searchInput.value = name;
+    if (searchPage && searchPage.hidden) openSearch();   // 关键词已填 → openSearch 不再拉推荐区
+    searchScope = 'artist';
+    renderSearchScope();
+    doSearch();
+  }
+
   /* 搜索页内的「返回」：按层级退 —— 详情层（搜索结果/榜单/电台）→ 推荐区根层 →
    * 再按才退出搜索（罐头拍板）。左下角入口按钮不跑这套，直接 toggle 退出。 */
   function searchGoBack() {
@@ -3785,6 +3813,11 @@
   }
 
   if ($('searchEntryBtn')) $('searchEntryBtn').addEventListener('click', toggleSearch);
+  /* 舞台歌手名 = 通用搜索入口（搜索页不依赖宽窗，只是入口按钮只在独立窗） */
+  if ($('trackArtist')) $('trackArtist').addEventListener('click', function () {
+    var n = $('trackArtistName');
+    openArtistSearch(n ? n.textContent : '');
+  });
   if ($('searchBackBtn')) $('searchBackBtn').addEventListener('click', searchGoBack);
   if ($('searchGoBtn')) $('searchGoBtn').addEventListener('click', doSearch);
   if (searchInput) {
@@ -3956,7 +3989,8 @@
       layout = next;
       if (next !== 'wide') state.drawer = false;
       if (next !== 'compact') state.page = 'play';
-      if (next !== 'wide' && searchPage && !searchPage.hidden) closeSearch();   // 离开独立窗便收起搜索
+      /* 搜索页不再因「离开宽窗」而强收：舞台上的歌手名是三种布局通用的入口，
+       * 卡片里也开得了（宽窄只在头部排布上有别）。用户自己用「返回」退出。 */
       renderChrome();
     }
     updateStageMetrics();
