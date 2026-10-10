@@ -1693,6 +1693,111 @@ const motion = {};
   await page.close();
 }
 
+/* ============ 2d) 舞台歌手名 = 搜索入口（三种布局都能开搜索页） ============ */
+{
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const page = await newPage();
+  await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+  await page.goto(`${BASE}/standalone.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await page.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(800);
+
+  const s = {};
+  // 夹具曲目没有歌手 → 歌手行收起：不可点、隐去搜索字形、不占高度（不能留个能点的空壳）
+  s.empty = await page.evaluate(() => {
+    const b = document.getElementById('trackArtist');
+    return {
+      tag: b.tagName, hidden: b.hidden, disabled: b.disabled,
+      h: Math.round(b.getBoundingClientRect().height),
+      name: document.getElementById('trackArtistName').textContent,
+      iconShown: getComputedStyle(b.querySelector('.ta-go')).display !== 'none'
+    };
+  });
+  assert('artist-line-inert-without-artist',
+    s.empty.tag === 'BUTTON' && s.empty.hidden === true && s.empty.disabled === true &&
+    s.empty.name === '' && s.empty.h === 0 && s.empty.iconShown === false,
+    JSON.stringify(s.empty));
+
+  // 播一首「有歌手」的搜索结果（夹具搜索结果 author = 搜索歌手）→ 歌手行变成活的入口
+  await page.evaluate(() => window.__playerDebug.openSearch());
+  await sleep(380);
+  await page.evaluate(() => window.__playerDebug.renderResults([
+    { id: 'netease:770001', title: '搜索命中曲', author: '搜索歌手',
+      url: '/api/apps/hanako-audio-player/routes/widget/api/music/go/770001?server=netease', pic: '' }
+  ]));
+  await sleep(280);
+  await page.evaluate(() => document.querySelector('#searchList .search-hit').click());
+  await sleep(700);
+  await page.evaluate(() => window.__playerDebug.closeSearch());
+  await sleep(460);
+
+  s.line = await page.evaluate(() => {
+    const b = document.getElementById('trackArtist');
+    const r = b.getBoundingClientRect();
+    return {
+      name: document.getElementById('trackArtistName').textContent, hidden: b.hidden, disabled: b.disabled,
+      label: b.getAttribute('aria-label'), h: Math.round(r.height), w: Math.round(r.width),
+      iconShown: getComputedStyle(b.querySelector('.ta-go')).display !== 'none'
+    };
+  });
+  assert('artist-line-clickable-with-artist',
+    s.line.name === '搜索歌手' && s.line.hidden === false && s.line.disabled === false &&
+    s.line.h >= 15 && s.line.w > 0 && s.line.iconShown === true &&
+    s.line.label === '搜索歌手：搜索歌手',
+    JSON.stringify(s.line));
+
+  // 点它 → 搜索页开、范围=搜歌手、关键词预填、已自动出结果（不用再点搜索）
+  await page.click('#trackArtist');
+  await sleep(900);
+  s.wide = await page.evaluate(() => ({
+    open: window.__playerDebug.searchState().open,
+    scope: window.__playerDebug.searchState().scope,
+    discover: window.__playerDebug.searchState().discoverVisible,
+    kw: document.getElementById('searchInput').value,
+    rows: document.querySelectorAll('#searchList .search-row').length,
+    section: document.getElementById('searchSection').textContent
+  }));
+  assert('artist-search-opens-and-searches',
+    s.wide.open === true && s.wide.scope === 'artist' && s.wide.kw === '搜索歌手' &&
+    s.wide.rows === 1 && s.wide.discover === false && s.wide.section === '歌手结果',
+    JSON.stringify(s.wide));
+
+  // 窄卡（312×494）：同一个入口也要开得了，且不横溢、返回键与输入框都在。
+  // 顺带验「离开宽窗不再强收搜索页」—— 这里是从宽窗缩到窄卡的。
+  await page.evaluate(() => window.__playerDebug.closeSearch());
+  await sleep(460);
+  await page.setViewport({ width: 312, height: 494, deviceScaleFactor: 1 });
+  await sleep(700);
+  await page.click('#trackArtist');
+  await sleep(900);
+  s.narrow = await page.evaluate(() => {
+    const sp = document.getElementById('searchPage');
+    const fr = document.getElementById('frame');
+    const back = document.getElementById('searchBackBtn').getBoundingClientRect();
+    const inp = document.getElementById('searchInput').getBoundingClientRect();
+    return {
+      open: window.__playerDebug.searchState().open,
+      scope: window.__playerDebug.searchState().scope,
+      kw: document.getElementById('searchInput').value,
+      rows: document.querySelectorAll('#searchList .search-row').length,
+      spOverflow: sp.scrollWidth > sp.clientWidth + 1,
+      frameOverflow: fr.scrollWidth > fr.clientWidth + 1,
+      backVisible: back.width > 0 && back.height > 0,
+      inputVisible: inp.width > 0 && inp.height > 0,
+      inputW: Math.round(inp.width)
+    };
+  });
+  assert('artist-search-usable-in-narrow-card',
+    s.narrow.open === true && s.narrow.scope === 'artist' && s.narrow.kw === '搜索歌手' &&
+    s.narrow.rows === 1 && s.narrow.spOverflow === false && s.narrow.frameOverflow === false &&
+    s.narrow.backVisible === true && s.narrow.inputVisible === true && s.narrow.inputW >= 100,
+    JSON.stringify(s.narrow));
+  await page.screenshot({ path: path.join(outDir, 'artist-search-narrow-312x494-light.png') });
+
+  report.artistSearch = s;
+  await page.close();
+}
+
 /* ============ 3) 精修矩阵：312 / 465 / 1040 × 浅深 × 歌词开/关 ============ */
 /* 先复位夹具：上一段接线冒烟改过歌单（删了 imp:1）也留了播放态；不复位这里
  * 拍到的就是那个残局（无封面的歌单曲目），看不出封面/环境色的真实效果。 */

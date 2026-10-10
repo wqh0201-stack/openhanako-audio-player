@@ -366,6 +366,23 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      （`vol-pop-hit-under-drawer` / `vol-pop-hit-under-search`）。
   验收：`node tools/verify-ui.mjs` **103/103** 断言（新增 `ctl-transport-geometry` / `ctl-flank-slots-wide`）、
   12/12 布局、4/4 窄卡、零运行时错误。交接：`docs/player-ui/QUIET-CONTROLS-DONE.md`。
+- **点歌手名 → 直接搜这位歌手**（2026-10-10，**已部署**，构建号 1003131616）：
+  罐头要的「点歌词上面的歌手直接跳转搜索」。**先厤清：搜索页从来不依赖宽窗** ——
+  `.search-page` 是 `position:absolute; inset:0` 长在 `.stage` 里的，`.stage` 三种布局都有；
+  有尺寸门槛的只是**入口**（控制条最左那颗 🔍，窄卡排不下）。
+  ① 舞台歌手名 `#trackArtist` 从 `<p>` 改成 `<button>`：视觉不变，多一枚 11px / opacity .4
+     的搜索字形（`.ta-go`）作提示；拿不到歌手时 `disabled` + `hidden` + 隐字形，不留能点的空壳。
+     统一走 `setArtistLine(text, actionable)`。入口**零新增元素**（那行字本来就显示着，
+     不占控制条一寸 —— 罐头拍板「元素平衡得刚好，不需要搜索按钮」）。
+  ② 点它 = `openArtistSearch()`：关键词预填这位歌手 + 范围切「搜歌手」+ 立刻 `doSearch()`，
+     一次点击到位；退出交给左上角「返回」（沿用分层返回）。
+  ③ **拆掉 `applyLayout()` 里「离开宽窗就强收搜索页」那条守卫** —— 它的前提（卡片里开不了
+     搜索页）没了，留着反而会在卡片里把用户刚开的页误杀（宿主 ResizeObserver 一抖就中）。
+  ④ 窄卡（312×494）实测头部自然折三行（返回+输入框 185px / 平台条 / 范围），不横溢，
+     控制条全程可见。先自然折，真机看过再决定要不要收一版头部。
+  断言 `artist-line-inert-without-artist` / `artist-line-clickable-with-artist` /
+  `artist-search-opens-and-searches` / `artist-search-usable-in-narrow-card`，
+  验收 **110/110**。交接：`docs/player-ui/ARTIST-SEARCH-DONE.md`。
 - 拖进/拖出「播放不割裂」（2026-10-10，**已部署**，构建号 1003131613 → **1003131614**）：修罐头报的
   「独立窗播 B站歌 → 贴回卡片后停播/换歌/不进最近播放；网易云歌还在但从头播」。
   机制前提：拆窗/停靠 = **每个窗口文档都是全新 iframe**，只能靠旧文档 `pagehide` 落快照、
