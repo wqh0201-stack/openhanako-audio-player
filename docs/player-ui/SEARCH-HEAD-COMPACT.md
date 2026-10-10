@@ -48,7 +48,26 @@
 ```
 
 平台条自己横滑，**范围固定在它右侧、永远完整可见**。优先级是对的：
-从歌手名进来时范围已经定好，平台很少改。截图里平台条在 QQ 处截断 —— 就是在提示"后面还有"。
+从歌手名进来时范围已经定好，平台很少改。
+
+### 2.3 截断处要给出「后面还有」的信号（罐头真机补）
+
+第一版留了个缺口：312 下平台条停在 QQ，看不出后面还有酷狗。已按仓库现成的写法补上——
+**照歌单切换条（`.list-tabs`）那套两侧按需渐隐**：
+
+```css
+.search-servers { --srv-fade-l: 0px; --srv-fade-r: 0px;
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--srv-fade-l),
+                             #000 calc(100% - var(--srv-fade-r)), transparent 100%); }
+.search-servers.is-scroll-r { --srv-fade-r: 16px; }
+```
+
+JS 里 `updateServerFade()` 依 `scrollLeft` 切 `is-scroll-l` / `is-scroll-r`（只在真溢出
+且那一侧还有内容时亮），挂 `scroll` + `ResizeObserver`，`renderSearchServers()` 末尾也调一次。
+另补**竖滚轮→横滚**（滚动条藏了，鼠标用户否则没法滚）。宽窗不溢出 → 两个类都不加，
+mask 退化成全不透明（不生效）。
+
+> 注：`.list-tabs` 用 `-webkit-mask-image` + `mask-image` 双写，这里只留标准属性也可（Chromium 支持）。
 
 ## 3. 踩到的一个坑（值得记）
 
@@ -84,6 +103,6 @@ basis 0 之后它的假设尺寸只剩 `min-width`，不抢行；真宽度靠 `f
 
 ## 5. 真机待看
 
-1. 平台条在 312 下横滑、没有两侧渐隐提示 —— 会不会有人不知道右边还有酷狗
-   （仓库里有现成的 `.list-tabs` mask 渐隐写法可以搬）。
-2. 宽窗那一行（返回 … 输入框 … 平台 · 范围）挤不挤。
+1. 宽窗那一行（返回 … 输入框 … 平台 · 范围）挤不挤。
+2. 渐隐宽度 16px 够不够看得清（歌单切换条用的是 22px，但那是带 padding 的长条，
+   平台条上的 chip 更小）。

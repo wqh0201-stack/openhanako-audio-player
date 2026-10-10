@@ -1794,7 +1794,16 @@ body.is-shot *::after {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  /* 溢出提示：卡片里平台条横滑、滚动条又藏了，光看左边几个看不出「后面还有酷狗」。
+     照歌单切换条（.list-tabs）那套：两侧按需渐隐，由 JS 依 scrollLeft 切
+     is-scroll-l / is-scroll-r。宽窗不溢出 → 两个类都不加，mask 退化成 0 宽（不生效）。 */
+  --srv-fade-l: 0px;
+  --srv-fade-r: 0px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--srv-fade-l), #000 calc(100% - var(--srv-fade-r)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--srv-fade-l), #000 calc(100% - var(--srv-fade-r)), transparent 100%);
 }
+.search-servers.is-scroll-l { --srv-fade-l: 16px; }
+.search-servers.is-scroll-r { --srv-fade-r: 16px; }
 .search-server {
   padding: 4px 9px;
   border-radius: 999px;

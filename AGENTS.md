@@ -412,6 +412,9 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ② **宽窗跟着变一行**（平台+范围并到输入框那行，头部 63px），「结果」标签在宽窗保留。
   ③ 极窄（312）平台条改横滑（`flex-wrap:nowrap` + `overflow-x:auto` + 藏滚动条），
      **范围固定在右侧恒可见** —— 从歌手名进来时范围已定好，平台很少改，优先级对。
+     截断处按**歌单切换条那套两侧按需渐隐**（`mask-image` + JS 依 `scrollLeft` 切
+     `is-scroll-l/r`，挂 `scroll` + `ResizeObserver`），另补竖滚轮→横滚；
+     宽窗不溢出 → 两个类都不加，mask 退化成全不透明。
   ④ ⚠️ **坑**：第一版收完 312 那档还是三行 —— **返回键被顶到单独一行**。根因不在平台/范围，
      而在 `.search-bar` 是 `flex:1 1 auto`、basis 取内容尺寸，而 `<input>` 固有宽度很大，
      使「返回+搜索框」那行的假设尺寸超容器、flex 在搜索框前就断了行。修法：非宽窗下

@@ -1865,6 +1865,9 @@ const motion = {};
         scopeInside: cb.left >= hb.left - 1 && cb.right <= hb.right + 1 && cb.width > 0,
         serversScroll: srvs.scrollWidth > srvs.clientWidth + 1,
         serversW: Math.round(sb.width),
+        serversFadeR: srvs.classList.contains('is-scroll-r'),
+        serversFadeL: srvs.classList.contains('is-scroll-l'),
+        serversFadeWidth: getComputedStyle(srvs).getPropertyValue('--srv-fade-r').trim(),
         inputW: Math.round(ib.width),
         sectionDisplay: secDisplay,
         listH: Math.round(lb.height),
@@ -1879,17 +1882,19 @@ const motion = {};
   // 卡片：两行、平台与范围同行、范围完整可见、「结果」标签被 CSS 隐去、列表拿到高度
   assert('search-head-compact-two-rows',
     c.layout === 'compact' && c.sameRow === true && c.headH <= 110 && c.sectionDisplay === 'none' &&
-    c.scopeInside === true && c.inputW >= 150 && c.overflow === false && c.listH >= 230,
+    c.scopeInside === true && c.inputW >= 150 && c.overflow === false && c.listH >= 230 &&
+    c.serversFadeR === false,
     JSON.stringify(c));
-  // 极窄：同一套两行，平台条开始横滑（范围仍完整可见）
+  // 极窄：同一套两行，平台条开始横滑（范围仍完整可见）—— 截断处必须有「后面还有」的渐隐
   assert('search-head-narrow-two-rows',
     n.layout === 'compact' && n.sameRow === true && n.headH <= 110 && n.sectionDisplay === 'none' &&
-    n.scopeInside === true && n.serversScroll === true && n.inputW >= 100 && n.overflow === false,
+    n.scopeInside === true && n.serversScroll === true && n.inputW >= 100 && n.overflow === false &&
+    n.serversFadeR === true && n.serversFadeL === false && n.serversFadeWidth !== '0px',
     JSON.stringify(n));
-  // 宽窗：平台与范围并到输入框同一行（头部从两行变一行），「结果」标签仍显示
+  // 宽窗：平台与范围并到输入框同一行（头部从两行变一行），「结果」标签仍显示，平台条不溢出则无渐隐
   assert('search-head-wide-single-row',
     wd.layout === 'wide' && wd.sameRow === true && wd.headH <= 72 && wd.sectionDisplay !== 'none' &&
-    wd.overflow === false && wd.inputW >= 200,
+    wd.overflow === false && wd.inputW >= 200 && wd.serversFadeR === false,
     JSON.stringify(wd));
   report.searchHeader = s;
 }

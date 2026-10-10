@@ -3385,6 +3385,15 @@
     return id;
   }
 
+  /* 平台条的溢出提示：卡片里它横滑（滚动条藏了），两侧按需渐隐 —— 照歌单切换条那套。
+   * 宽窗不溢出 → 两个类都不加，mask 退化成全不透明（不生效）。 */
+  function updateServerFade() {
+    if (!searchServersEl) return;
+    var max = searchServersEl.scrollWidth - searchServersEl.clientWidth;
+    var over = max > 1;
+    searchServersEl.classList.toggle('is-scroll-l', over && searchServersEl.scrollLeft > 1);
+    searchServersEl.classList.toggle('is-scroll-r', over && searchServersEl.scrollLeft < max - 1);
+  }
   function renderSearchServers() {
     if (!searchServersEl) return;
     var html = '';
@@ -3395,6 +3404,7 @@
         esc(s.label) + '</button>';
     }
     searchServersEl.innerHTML = html;
+    updateServerFade();   // 重渲染后溢出情况可能变了（比如刚开页时量不到）
   }
 
   /* 搜索结果行：封面 + 标题/歌手 + 行尾红心（收藏到我的喜欢）。 */
@@ -3842,6 +3852,17 @@
     });
   }
   if (searchServersEl) {
+    // 溢出提示：滚动位置一变就重算两侧渐隐；宿主改宽（ResizeObserver）也要跟着重算。
+    // 竖滚轮 → 横滚：滚动条藏了，鼠标用户否则没法滚（触控板/触摸本来就能横滑）。
+    searchServersEl.addEventListener('scroll', updateServerFade, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(updateServerFade).observe(searchServersEl);
+    searchServersEl.addEventListener('wheel', function (e) {
+      if (searchServersEl.scrollWidth - searchServersEl.clientWidth <= 1) return;
+      var d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!d) return;
+      e.preventDefault();
+      searchServersEl.scrollLeft += d;
+    }, { passive: false });
     searchServersEl.addEventListener('click', function (e) {
       var btn = e.target.closest('.search-server');
       if (!btn) return;
