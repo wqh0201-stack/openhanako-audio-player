@@ -1145,9 +1145,10 @@ button:disabled { cursor: default; }
 .controls .search-entry .icon,
 .controls .queue-btn .icon { width: 21px; height: 21px; stroke-width: 1.65; }
 .controls .mode .icon { width: 19px; height: 19px; stroke-width: 1.65; }
-/* 音量：三档弧线（1/2/3 条）比别的图标宽，框给 22px；描边宽度按框宽反比缩，
- * 保证**渲染出来**的线宽与别的图标一致（别的 19px×1.65 → 1.31px；这里 22px×1.43 → 1.31px）。 */
-.controls .volume-wrap .icon { width: 22px; height: 22px; stroke-width: 1.43; }
+/* 音量：三档弧线（1/2/3 条）+ 更大的喇叭本体。它天生扁（喇叭+弧），所以框要比别的图标大，
+ * 才在视觉面积上与随机图标同量级；描边宽度按框宽反比缩，**渲染出来**的线宽与别的图标一致
+ * （别的 19px×1.65 → 1.31px；这里 24px×1.31 → 1.31px）。 */
+.controls .volume-wrap .icon { width: 24px; height: 24px; stroke-width: 1.31; }
 /* 队列入口收成纯图标（三种尺寸一致）；计数/文字标签不再占位 */
 .controls .qb-label { display: none; }
 
