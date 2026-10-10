@@ -1137,10 +1137,15 @@ button:disabled { cursor: default; }
 .controls .mode:active,
 .controls .queue-btn:active,
 .controls .volume-wrap > .icon-btn:active { transform: scale(0.96); }
+/* 控制面辅助槽位的线描图标：对齐的是**视觉外接框**，不是统一框宽。
+ * 每个 symbol 在 24×24 网格里画的面积不同（tools/measure-icons.mjs 量的内容包围盒）：
+ *   search 18×18 / heart 20×17 / shuffle·repeat 20×20 / list 18×14 / volume 14.7×12
+ * 所以同一个 19px 框里，音量会「看起来小一截」（它的内容只有 14.7×12）。
+ * 基准取随机（shuffle，20/24 网格单位），逐个把内容外接框换算回框宽。 */
 .controls .search-entry .icon,
-.controls .mode .icon,
-.controls .queue-btn .icon,
-.controls .volume-wrap .icon { width: 19px; height: 19px; stroke-width: 1.65; }
+.controls .queue-btn .icon { width: 21px; height: 21px; stroke-width: 1.65; }
+.controls .mode .icon { width: 19px; height: 19px; stroke-width: 1.65; }
+.controls .volume-wrap .icon { width: 28px; height: 28px; stroke-width: 1.65; }
 /* 队列入口收成纯图标（三种尺寸一致）；计数/文字标签不再占位 */
 .controls .qb-label { display: none; }
 
@@ -1270,7 +1275,7 @@ button:disabled { cursor: default; }
 .controls .transport > .icon-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
 .controls .transport > .icon-btn:active { transform: scale(0.96); }
 .controls .transport #prevBtn .icon,
-.controls .transport #nextBtn .icon { width: 18px; height: 18px; fill: currentColor; stroke-width: 1.3; }
+.controls .transport #nextBtn .icon { width: 20px; height: 20px; fill: currentColor; stroke-width: 1.3; }
 /* ---------- 音量：一颗按钮，悬停向上弹出竖向滑条 ----------
  * 三种布局通用。点按钮 = 切静音；鼠标移上来（或键盘聚焦）向上弹竖条，移开即收。
  * 浮层是按钮的绝对定位子元素 → 父级 .vol-group 必须相对定位；

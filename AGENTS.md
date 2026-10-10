@@ -254,7 +254,9 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
   接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
   断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **106/106** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期（含「快照自带曲目」续播）+ 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名 + 切换条溢出/跟随 + 音量浮层）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **110/110** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期（含「快照自带曲目」续播）+ 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名 + 切换条溢出/跟随 + 音量浮层）
+- 图标工具：`node tools/measure-icons.mjs`（量每个 symbol 在 24×24 里的实际内容外接框）。
+  改控制面图标尺寸前先跑它 —— 图标「看起来多大」取决于内容外接框，不取决于 CSS 框宽。
 - 指针涟漪（2026-10-10，**已部署**，构建号 1003131586）：**旧「频谱」整层替换为 Canvas 2D 指针涟漪**。
   方案与行为约定：`docs/player-ui/RIPPLE-CANVAS-2D.md`（罐头拿提示词请教前端高手后的作品，已落地）。
   层序改为：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)；涟漪落在文字与蒙层下方，
@@ -366,6 +368,13 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      （`vol-pop-hit-under-drawer` / `vol-pop-hit-under-search`）。
   验收：`node tools/verify-ui.mjs` **103/103** 断言（新增 `ctl-transport-geometry` / `ctl-flank-slots-wide`）、
   12/12 布局、4/4 窄卡、零运行时错误。交接：`docs/player-ui/QUIET-CONTROLS-DONE.md`。
+- 控制面图标尺寸对齐（2026-10-10，**已部署**，构建号 1003131617，罐头真机反馈）：
+  「除了播放键，图标大小不一致，音量显著偏小」。根因：图标框虽然都是 19px，但每个 symbol
+  在 24×24 网格里**画的面积不同**（`node tools/measure-icons.mjs` 量的内容外接框）：
+  search 18×18 / heart 20×17 / shuffle·repeat 20×20 / list 18×14 / **volume 14.7×12** ——
+  所以音量在同一个框里看上去小一截。按「视觉外接框对齐到随机（shuffle，20 网格单位）」逐个换算框宽：
+  search/queue **21**、mode（线描）**19**、prev/next **20**、volume/volume-mute **28**；heart 与 play 不变。
+  只改 `ui/style.css`（三个槽位拆开给尺寸），几何与断言未破。
 - **点歌手名 → 直接搜这位歌手**（2026-10-10，**已部署**，构建号 1003131616）：
   罐头要的「点歌词上面的歌手直接跳转搜索」。**先厤清：搜索页从来不依赖宽窗** ——
   `.search-page` 是 `position:absolute; inset:0` 长在 `.stage` 里的，`.stage` 三种布局都有；
