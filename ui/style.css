@@ -1779,6 +1779,15 @@ body.is-shot *::after {
 }
 .search-go:active { transform: scale(0.96); }
 
+/* 平台 + 范围：一组筛选条件（一个选去哪找、一个选找什么），宽窗跟在输入框同一行。
+   卡片里整组换行（见本节末「卡片收矮」），内部平台条横滑、范围恒在可见处。 */
+.search-filters {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .search-servers {
   flex: 0 0 auto;
   display: flex;
@@ -1803,13 +1812,13 @@ body.is-shot *::after {
   background: var(--hk-accent-soft);
 }
 
-/* 搜索范围：搜歌曲 / 搜歌手（同一关键词接口，只是提示语与结果侧重不同） */
+/* 搜索范围：搜歌曲 / 搜歌手（同一关键词接口，只是提示语与结果侧重不同）。
+   已并入 .search-head（与平台条同一行），自身不再吃 padding —— 边距由头部给。 */
 .search-scope {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 14px 10px;
 }
 .search-scope-btn {
   padding: 5px 12px;
@@ -1825,6 +1834,28 @@ body.is-shot *::after {
   background: var(--hk-accent-soft);
   box-shadow: inset 0 0 0 1px var(--hk-accent);
 }
+
+/* 卡片（非独立窗）里的搜索页头部收矮：四行 → 两行。
+ *   行1 = 返回 + 输入框 + 搜索；行2 = 平台条 + 范围（整组换行）。
+ * 平台条改横滑（滚动条照旧藏起来）→ **范围恒在可见处**，符合优先级：
+ * 从歌手名进来时范围已经定好，平台很少改。
+ * 「歌曲结果 / 歌手结果」那行省掉：范围按钮的选中态 + 底部「共 N 条 · 来自 X」已说全。
+ * 宽窗维持原样（平台与范围跟在输入框后面，同一行放得下）。 */
+.player:not([data-layout="wide"]) .search-head { padding: 10px 12px 8px; gap: 8px; }
+/* 搜索框的 flex-basis 压到 0：它的“内容尺寸”会被 <input> 的固有宽度撑得很大，
+   在极窄卡里会把返回键顶到自己一行（头部变三行）。basis 0 + 增长 = 它只占满余量、不抢行。 */
+.player:not([data-layout="wide"]) .search-bar { flex: 1 1 0; min-width: 140px; }
+.player:not([data-layout="wide"]) .search-filters { flex: 0 0 100%; }
+.player:not([data-layout="wide"]) .search-servers {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.player:not([data-layout="wide"]) .search-servers::-webkit-scrollbar { height: 0; }
+.player:not([data-layout="wide"]) .search-server { flex: 0 0 auto; }
+.player:not([data-layout="wide"]) .search-section { display: none; }
 .search-section {
   flex: 0 0 auto;
   margin: 0;

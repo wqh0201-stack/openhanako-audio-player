@@ -402,6 +402,24 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   断言 `artist-line-inert-without-artist` / `artist-line-clickable-with-artist` /
   `artist-search-opens-and-searches` / `artist-search-usable-in-narrow-card`，
   验收 **110/110**。交接：`docs/player-ui/ARTIST-SEARCH-DONE.md`。
+- **卡片里搜索页头部收矮**（2026-10-10，**已部署**，构建号 1003131620）：
+  罐头真机反馈「窄卡里搜索页那三行头部会不会显高」—— 会。原来四行（返回+输入框+搜索 /
+  平台条 / 范围 / 「结果」标签）约 137px，占掉那张 560×500 卡的三分之一舞台。
+  ① **四行 → 两行**：平台条与范围并排（套了个 `.search-filters` 容器 —— 两者都是筛选条件，
+     一个选去哪找、一个选找什么），卡片里省掉「歌曲结果 / 歌手结果」标签（范围按钮选中态
+     + 底部「共 N 条 · 来自 X」已说全）。实测头部 137 → 94px，结果列表可见高度 → 280px(561)
+     / 262px(312)。
+  ② **宽窗跟着变一行**（平台+范围并到输入框那行，头部 63px），「结果」标签在宽窗保留。
+  ③ 极窄（312）平台条改横滑（`flex-wrap:nowrap` + `overflow-x:auto` + 藏滚动条），
+     **范围固定在右侧恒可见** —— 从歌手名进来时范围已定好，平台很少改，优先级对。
+  ④ ⚠️ **坑**：第一版收完 312 那档还是三行 —— **返回键被顶到单独一行**。根因不在平台/范围，
+     而在 `.search-bar` 是 `flex:1 1 auto`、basis 取内容尺寸，而 `<input>` 固有宽度很大，
+     使「返回+搜索框」那行的假设尺寸超容器、flex 在搜索框前就断了行。修法：非宽窗下
+     `.search-bar { flex: 1 1 0; min-width: 140px }`。**窄容器里要跟别的东西并排的输入框，
+     `flex-basis` 别留 auto。**
+  断言 `search-head-compact-two-rows` / `search-head-narrow-two-rows` / `search-head-wide-single-row`
+  （「结果」标签那条用「临时拿掉 hidden 再读计算样式」才验得到 CSS 规则），验收 **114/114**。
+  交接：`docs/player-ui/SEARCH-HEAD-COMPACT.md`。
 - 拖进/拖出「播放不割裂」（2026-10-10，**已部署**，构建号 1003131613 → **1003131614**）：修罐头报的
   「独立窗播 B站歌 → 贴回卡片后停播/换歌/不进最近播放；网易云歌还在但从头播」。
   机制前提：拆窗/停靠 = **每个窗口文档都是全新 iframe**，只能靠旧文档 `pagehide` 落快照、

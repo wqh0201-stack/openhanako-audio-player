@@ -135,12 +135,16 @@
             <input class="search-input" id="searchInput" type="search" placeholder="搜歌名 / 歌手" aria-label="搜索关键词" autocomplete="off">
             <button class="search-go" id="searchGoBtn" type="button" aria-label="搜索">搜索</button>
           </div>
-          <div class="search-servers" id="searchServers" role="group" aria-label="搜索平台"></div>
+          <!-- 平台 + 范围 = 一组筛选条件（一个选去哪找、一个选找什么）。
+               宽窗跟输入框同一行；卡片（非宽窗）整组换行，内部平台条横滑、范围恒在可见处。 -->
+          <div class="search-filters">
+            <div class="search-servers" id="searchServers" role="group" aria-label="搜索平台"></div>
+            <div class="search-scope" id="searchScope" role="group" aria-label="搜索范围">
+              <button class="search-scope-btn is-active" type="button" data-scope="song" aria-pressed="true">搜歌曲</button>
+              <button class="search-scope-btn" type="button" data-scope="artist" aria-pressed="false">搜歌手</button>
+            </div>
+          </div>
         </header>
-        <div class="search-scope" id="searchScope" role="group" aria-label="搜索范围">
-          <button class="search-scope-btn is-active" type="button" data-scope="song" aria-pressed="true">搜歌曲</button>
-          <button class="search-scope-btn" type="button" data-scope="artist" aria-pressed="false">搜歌手</button>
-        </div>
         <!-- 推荐区：仅在未搜索时显示（搜索时整块隐去，改由结果列表接管） -->
         <div class="search-discover" id="searchDiscover">
           <section class="discover-block">
@@ -303,7 +307,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131619";</script>
+<script>window.__HANA_BUILD = "1003131620";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;

@@ -1820,6 +1820,80 @@ const motion = {};
   await page.close();
 }
 
+/* ============ 2e) 卡片里的搜索页头部收矮（四行 → 两行） ============ */
+{
+  const s = {};
+  const CASES = [
+    ['compact-561x500', 561, 500, 'index.html', 'compact'],
+    ['narrow-312x494', 312, 494, 'index.html', 'compact'],
+    ['wide-1040x780', 1040, 780, 'standalone.html', 'wide']
+  ];
+  for (const [name, w, h, file, wantLayout] of CASES) {
+    await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+    const page = await newPage();
+    await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
+    await page.goto(`${BASE}/${file}?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+    await page.evaluate((t) => window.__fixtureTheme(t), 'light');
+    await sleep(800);
+    await page.evaluate(() => window.__playerDebug.openSearch());
+    await sleep(420);
+    // 喂一页结果，让列表真占位（点行播放的路径不影响这里）
+    await page.evaluate(() => window.__playerDebug.renderResults(Array.from({ length: 6 }, (_, i) => ({
+      id: 'netease:78' + i, title: '结果 ' + (i + 1), author: '歌手 ' + (i + 1),
+      url: '/api/apps/hanako-audio-player/routes/widget/api/music/go/78' + i + '?server=netease', pic: ''
+    }))));
+    await sleep(320);
+    s[name] = await page.evaluate(() => {
+      const head = document.querySelector('.search-head');
+      const srvs = document.getElementById('searchServers');
+      const scope = document.getElementById('searchScope');
+      const inp = document.getElementById('searchInput');
+      const list = document.getElementById('searchList');
+      const fr = document.getElementById('frame');
+      const sec = document.getElementById('searchSection');
+      const r = (el) => el.getBoundingClientRect();
+      /* 「结果」标签那行：临时拿掉 hidden 读计算样式，才能真的验到非宽窗那条 display:none */
+      const wasHidden = sec.hidden;
+      sec.hidden = false;
+      const secDisplay = getComputedStyle(sec).display;
+      sec.hidden = wasHidden;
+      const hb = r(head), sb = r(srvs), cb = r(scope), ib = r(inp), lb = r(list);
+      return {
+        layout: document.getElementById('player').getAttribute('data-layout'),
+        headH: Math.round(hb.height),
+        sameRow: Math.abs(sb.top - cb.top) < 2,
+        scopeInside: cb.left >= hb.left - 1 && cb.right <= hb.right + 1 && cb.width > 0,
+        serversScroll: srvs.scrollWidth > srvs.clientWidth + 1,
+        serversW: Math.round(sb.width),
+        inputW: Math.round(ib.width),
+        sectionDisplay: secDisplay,
+        listH: Math.round(lb.height),
+        overflow: fr.scrollWidth > fr.clientWidth + 1
+      };
+    });
+    s[name].wantLayout = wantLayout;
+    await page.screenshot({ path: path.join(outDir, `search-header-${name}-light.png`) });
+    await page.close();
+  }
+  const c = s['compact-561x500'], n = s['narrow-312x494'], wd = s['wide-1040x780'];
+  // 卡片：两行、平台与范围同行、范围完整可见、「结果」标签被 CSS 隐去、列表拿到高度
+  assert('search-head-compact-two-rows',
+    c.layout === 'compact' && c.sameRow === true && c.headH <= 110 && c.sectionDisplay === 'none' &&
+    c.scopeInside === true && c.inputW >= 150 && c.overflow === false && c.listH >= 230,
+    JSON.stringify(c));
+  // 极窄：同一套两行，平台条开始横滑（范围仍完整可见）
+  assert('search-head-narrow-two-rows',
+    n.layout === 'compact' && n.sameRow === true && n.headH <= 110 && n.sectionDisplay === 'none' &&
+    n.scopeInside === true && n.serversScroll === true && n.inputW >= 100 && n.overflow === false,
+    JSON.stringify(n));
+  // 宽窗：平台与范围并到输入框同一行（头部从两行变一行），「结果」标签仍显示
+  assert('search-head-wide-single-row',
+    wd.layout === 'wide' && wd.sameRow === true && wd.headH <= 72 && wd.sectionDisplay !== 'none' &&
+    wd.overflow === false && wd.inputW >= 200,
+    JSON.stringify(wd));
+  report.searchHeader = s;
+}
+
 /* ============ 3) 精修矩阵：312 / 465 / 1040 × 浅深 × 歌词开/关 ============ */
 /* 先复位夹具：上一段接线冒烟改过歌单（删了 imp:1）也留了播放态；不复位这里
  * 拍到的就是那个残局（无封面的歌单曲目），看不出封面/环境色的真实效果。 */
