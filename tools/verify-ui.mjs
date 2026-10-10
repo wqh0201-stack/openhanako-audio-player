@@ -1402,6 +1402,28 @@ const motion = {};
     s.volUnmute.audioVol === s.volDrag.value,
     JSON.stringify(s.volUnmute));
 
+  /* 音量图标三档弧线：低/中/高 → i-volume-1/2/3；静音 → i-volume-mute。 */
+  s.volIcon = await page.evaluate(() => {
+    const href = () => document.querySelector('#muteBtn use').getAttribute('href');
+    const set = (v) => {
+      const el = document.getElementById('vol');
+      el.value = String(v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return href();
+    };
+    const out = { low: set(20), mid: set(50), high: set(80) };
+    document.getElementById('muteBtn').click();
+    out.muted = href();
+    document.getElementById('muteBtn').click();   // 取消静音，恢复原音量
+    out.back = href();
+    return out;
+  });
+  assert('vol-icon-levels',
+    s.volIcon.low === '#i-volume-1' && s.volIcon.mid === '#i-volume-2' &&
+    s.volIcon.high === '#i-volume-3' && s.volIcon.muted === '#i-volume-mute' &&
+    s.volIcon.back === '#i-volume-3',
+    JSON.stringify(s.volIcon));
+
   // 移开 → 收起
   await page.mouse.move(6, 6);
   await sleep(520);
