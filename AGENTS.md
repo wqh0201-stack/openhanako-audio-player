@@ -344,7 +344,7 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   `vol-pop-closes-on-leave` / `vol-pop-opens-long` / `vol-pop-opens-compact`；
   自检新增 `vol-pop-hover-slider`（替换原 `control-visible:vol`）。
   交接：`docs/player-ui/REFINE-DONE-VOLUME.md`。
-- **「静听 · 连续布局」控制条**（2026-10-10，**已部署**，构建号 1003131611）：按
+- **「静听 · 连续布局」控制条**（2026-10-10，**已部署**，构建号 1003131612）：按
   `docs/player-ui/QUIET-CONTROLS-HANDOFF.md` 把选定草图落进生产。底部从「三段式网格 + 窄卡七等分」
   改成**一张控制面**：常规高 100、特别窄 112，所有槽位绝对定位；三种尺寸只重排周边槽位，
   中央三键（上一首·播放·下一首）几何中心恒在面正中，全程 44×44、中心距 52/52、整组宽 148。
@@ -357,8 +357,13 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ③ **连续换位** `arrangeControls()`：跨断点量旧矩形 → 提交新布局 → WAAPI 反向位移回零 340ms，可打断；
      中央三键不做 FLIP。播放/暂停同位置双字形交叉；红心弹跳；切歌曲目信息入场；reduced-motion 全退即时。
   ④ **音量原样保留**（内部结构/交互/动效一律没动），只把外层提为绝对定位参与响应式。
-     ⚠️ 坑：`.vol-group` 自带 `position:relative`，当响应式槽位时必须显式 `position:absolute`，
+     ⚠️ 坑一：`.vol-group` 自带 `position:relative`，当响应式槽位时必须显式 `position:absolute`，
      否则 `left/bottom` 变相对位移、按钮飘到控制条上方。
+     ⚠️ 坑二：外层**绝不能给 `z-index`** —— 给了就成 stacking context，浮层里写的 40 只在罩内算数，
+     出罩只剩外层的号；而浮层是往上长进 `.stage` 的，与搜索页(22)/遮罩(28)/抽屉(30) 几何重叠，
+     结果滑条被盖住拖不动（罐头真机报的「抽屉打开动不了音量条」，构建号 1003131612 修）。
+     断言不能只比 z-index 数字，得用 `document.elementFromPoint` 做命中测试
+     （`vol-pop-hit-under-drawer` / `vol-pop-hit-under-search`）。
   验收：`node tools/verify-ui.mjs` **103/103** 断言（新增 `ctl-transport-geometry` / `ctl-flank-slots-wide`）、
   12/12 布局、4/4 窄卡、零运行时错误。交接：`docs/player-ui/QUIET-CONTROLS-DONE.md`。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`

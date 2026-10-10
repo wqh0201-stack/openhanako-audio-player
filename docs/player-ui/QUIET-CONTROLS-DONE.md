@@ -1,7 +1,7 @@
 # 「静听 · 连续布局」控制条 · 实现完成
 
 2026-10-10。按 `QUIET-CONTROLS-HANDOFF.md` 把选定草图落进生产 UI。**已部署**，构建号
-1003131610 → **1003131611**。
+1003131610 → 1003131611 → **1003131612**（1612 = 修音量浮层被搜索页/遮罩盖住，罐头真机反馈）。
 
 设计源：`docs/player-ui/refs/quiet-controls/`（approved-fragment.html / 三张截图 / Lucide 图标导出）。
 
@@ -66,9 +66,17 @@
 **只改了它在控制面里的位置**：外层 `position:absolute`（`left:calc(50% + 90px)` / 窄档
 `left:calc(100% - pad - 44px)`），成为参与响应式排列的实体盒。
 
-> ⚠️ 踩过的坑：`.vol-group` 自带 `position:relative`（浮层的定位上下文），当它作为响应式槽位时
-> **必须显式提为 `position:absolute`** —— 否则 `left/bottom` 变成相对文档流的位移，音量按钮会飘到
-> 控制条上方（第一轮截图就撞上了）。内层按钮再 `inset:0` 填满外层盒。
+> ⚠️ 踩过的两个坑（都发生在「把音量组放进响应式布局」这一步）：
+> 1. `.vol-group` 自带 `position:relative`（浮层的定位上下文），当它作为响应式槽位时
+>    **必须显式提为 `position:absolute`** —— 否则 `left/bottom` 变成相对文档流的位移，音量按钮会飘到
+>    控制条上方（第一轮截图就撞上了）。内层按钮再 `inset:0` 填满外层盒。
+> 2. 外层**绝不能给 `z-index`**。给了它就成 stacking context，浮层里写的 40 只在罩内算数，
+>    出罩只剩外层的号 —— 而浮层是往上长进 `.stage` 的，与搜索页(22)/遮罩(28)/抽屉(30) 几何重叠，
+>    结果滑条被盖住、拖不动（罐头真机报的「抽屉打开动不了音量条」）。
+>    去掉 `z-index`（`z-index:auto` 的定位元素不建 stacking context），浮层自己的 40 直接参与
+>    `.player` 层叠，与改造前一致。
+>    **教训**：z-index 大小不等于真能点到 —— 断言改用 `document.elementFromPoint` 做命中测试
+>    （`vol-pop-hit-under-drawer` / `vol-pop-hit-under-search`）。
 
 ## 4. 验收
 
@@ -83,7 +91,7 @@
 
 ## 5. 部署
 
-- `node tools/bump-build.mjs` → 1003131611（三处同步）。
+- `node tools/bump-build.mjs` → 1003131612（三处同步）。
 - 整包同步 `ui/` 六件（index / standalone / style / app / _build / LUCIDE-LICENSE）到
   `~/.hanako/apps/hanako-audio-player/ui/`，`diff -rq` 校验一致。
 - `extension_manager reload app:hanako-audio-player` —— **无 manifest 扩权，不需重新审批**。

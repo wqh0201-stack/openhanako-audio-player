@@ -1120,7 +1120,12 @@ button:disabled { cursor: default; }
 .controls .mode { left: calc(50% - 134px); }
 .controls .queue-btn { right: var(--ctl-pad); }
 /* 音量组：外层是参与响应式排列的实体盒（.vol-group 自带 position:relative，
-   这里提为绝对定位；内部结构/交互/动效一律不动）。 */
+   这里提为绝对定位；内部结构/交互/动效一律不动）。
+   ⚠️ 外层**不能**给 z-index：一旦给了，它就成 stacking context，里面的 .vol-pop
+   即使写 40 也只在罩内算数（出罩只剩外层的号），会被搜索页(22)/遮罩(28)/抽屉(30)
+   盖住 —— 而浮层是往上长进舞台区的，正好几何重叠，滑条就拖不动了。
+   不给 z-index（z-index:auto 的定位元素不创建 stacking context），浮层自己的 40
+   直接参与 .player 的层叠，与改造前一致。 */
 .controls .volume-wrap {
   position: absolute;
   left: calc(50% + 90px);
@@ -1130,7 +1135,6 @@ button:disabled { cursor: default; }
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 12;
 }
 .controls .volume-wrap > .icon-btn { position: absolute; left: 0; top: 0; bottom: auto; width: 44px; height: 44px; }
 /* 特别窄：模式与音量上移一行（时间线左/右两侧），中央三键仍留原行 */

@@ -1442,6 +1442,15 @@ const motion = {};
   await page.hover('#muteBtn');
   await sleep(420);
   await page.screenshot({ path: path.join(outDir, 'vol-pop-over-drawer-light.png') });
+  // 真命中测试（不只比 z-index 数字）：抽屉 + 遮罩开着时，音量滑条中心必须仍能被指针点到。
+  // （浮层是往上长进舞台区的，和遮罩几何重叠 —— 只比 40>28 会假绿。）
+  s.volHitDrawer = await page.evaluate(() => {
+    const v = document.getElementById('vol');
+    const r = v.getBoundingClientRect();
+    const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { hit: el ? (el.id || el.className || el.tagName) : null, ok: !!(el && (el === v || el.closest('#volPop'))) };
+  });
+  assert('vol-pop-hit-under-drawer', s.volHitDrawer.ok === true, JSON.stringify(s.volHitDrawer));
   await page.mouse.move(6, 6);
   await sleep(400);
   await page.click('#queueBtn');
@@ -1487,6 +1496,19 @@ const motion = {};
   assert('search-page-not-cover-controls',
     s.coversControls.searchBottom <= s.coversControls.controlsTop + 1,
     JSON.stringify(s.coversControls));
+  // 搜索页开着时，音量浮层不能被它盖住 —— 同样用真命中测试（搜索页只铺 .stage，
+  // 但浮层往上长进 .stage，几何重叠；父层 stacking context 会把 40 关小）。
+  await page.hover('#muteBtn');
+  await sleep(420);
+  s.volHitSearch = await page.evaluate(() => {
+    const v = document.getElementById('vol');
+    const r = v.getBoundingClientRect();
+    const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { hit: el ? (el.id || el.className || el.tagName) : null, ok: !!(el && (el === v || el.closest('#volPop'))) };
+  });
+  assert('vol-pop-hit-under-search', s.volHitSearch.ok === true, JSON.stringify(s.volHitSearch));
+  await page.mouse.move(6, 6);
+  await sleep(400);
   await page.screenshot({ path: path.join(outDir, 'search-page-1040x780-light.png') });
 
   // 行尾红心：点一下 = 收藏到「我的喜欢」（加入与心是同一件事）
