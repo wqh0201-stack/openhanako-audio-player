@@ -1034,12 +1034,11 @@ button:disabled { cursor: default; }
   background: var(--hk-surface);
   border-top: 1px solid var(--hk-hairline);
 }
-/* 控制条歌名（宽窗专属）：居中、限宽（不抢右侧空间），超出省略号；窄卡/长条不显示。 */
+/* 控制条歌名（宽窗专属）：占固定宽度（长短歌名不影响右侧），居中，超出省略号；窄卡/长条不显示。 */
 .ctl-title {
   display: none;
-  flex: 0 1 auto;
+  flex: 0 0 240px;
   min-width: 0;
-  max-width: 240px;
   text-align: center;
   font-size: 13px;
   color: var(--hk-text);
@@ -1062,14 +1061,19 @@ button:disabled { cursor: default; }
 }
 #durTime { color: var(--hk-faint); }
 
-/* 设计稿第二行是整条均分节奏：歌词 ⟳ ⏮ (⏸) ⏭ 🔊 | ☰ 队列 */
+/* 设计稿第二行是三段式网格：左格（🔍 歌名 ♥ ⟳）｜中格（⏮ ▶ ⏭）｜右格（🔊 | ☰）。
+   grid 1fr auto 1fr 让中格恒居中 → 播放键固定落在底栏正中，左右内容宽窄不影响它。 */
 .btn-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  column-gap: 12px;
   margin-top: 10px;
 }
+.cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cell-left { justify-content: flex-start; }
+.cell-center { justify-content: center; }
+.cell-right { justify-content: flex-end; }
 .vol-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
 /* 「歌词」与「队列」同一套文字按钮语言：常态弱化、激活只用强调色 */
@@ -1174,7 +1178,8 @@ button:disabled { cursor: default; }
  * 紧凑排布：歌词/队列收成纯图标（aria-label/title 仍带全名）、
  * 播放键略缩、去分隔线、缩内边距 —— 不隐藏任何控件。 */
 .player[data-bar="tight"] .controls { gap: 10px; padding: 10px 12px 12px; }
-.player[data-bar="tight"] .btn-row { gap: 4px; margin-top: 8px; }
+.player[data-bar="tight"] .btn-row { column-gap: 4px; margin-top: 8px; }
+.player[data-bar="tight"] .cell { gap: 4px; }
 .player[data-bar="tight"] .text-btn,
 .player[data-bar="tight"] .queue-btn { padding: 6px; gap: 0; }
 .player[data-bar="tight"] .text-btn span,

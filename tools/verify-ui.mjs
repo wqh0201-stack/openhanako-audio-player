@@ -1231,19 +1231,24 @@ const motion = {};
     const b = document.getElementById('searchEntryBtn');
     const r = b.getBoundingClientRect();
     const row = b.closest('.btn-row');
+    const leftCell = row.querySelector('.cell-left');
     const qb = document.getElementById('queueBtn');
     const ct = document.getElementById('ctlTitle');
+    const pr = document.getElementById('playBtn').getBoundingClientRect();
+    const rr = row.getBoundingClientRect();
     return {
       shown: getComputedStyle(b).display !== 'none' && r.width > 0,
-      firstInRow: !!row && row.firstElementChild === b,
+      firstInRow: !!leftCell && leftCell.firstElementChild === b,
       qbIconOnly: getComputedStyle(qb.querySelector('.qb-label')).display === 'none',
-      titleShown: getComputedStyle(ct).display !== 'none' && ct.textContent.trim().length > 0
+      titleShown: getComputedStyle(ct).display !== 'none' && ct.textContent.trim().length > 0,
+      playCentered: Math.abs((pr.left + pr.width / 2) - (rr.left + rr.width / 2)) < 2
     };
   });
   assert('search-entry-visible-in-window', s.entryVisibleWide.shown === true, JSON.stringify(s.entryVisibleWide));
   assert('ctl-endpoints-symmetric-wide',
     s.entryVisibleWide.firstInRow === true && s.entryVisibleWide.qbIconOnly === true && s.entryVisibleWide.titleShown === true,
     JSON.stringify(s.entryVisibleWide));
+  assert('ctl-play-centered-wide', s.entryVisibleWide.playCentered === true, JSON.stringify(s.entryVisibleWide));
 
   // 窄卡（compact 高<560）下入口与歌名都应隐藏
   await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
