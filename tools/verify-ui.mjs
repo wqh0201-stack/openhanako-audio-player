@@ -2354,6 +2354,32 @@ let lifecycle = {};
     orphanState.queueText.indexOf('孤儿曲目') >= 0 && orphanState.cur >= 4.5;
   await orphanPage.close();
 
+  /* 拖动进度条后继续播：落盘位置必须跟着实际播放走，不能停在跳转点。
+   * （老实现是 900ms 防抖，连续播放时永远不写盘 → 盘上停在跳转那一下。） */
+  await fetch(`${BASE}${API}/__fixture/reset?mode=main&appSurfaceSession=fake-ticket`);
+  const seekPage = await newPage();
+  await seekPage.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
+  await seekPage.goto(`${BASE}/index.html?appSurfaceSession=fake-ticket`, { waitUntil: 'domcontentloaded' });
+  await seekPage.evaluate((t) => window.__fixtureTheme(t), 'light');
+  await sleep(800);
+  await clickTab(seekPage, 'imp:1');
+  await sleep(200);
+  await seekPage.evaluate(() => document.querySelectorAll('#queueList .q-row')[0].querySelector('.q-hit').click());
+  await sleep(1200);
+  // 拖到 ~10s，再继续播 2.6s
+  await seekPage.evaluate(() => {
+    const s = document.getElementById('seek');
+    s.value = '10';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(2600);
+  const seekCur = await seekPage.evaluate(() => document.getElementById('audio').currentTime);
+  const seekSaved = (await (await fetch(`${BASE}${API}/api/playback-state?appSurfaceSession=fake-ticket`)).json()).state;
+  lifecycle.seekFollow = { saved: seekSaved && seekSaved.progress, cur: seekCur };
+  lifecycle.seekFollowOk =
+    !!seekSaved && seekCur > 11 && seekSaved.progress >= seekCur - 1.5;
+  await seekPage.close();
+
   report.lifecycle = lifecycle;
 }
 
@@ -2389,7 +2415,7 @@ const migrationOk = report.migration && report.migration.idempotent === true &&
   report.migration.firstCounts.per['imp:2'] === 4 &&
   report.migration.firstCounts.per['imp:3'] === 3 &&
   report.migration.firstCounts.per['imp:4'] === 2;
-const lifecycleOk = report.lifecycle && report.lifecycle.crossOk === true && report.lifecycle.blockedOk === true && report.lifecycle.snapshotTrackOk === true;
+const lifecycleOk = report.lifecycle && report.lifecycle.crossOk === true && report.lifecycle.blockedOk === true && report.lifecycle.snapshotTrackOk === true && report.lifecycle.seekFollowOk === true;
 
 fs.writeFileSync(path.join(outDir, 'verify.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({

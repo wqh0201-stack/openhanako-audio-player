@@ -1,7 +1,7 @@
 # 拖进/拖出「播放不割裂」修复（REFINE-DONE-RESUME）
 
-2026-10-10。构建号 1003131613 → **1003131614**（第二轮）。改动只落在 `ui/app.js`
-（+ `tools/verify-ui.mjs` 两条断言）。
+2026-10-10。构建号 1003131613 → **1003131614**（第二轮）→ **1003131615**（第三轮）。
+改动只落在 `ui/app.js`（+ `tools/verify-ui.mjs` 三条断言）。
 
 ## 罐头报的 bug
 
@@ -120,4 +120,45 @@
 `lifecycle.crossOk` 里加了 `firstPlayAt`：用 `evaluateOnNewDocument` 在文档脚本之前挂一个
 捕获阶段 `play` 监听，记下**起播那一刻的 `currentTime`**；要求它 ≥ 快照进度 − 0.5s。
 改前会是 ~0（先从头放），改后等于续播点。验收仍 **106/106**。
+
+---
+
+## 第三轮：罐头反馈「跳到 3 分钟，播到 4 分半再切，回来从 3 分钟开始」
+
+这条把问题钉到了**落盘频率**上。
+
+### 根因五：`persistThrottled` 是**防抖**，不是节流 —— 播放期间一次都不落盘
+
+```js
+function persistThrottled() {
+  clearTimeout(writeTimer);
+  writeTimer = setTimeout(persistNow, 900);   // ← 每次调用都重置
+}
+```
+
+`timeupdate` 每 ~250ms 调一次 `persistState()`，每次都把 900ms 定时器重置 —— **连续播放时
+这个定时器永远不触发**。于是播放期间**零写入**，盘上留着的永远是「上一个显式动作」：
+切歌、暂停、拖动进度条、改音量……拖到 3:00 那一下正好是其中之一，播到 4:30 期间再没写过，
+切走时新文档读回的就是 3:00。
+
+**修**：改成**真节流**（leading + trailing），最多每 1.2s 写一次，位置始终跟着实际播放走。
+```js
+function persistThrottled() {
+  var now = Date.now();
+  if (now - lastWriteAt >= WRITE_MIN_GAP) { persistNow(); return; }
+  if (writeTimer) return;
+  writeTimer = setTimeout(persistNow, WRITE_MIN_GAP - (now - lastWriteAt));
+}
+```
+
+### 顺带：不赌卸载那一刻了
+
+这条 bug 还侧面说明：**宿主拆 iframe 时未必派 `pagehide`/`visibilitychange`**（直接移除节点
+两者都不发）。所以周期落盘才是命脉，`pagehide`/`visibilitychange` 上的 beacon 只是「能赶上
+就赶上」的加成；另补了 `unload` / `beforeunload` 两个保险钩子。
+
+### 新增断言
+
+`lifecycle.seekFollowOk`：拖动进度条到 10s，继续播 2.6s，然后**直接查服务端落盘值**，
+要求它 ≥ 实际播放位置 − 1.5s（改前会停在 10 或 0，改后 ≈ 实际位置）。验收仍 **106/106**。
 

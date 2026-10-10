@@ -241,11 +241,19 @@
     };
   }
 
-  /* 常规写入：串行链 + 节流；切歌/暂停/导入/删除走立即写 */
+  /* 常规写入：串行链 + **真节流**（不是防抖）。
+   * 之前写成 900ms 防抖：连续播放时 timeupdate 每 ~250ms 重置一次定时器，
+   * 于是**播放期间一次都不落盘** —— 盘上留着的永远是「上一个显式动作」
+   * （切歌/暂停/拖动进度条那一下）。拖动到 3:00 后再播到 4:30 切卡片，
+   * 新文档读回的就是 3:00。改成「最多每 1.2s 写一次」，位置始终跟着实际播放走。 */
   var writeChain = Promise.resolve();
   var writeTimer = 0;
+  var lastWriteAt = 0;
+  var WRITE_MIN_GAP = 1200;
   function persistNow() {
     clearTimeout(writeTimer);
+    writeTimer = 0;
+    lastWriteAt = Date.now();
     var snap = snapshot();
     writeChain = writeChain.then(function () {
       return apiPostJson(ENDPOINT.playbackState, snap).then(function (res) {
@@ -257,8 +265,10 @@
     return writeChain;
   }
   function persistThrottled() {
-    clearTimeout(writeTimer);
-    writeTimer = setTimeout(persistNow, 900);
+    var now = Date.now();
+    if (now - lastWriteAt >= WRITE_MIN_GAP) { persistNow(); return; }   // 距上次写够久 → 立即写
+    if (writeTimer) return;                                            // 已排了尾部写，不重复排
+    writeTimer = setTimeout(persistNow, WRITE_MIN_GAP - (now - lastWriteAt));
   }
   function persistState() { persistThrottled(); }
 
@@ -2128,6 +2138,11 @@
     try { beaconPlayback(); } catch (e) {}
   }
   window.addEventListener('pagehide', flushOnTeardown);
+  /* 有些宿主拆 iframe 时不派 pagehide/visibilitychange（直接移除节点），
+   * unload 也不保证 —— 所以真正靠得住的是上面的**周期落盘**；
+   * 这几条只是「能赶上就赶上」的额外保险。 */
+  window.addEventListener('unload', flushOnTeardown);
+  window.addEventListener('beforeunload', flushOnTeardown);
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') flushOnTeardown();
     else unloading = false;   // 只是被隐藏后又回来（并未真卸载）

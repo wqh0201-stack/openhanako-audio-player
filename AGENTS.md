@@ -386,9 +386,15 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
         放几百毫秒再跳（等起播窗口 ~3s，暂停恢复 ~9s）；
      c) boot 提速：`loadPlaylist/loadPlaybackState` 走 HTTP 路由、不等 SDK，与 `waitForHana`
         并行；`restorePlayback()` 不等 SDK 就起播，`loadAudio` 提到队列渲染之前。
+  ④ 第三轮（罐头：「跳到 3 分钟，播到 4 分半再切，回来从 3 分钟开始」）：
+     **`persistThrottled` 是防抖不是节流** —— 连续播放时 `timeupdate` 每 ~250ms 把 900ms
+     定时器重置，播放期间**零写入**，盘上留着的是「上一个显式动作」（拖动进度条就是之一）。
+     改成**真节流**（最多每 1.2s 写一次）。另：宿主拆 iframe 可能不派 `pagehide`/
+     `visibilitychange`，所以周期落盘才是命脉，另补 `unload`/`beforeunload` 保险。
   断言新增 `lifecycle.snapshotTrackOk`（播种「当前曲目不在 playlist 里」的快照，新文档必须
-  恢复成同一首 + 进度≥4.5s）与 `crossOk` 里的 `firstPlayAt`（起播那一刻的位置必须已是续播点）。
-  验收 **106/106** 断言。交接：`docs/player-ui/REFINE-DONE-RESUME.md`。
+  恢复成同一首 + 进度≥4.5s）、`crossOk` 里的 `firstPlayAt`（起播那一刻的位置必须已是续播点）、
+  与 `lifecycle.seekFollowOk`（跳转后落盘位置必须跟着实际播放走）。验收 **106/106** 断言。
+  交接：`docs/player-ui/REFINE-DONE-RESUME.md`。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
 - 待办：独立窗/小卡音频不中断（pagehide/beacon 落盘 + 续播，2026-10-10 两轮：快照自带曲目 +
   换曲即落盘 + 进度护栏 + 媒体时钟进度 + seek 落点前不起播 + boot 提速，构建号 1003131614，
