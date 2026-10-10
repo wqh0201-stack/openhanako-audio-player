@@ -1031,35 +1031,49 @@ button:disabled { cursor: default; }
 }
 
 /* ============================================================
-   底部播放控制
+   底部播放控制 · 静听（连续布局）
+   ------------------------------------------------------------
+   一张控制面：常规高 100、特别窄 112；所有槽位绝对定位在面内。
+   三种尺寸只重排周边槽位（搜索 / 曲目信息 / 模式 / 音量 / 队列），
+   中央三键（上一首 · 播放 · 下一首）几何中心恒在面正中，
+   全程 44×44、中心距 52/52、整组宽 148 —— 不换按钮、不改比例、不摊进等分格。
+   内边距：宽窗 --ctl-pad 24；长卡 / 窄卡 12。
+   断点：整体形态 720/560（沿用 data-layout）；控制面自身换行点 400（data-ctl="narrow"，
+        与全局 data-bar 的 420 分开 —— 后者还管舞台文字）。
+   几何与动效定稿：docs/player-ui/QUIET-CONTROLS-HANDOFF.md
    ============================================================ */
 .controls {
+  --ctl-pad: 12px;
+  position: relative;
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 12px 18px 14px;
+  height: 100px;
   background: var(--hk-surface);
   border-top: 1px solid var(--hk-hairline);
+  transition: height 340ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-/* 控制条歌名（宽窗专属）：占固定宽度（长短歌名不影响右侧），居中，超出省略号；窄卡/长条不显示。 */
-.ctl-title {
-  display: none;
-  flex: 0 0 160px;
-  min-width: 0;
-  text-align: center;
-  font-size: 13px;
-  color: var(--hk-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.controls-main { flex: 1 1 auto; min-width: 0; }
+.player[data-layout="wide"] .controls { --ctl-pad: 24px; }
+.player[data-ctl="narrow"] .controls { height: 112px; }
+.controls-main { position: absolute; inset: 0; }
 
+/* 时间线：控制面上沿，左右 inset = --ctl-pad；特别窄时两侧各让 48px 给上移的模式/音量 */
 .progress-row {
+  position: absolute;
+  left: var(--ctl-pad);
+  right: var(--ctl-pad);
+  top: 3px;
+  height: 28px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  transition: left 340ms cubic-bezier(0.22, 0.61, 0.36, 1),
+              right 340ms cubic-bezier(0.22, 0.61, 0.36, 1),
+              top 340ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.player[data-ctl="narrow"] .progress-row {
+  left: calc(var(--ctl-pad) + 48px);
+  right: calc(var(--ctl-pad) + 48px);
+  top: 10px;
+  gap: 7px;
 }
 .time {
   flex: 0 0 auto;
@@ -1069,38 +1083,161 @@ button:disabled { cursor: default; }
 }
 #durTime { color: var(--hk-faint); }
 
-/* 第二行三段式网格：左格（🔍 歌名 ♡ ⟳）｜中格（⏮ ▶ ⏭）｜右格（🔊 — ☰）。
-   grid 1fr auto 1fr 让中格恒居中 → 播放键固定落在底栏正中，左右内容宽窄不影响它。
-   左格 space-between：🔍 与歌名不再贴脸、四项等距；右格靠右成组。 */
-.btn-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+/* 控制面内的辅助槽位：统一 44×44 命中盒，线描图标 19×19 / stroke 1.65（不随命中盒放大）。 */
+.controls .search-entry,
+.controls .mode,
+.controls .queue-btn,
+.controls .volume-wrap > .icon-btn {
+  display: inline-flex;
   align-items: center;
-  column-gap: 24px;
-  margin-top: 10px;
-}
-.cell { display: flex; align-items: center; min-width: 0; }
-.cell-left { justify-content: space-between; }
-.cell-center { justify-content: center; gap: 18px; }
-.cell-right { justify-content: flex-end; gap: 20px; }
-/* 窄卡：按钮行展平为 7 等分（中心等距、play 落正中）；搜索/歌名本就只在宽窗显示；
-   队列也收成纯图标（与宽窗一致，且不带文字才撑得住等分格） */
-.player[data-layout="compact"] .cell { display: contents; }
-/* .vol-group **不再**展平：它里面挂着音量浮层，展平会把浮层也变成网格子项。
-   整组当作一格（里面只有静音键），7 等分的格数不变。 */
-.player[data-layout="compact"] .ctl-divider,
-.player[data-layout="compact"] .qb-label { display: none; }
-.player[data-layout="compact"] .queue-btn {
-  width: 30px;
-  height: 30px;
   justify-content: center;
+  width: 44px;
+  height: 44px;
   padding: 0;
+  border-radius: var(--radius-s, 5px);
+  color: var(--hk-muted);
+  position: absolute;
+  bottom: 14px;
+  transition: background-color .14s ease, color .14s ease, transform .14s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.player[data-layout="compact"] .btn-row {
-  grid-template-columns: repeat(7, 1fr);
-  column-gap: 0;
-  justify-items: center;
+.controls .search-entry:hover,
+.controls .mode:hover,
+.controls .queue-btn:hover,
+.controls .volume-wrap > .icon-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
+.controls .search-entry:active,
+.controls .mode:active,
+.controls .queue-btn:active,
+.controls .volume-wrap > .icon-btn:active { transform: scale(0.96); }
+.controls .search-entry .icon,
+.controls .mode .icon,
+.controls .queue-btn .icon,
+.controls .volume-wrap .icon { width: 19px; height: 19px; stroke-width: 1.65; }
+/* 队列入口收成纯图标（三种尺寸一致）；计数/文字标签不再占位 */
+.controls .qb-label { display: none; }
+
+/* 各槽位落点 */
+.controls .search-entry { left: var(--ctl-pad); display: none; }   /* 仅独立窗显示 */
+.controls .mode { left: calc(50% - 134px); }
+.controls .queue-btn { right: var(--ctl-pad); }
+/* 音量组：外层是参与响应式排列的实体盒（.vol-group 自带 position:relative，
+   这里提为绝对定位；内部结构/交互/动效一律不动）。 */
+.controls .volume-wrap {
+  position: absolute;
+  left: calc(50% + 90px);
+  bottom: 14px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
 }
+.controls .volume-wrap > .icon-btn { position: absolute; left: 0; top: 0; bottom: auto; width: 44px; height: 44px; }
+/* 特别窄：模式与音量上移一行（时间线左/右两侧），中央三键仍留原行 */
+.player[data-ctl="narrow"] .controls .mode { left: var(--ctl-pad); bottom: 64px; }
+.player[data-ctl="narrow"] .controls .volume-wrap { left: calc(100% - var(--ctl-pad) - 44px); bottom: 64px; }
+
+/* 曲目信息（歌名 13 / 歌手 11 两行）+ 红心：宽窗里紧邻成组，位于搜索右侧 */
+.controls .identity {
+  position: absolute;
+  left: calc(var(--ctl-pad) + 52px);
+  bottom: 14px;
+  height: 44px;
+  max-width: calc(50% - var(--ctl-pad) - 202px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity .18s ease;
+}
+.controls .identity .track-copy {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-align: left;
+}
+.controls .identity .track-copy strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--hk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.controls .identity .track-copy span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--hk-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.controls .identity .track-copy span:empty { display: none; }
+.controls .identity > .heart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  border-radius: var(--radius-s, 5px);
+  color: var(--hl-accent);
+  opacity: 1;
+}
+.controls .identity > .heart .icon { width: 19px; height: 19px; stroke-width: 1.65; }
+.controls .identity > .heart:hover { background: var(--hk-hover); }
+.controls .identity > .heart.is-on .icon { fill: currentColor; }
+.fav-btn.is-pop .icon { animation: heartPop 360ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes heartPop { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.16); } 70% { transform: scale(.98); } }
+
+/* 长卡 / 窄卡：搜索与曲目信息收起，红心落到最左；identity 展平让红心参与绝对定位 */
+.player[data-layout="long"] .controls .identity,
+.player[data-layout="compact"] .controls .identity { display: contents; }
+.player[data-layout="long"] .controls .identity .track-copy,
+.player[data-layout="compact"] .controls .identity .track-copy {
+  position: absolute;
+  left: 64px;
+  bottom: 17px;
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.player[data-layout="long"] .controls .identity > .heart,
+.player[data-layout="compact"] .controls .identity > .heart {
+  position: absolute;
+  left: var(--ctl-pad);
+  bottom: 14px;
+}
+
+/* 中央三键：一组，几何中心钉在面正中；按钮节点与事件不变 */
+.controls .transport {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 148px;
+  height: 44px;
+}
+.controls .transport > .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-s, 5px);
+  color: var(--hk-muted);
+  transition: background-color .14s ease, color .14s ease, transform .14s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.controls .transport > .icon-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
+.controls .transport > .icon-btn:active { transform: scale(0.96); }
+.controls .transport #prevBtn .icon,
+.controls .transport #nextBtn .icon { width: 18px; height: 18px; fill: currentColor; stroke-width: 1.3; }
 /* ---------- 音量：一颗按钮，悬停向上弹出竖向滑条 ----------
  * 三种布局通用。点按钮 = 切静音；鼠标移上来（或键盘聚焦）向上弹竖条，移开即收。
  * 浮层是按钮的绝对定位子元素 → 父级 .vol-group 必须相对定位；
@@ -1184,53 +1321,42 @@ button:disabled { cursor: default; }
 .text-btn[aria-pressed="true"] { color: var(--hk-accent); background: none; }
 .text-btn[aria-pressed="true"]:hover { background: var(--hk-hover); }
 
-.play-btn {
+/* 播放键：44px 圆钮；悬停微放大提亮，按压缩一点 */
+.controls .play-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--hk-accent);
   color: var(--hk-on-accent);
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1), filter 180ms ease;
 }
-.play-btn .icon { width: 22px; height: 22px; }
-.play-btn:hover { filter: brightness(1.06); }
-.play-btn:active { filter: brightness(0.95); }
+.controls .play-btn:hover { transform: scale(1.025); filter: brightness(1.04); }
+.controls .play-btn:active { transform: scale(0.96); filter: brightness(0.95); }
+/* 播放/暂停两枚字形叠在同一位置交叉淡入淡出：圆与位置不跳，只换图形 */
+.controls .play-btn .play-glyph {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  transition: opacity 160ms ease, transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.controls .play-btn .play-glyph .icon { width: 19px; height: 19px; fill: currentColor; stroke-width: 1.5; }
+.controls .play-btn .glyph-play { opacity: 0; transform: scale(0.82); }
+.controls .play-btn .glyph-play .icon { margin-left: 2px; }
+.controls .play-btn .glyph-pause { opacity: 1; transform: none; }
+.player[data-playing="0"] .controls .play-btn .glyph-play { opacity: 1; transform: none; }
+.player[data-playing="0"] .controls .play-btn .glyph-pause { opacity: 0; transform: scale(0.82); }
 
-.ctl-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--hk-hairline);
-  margin: 0 2px;
-}
+/* 切歌后的曲目信息：从下方 5px 回位 + 淡入（只作用于文字，不影响红心/布局） */
+.controls.is-changing .identity .track-copy { animation: songIn 260ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes songIn { from { opacity: .25; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
-.queue-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 9px;
-  border-radius: var(--radius-s);
-  color: var(--hk-muted);
-  white-space: nowrap;
-}
-.queue-btn:hover { background: var(--hk-hover); color: var(--hk-text); }
 .queue-btn.is-static { opacity: 0.85; }
 .queue-btn.is-static:hover { background: none; color: var(--hk-muted); }
-/* 宽窗：队列收成纯图标（与最左搜索左右对称）。 */
-.player[data-layout="wide"] .queue-btn {
-  width: 30px;
-  height: 30px;
-  justify-content: center;
-  padding: 0;
-}
-
-/* 矮卡队列页：底栏右键语义变「正在播放」（纯呈现层切换，不动 app.js） */
-.qb-now { display: none; }
-.player[data-layout="compact"][data-page="queue"] .qb-word,
-.player[data-layout="compact"][data-page="queue"] #queueBtnCount { display: none; }
-.player[data-layout="compact"][data-page="queue"] .qb-now { display: inline; }
 
 /* 滑杆（进度 / 音量） */
 .range {
@@ -1266,19 +1392,7 @@ button:disabled { cursor: default; }
 }
 .range-seek { flex: 1 1 auto; min-width: 0; }
 
-/* 窄容器（真机聊天卡实测 ~312px）：控制条会溢出被切（R6）。
- * 紧凑排布：歌词/队列收成纯图标（aria-label/title 仍带全名）、
- * 播放键略缩、去分隔线、缩内边距 —— 不隐藏任何控件。 */
-.player[data-bar="tight"] .controls { gap: 10px; padding: 10px 12px 12px; }
-.player[data-bar="tight"] .btn-row { column-gap: 4px; margin-top: 8px; }
-.player[data-bar="tight"] .cell { gap: 4px; }
-.player[data-bar="tight"] .text-btn,
-.player[data-bar="tight"] .queue-btn { padding: 6px; gap: 0; }
-.player[data-bar="tight"] .text-btn span,
-.player[data-bar="tight"] .qb-label { display: none; }
-.player[data-bar="tight"] .play-btn { width: 42px; height: 42px; }
-.player[data-bar="tight"] .play-btn .icon { width: 20px; height: 20px; }
-.player[data-bar="tight"] .ctl-divider { display: none; }
+/* 窄容器（真机聊天卡实测 ~312px）：舞台文字降一档；控制面的紧凑排布见上面「静听」一节。 */
 .player[data-bar="tight"] .track-title { font-size: 16px; }
 .player[data-bar="tight"] .track-artist { font-size: 11.5px; }
 .player[data-bar="tight"] .track-meta { font-size: 11px; }
@@ -1428,9 +1542,8 @@ button:disabled { cursor: default; }
    布局三 · 宽窗：舞台在左，队列从右侧浮层打开
    ============================================================ */
 .player[data-layout="wide"] .scene { flex: 1 1 auto; }
-.player[data-layout="wide"] .ctl-title { display: block; }
-.player[data-layout="wide"] .search-entry { display: inline-flex; }
-.player[data-layout="wide"] .qb-label { display: none; }
+/* 宽窗：搜索入口显示（其余尺寸收起，见「静听」一节） */
+.player[data-layout="wide"] .controls .search-entry { display: inline-flex; }
 
 /* 宽窗：阅读列位置由 --content-x 决定，右边界固定 20px。
  * 抽屉是【浮在上层的独立面板】（.queue 为 absolute + z-index:6），
@@ -1507,6 +1620,14 @@ body.is-shot *::after {
   .vol-group.is-open .vol-pop { transform: translate(-50%, 0) !important; }
   .vol-pop { transition: opacity .16s ease, visibility 0s linear .16s !important; }
   .vol-group.is-open .vol-pop { transition: opacity .16s ease, visibility 0s !important; }
+  /* 静听控制面：换位/高度/字形切换/红心弹跳全部退为即时或纯淡入 */
+  .controls,
+  .controls .progress-row { transition: none !important; }
+  .controls .play-btn .play-glyph { transition: opacity .16s ease !important; }
+  .controls .play-btn .glyph-play,
+  .controls .play-btn .glyph-pause,
+  .fav-btn.is-pop .icon,
+  .controls.is-changing .identity .track-copy { animation: none !important; transform: none !important; }
 }
 @keyframes panelFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes panelFadeOut { from { opacity: 1; } to { opacity: 0; } }
@@ -1548,22 +1669,8 @@ body.is-shot *::after {
    动效沿用现有语言：cubic-bezier(0.22,0.61,0.36,1)、轻位移不抢镜、
    统一按压反馈，reduced-motion 下退为纯淡入（与队列/歌词同口径）。
    ============================================================ */
-/* 控制条最左搜索入口：纯图标（宽窗专属，与最右队列左右对称）。 */
-.search-entry {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-s, 5px);
-  color: var(--hk-muted);
-  cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease, transform 0.1s ease-out;
-}
-.search-entry:hover { background: var(--hk-hover); color: var(--hk-text); }
-.search-entry:active { transform: scale(0.97); }
-.search-entry .icon { width: 16px; height: 16px; }
+/* 控制条最左搜索入口（.search-entry）的定位与尺寸见上面「底部播放控制 · 静听」一节：
+   44×44 命中盒、19px 图标、仅宽窗显示、左进左出。这里不再重复声明。 */
 
 .search-page {
   position: absolute;

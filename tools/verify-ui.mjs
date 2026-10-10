@@ -1283,29 +1283,41 @@ const motion = {};
   await sleep(700);
 
   const s = {};
-  // 入口仅独立窗口（wide）可见；现在长在按钮行最左，与最右队列左右对称；歌名居中显示
+  // 静听控制面（宽窗）：搜索在最左、队列在最右（纯图标）且左右对称；曲目信息在搜索右侧；
+  // 中央三键 44×44 / 中心距 52，播放键恒落控制面正中；模式 / 音量落在 C∓112。
   s.entryVisibleWide = await page.evaluate(() => {
     const b = document.getElementById('searchEntryBtn');
     const r = b.getBoundingClientRect();
-    const row = b.closest('.btn-row');
-    const leftCell = row.querySelector('.cell-left');
-    const qb = document.getElementById('queueBtn');
+    const ctl = document.getElementById('controls').getBoundingClientRect();
+    const qb = document.getElementById('queueBtn').getBoundingClientRect();
     const ct = document.getElementById('ctlTitle');
-    const pr = document.getElementById('playBtn').getBoundingClientRect();
-    const rr = row.getBoundingClientRect();
+    const prev = document.getElementById('prevBtn').getBoundingClientRect();
+    const play = document.getElementById('playBtn').getBoundingClientRect();
+    const next = document.getElementById('nextBtn').getBoundingClientRect();
+    const mode = document.getElementById('modeBtn').getBoundingClientRect();
+    const vol = document.getElementById('volGroup').getBoundingClientRect();
+    const C = ctl.left + ctl.width / 2;
+    const cx = (el) => el.left + el.width / 2;
     return {
       shown: getComputedStyle(b).display !== 'none' && r.width > 0,
-      firstInRow: !!leftCell && leftCell.firstElementChild === b,
-      qbIconOnly: getComputedStyle(qb.querySelector('.qb-label')).display === 'none',
+      searchLeftmost: Math.abs(cx(r) - (ctl.left + 24 + 22)) < 2,
+      qbRightmost: Math.abs(cx(qb) - (ctl.right - 24 - 22)) < 2,
+      qbIconOnly: getComputedStyle(document.querySelector('#queueBtn .qb-label')).display === 'none',
       titleShown: getComputedStyle(ct).display !== 'none' && ct.textContent.trim().length > 0,
-      playCentered: Math.abs((pr.left + pr.width / 2) - (rr.left + rr.width / 2)) < 2
+      playCentered: Math.abs(cx(play) - C) < 1,
+      transport: Math.round(prev.width) === 44 && Math.round(play.width) === 44 && Math.round(next.width) === 44 &&
+                 Math.round(cx(play) - cx(prev)) === 52 && Math.round(cx(next) - cx(play)) === 52,
+      flanks: Math.abs(cx(mode) - (C - 112)) < 2 && Math.abs(cx(vol) - (C + 112)) < 2
     };
   });
   assert('search-entry-visible-in-window', s.entryVisibleWide.shown === true, JSON.stringify(s.entryVisibleWide));
   assert('ctl-endpoints-symmetric-wide',
-    s.entryVisibleWide.firstInRow === true && s.entryVisibleWide.qbIconOnly === true && s.entryVisibleWide.titleShown === true,
+    s.entryVisibleWide.searchLeftmost === true && s.entryVisibleWide.qbRightmost === true &&
+    s.entryVisibleWide.qbIconOnly === true && s.entryVisibleWide.titleShown === true,
     JSON.stringify(s.entryVisibleWide));
   assert('ctl-play-centered-wide', s.entryVisibleWide.playCentered === true, JSON.stringify(s.entryVisibleWide));
+  assert('ctl-transport-geometry', s.entryVisibleWide.transport === true, JSON.stringify(s.entryVisibleWide));
+  assert('ctl-flank-slots-wide', s.entryVisibleWide.flanks === true, JSON.stringify(s.entryVisibleWide));
 
   /* 音量：一颗按钮 + 悬停弹出的竖向滑条（三种布局通用） */
   s.volClosed = await page.evaluate(() => {
@@ -1441,7 +1453,11 @@ const motion = {};
     return getComputedStyle(b).display === 'none' || b.getBoundingClientRect().width === 0;
   });
   assert('search-entry-hidden-in-card', s.entryHiddenCard === true, String(s.entryHiddenCard));
-  s.titleHiddenCard = await page.evaluate(() => getComputedStyle(document.getElementById('ctlTitle')).display === 'none');
+  s.titleHiddenCard = await page.evaluate(() => {
+    const ct = document.getElementById('ctlTitle');
+    const cs = getComputedStyle(ct);
+    return cs.display === 'none' || parseFloat(cs.opacity) === 0 || ct.getBoundingClientRect().width === 0;
+  });
   assert('ctl-title-hidden-in-card', s.titleHiddenCard === true, String(s.titleHiddenCard));
 
   // 回到独立窗，开搜索页 → 直接喂假结果 → 点行尾红心 → 曲目落进「我的喜欢」

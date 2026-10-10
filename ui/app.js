@@ -501,6 +501,16 @@
     btn.title = label;
   }
 
+  /* 红心反馈：填充立即更新，比例 1 → 1.16 → .98 → 1（只作用于图标，不动布局）。 */
+  function popHeart(btn) {
+    if (!btn) return;
+    btn.classList.remove('is-pop');
+    void btn.offsetWidth;
+    btn.classList.add('is-pop');
+    clearTimeout(btn._popT);
+    btn._popT = setTimeout(function () { btn.classList.remove('is-pop'); }, 400);
+  }
+
   /* 每个列表内按 uid 去重（跨列表不去重 —— 同一首歌在两个歌单里是合理的）。
    * 保留首次出现的位置，后出现的同 uid 项并入（补齐 pic/author 之类）。 */
   function dedupeWithinLists(tracks) {
@@ -1013,18 +1023,38 @@
     return '来源·' + sourceName(t);
   }
 
+  /* 控制条曲目信息（宽窗专属）：歌名一行 + 歌手一行；没曲目就清空。
+   * 只作用于文字节点，不动红心与布局。 */
+  function setCtlTrack(t) {
+    var copy = $('ctlTitle');
+    if (!copy) return;
+    var nameEl = $('ctlTitleText'), artistEl = $('ctlArtist');
+    if (nameEl) nameEl.textContent = t ? (t.title || '') : '';
+    if (artistEl) artistEl.textContent = t ? (t.author || '') : '';
+    copy.title = t ? ((t.title || '') + (t.author ? ' · ' + t.author : '')) : '';
+  }
+  /* 切歌时给曲目信息一次「从下方 5px 回位」的入场（只作用于文字）。 */
+  function flashCtlTrack() {
+    var box = $('controls');
+    if (!box) return;
+    box.classList.remove('is-changing');
+    void box.offsetWidth;
+    box.classList.add('is-changing');
+    clearTimeout(flashCtlTrack._t);
+    flashCtlTrack._t = setTimeout(function () { box.classList.remove('is-changing'); }, 320);
+  }
+
   function renderTrack() {
     var t = currentTrack();
     var favBtn = $('stageFavBtn');
     var favTextBtn = $('favBtn');
-    var ctlTitle = $('ctlTitle');   // 控制条居中歌名（宽窗专属）
     /* 播放页红心是空标签（只有外壳），图标得自己塞（只塞一次）。 */
     if (favBtn && !favBtn.querySelector('use')) favBtn.innerHTML = icon('i-heart');
     if (!t) {
       $('trackTitle').textContent = '还没有曲目';
       $('trackArtist').textContent = '用右上角的 ＋ 导入';
       $('trackMeta').textContent = '';
-      if (ctlTitle) { ctlTitle.textContent = ''; ctlTitle.title = ''; }
+      setCtlTrack(null);
       paintFav(favBtn, null);
       paintFav(favTextBtn, null);
       if (favBtn) favBtn.hidden = true;   // 没曲目可喜欢，不留孤零零一颗心
@@ -1038,7 +1068,7 @@
     /* 副标题只放真歌手：拿不到就留空省略，不把来源/分组冒充歌手（R3） */
     $('trackArtist').textContent = t.author || '';
     $('trackMeta').textContent = metaLine(t);
-    if (ctlTitle) { ctlTitle.textContent = t.title || ''; ctlTitle.title = t.title || ''; }
+    setCtlTrack(t);
     paintFav(favBtn, t);
     paintFav(favTextBtn, t);
     if (favBtn) favBtn.hidden = false;
@@ -1219,8 +1249,9 @@
   }
 
   function renderPlayState() {
+    /* 播放/暂停两枚字形都在 DOM 里（.glyph-play / .glyph-pause），交叉淡入淡出由
+       #player[data-playing] 切换 —— 不重写 innerHTML，圆与位置不跳。 */
     var btn = $('playBtn');
-    btn.innerHTML = icon(state.playing ? 'i-pause' : 'i-play');
     btn.setAttribute('aria-label', state.playing ? '暂停' : '播放');
     btn.title = state.playing ? '暂停' : '播放';
     player.setAttribute('data-playing', state.playing ? '1' : '0');
@@ -2407,6 +2438,7 @@
       state.follow = true;
       clearFollowTimer();
       if (lyrics) lyrics.classList.remove('is-browsing');
+      flashCtlTrack();   // 曲目信息入场（从下方 5px 回位）
     }
     state.playing = true;
     state.needsResume = false;
@@ -2557,6 +2589,7 @@
     var nowOn = toggleFav(t.id);
     renderTrack();
     renderQueue();
+    popHeart(this);
     toast(nowOn ? '已加入我的喜欢' : '已取消喜欢');
   });
 
@@ -2693,6 +2726,7 @@
     var nowOn = toggleFav(t.id);
     renderQueue();
     renderTrack();
+    popHeart(this);
     toast(nowOn ? '已加入我的喜欢' : '已取消喜欢');
   });
 
@@ -3794,7 +3828,48 @@
   /* ============================================================
      布局：按容器尺寸切三种形态
      ============================================================ */
+  /* ---------- 控制面连续换位（静听 · 连续布局）----------
+   * 跨断点时，周边槽位（模式 / 音量 / 红心）从「当前可见位置」滑到新位置：
+   * 先量旧矩形，提交新布局，再用 WAAPI 把差值反向位移回零。可打断 —— 新一轮
+   * 直接取消上一轮动画、从当前视觉位置接上，不加等待锁。中央三键用百分比定位
+   * 自然跟随宽度，全程 44×44 / 中心距 52，不做 scale/FLIP。 */
+  function arrangeControls(nextForm, nextDensity) {
+    var footer = $('controls');
+    if (!footer) {
+      player.setAttribute('data-layout', nextForm);
+      player.setAttribute('data-ctl', nextDensity);
+      return;
+    }
+    var movable = [$('modeBtn'), $('volGroup'), $('favBtn')];
+    var fr = footer.getBoundingClientRect();
+    var before = movable.map(function (el) {
+      if (!el) return null;
+      var b = el.getBoundingClientRect();
+      return { x: b.left - fr.left, y: b.top - fr.top, w: b.width, h: b.height };
+    });
+    movable.forEach(function (el) {
+      if (el && el._ctlFlip) { el._ctlFlip.cancel(); el._ctlFlip = null; }
+    });
+    player.setAttribute('data-layout', nextForm);
+    player.setAttribute('data-ctl', nextDensity);
+    if (reducedMotion() || SHOT) return;
+    var afr = footer.getBoundingClientRect();
+    movable.forEach(function (el, i) {
+      var b0 = before[i];
+      if (!el || !b0 || !b0.w) return;
+      var b = el.getBoundingClientRect();
+      var dx = b0.x - (b.left - afr.left);
+      var dy = b0.y - (b.top - afr.top);
+      if (Math.abs(dx) + Math.abs(dy) < 1) return;
+      el._ctlFlip = el.animate(
+        [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'translate(0,0)' }],
+        { duration: 340, easing: 'cubic-bezier(.22,.61,.36,1)' }
+      );
+    });
+  }
+
   var layout = 'long';
+  var ctlForm = null, ctlDensity = null;
   function applyLayout() {
     var r = frame.getBoundingClientRect();
     var w = r.width;
@@ -3803,9 +3878,19 @@
     /* 窄容器（真机聊天卡实测 ~312px）控制条走紧凑排布（R6）：
      * 只收排布不藏控件，断言里 control-visible:* 仍然逐个校验。 */
     player.setAttribute('data-bar', w < 420 ? 'tight' : 'loose');
-    if (next !== layout) {
-      layout = next;
+    /* 控制面自身的换行点（400）与全局 data-bar（420）分开 —— 后者还管舞台文字。 */
+    var density = w < 400 ? 'narrow' : 'normal';
+    var formChanged = next !== layout;
+    var ctlChanged = formChanged || density !== ctlDensity;
+    if (ctlChanged && ctlForm !== null) {
+      arrangeControls(next, density);   // 量旧位置 → 提交新属性 → 位移回零
+    } else if (ctlChanged) {
       player.setAttribute('data-layout', next);
+      player.setAttribute('data-ctl', density);
+    }
+    if (ctlChanged) { ctlForm = next; ctlDensity = density; }
+    if (formChanged) {
+      layout = next;
       if (next !== 'wide') state.drawer = false;
       if (next !== 'compact') state.page = 'play';
       if (next !== 'wide' && searchPage && !searchPage.hidden) closeSearch();   // 离开独立窗便收起搜索

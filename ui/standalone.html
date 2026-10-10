@@ -156,7 +156,10 @@
       </section>
     </section>
 
-    <!-- 底部播放控制：三种布局常驻 -->
+    <!-- 底部播放控制 · 静听（连续布局）：一张控制面，三种尺寸只重排周边槽位。
+         时间线在上沿；下沿一行里，中央三键（上一首·播放·下一首）几何中心恒在面正中，
+         宽窗「搜索 … 曲目信息+红心 … ⟳ … 音量 … 队列」，长卡/窄卡藏搜索与曲目信息、红心落最左，
+         特别窄（宽 < 400）时模式与音量上移一行。几何与动效见 docs/player-ui/QUIET-CONTROLS-HANDOFF.md。 -->
     <footer class="controls" id="controls">
       <div class="controls-main">
         <div class="progress-row">
@@ -165,47 +168,53 @@
           <span class="time" id="durTime">4:44</span>
         </div>
 
-        <!-- 控制条第二行：三段式网格 —— 左格「🔍 歌名 ♥ ⟳」、中格「⏮ (⏸) ⏭」、右格「🔊 | ☰」。
-             grid 1fr auto 1fr → 中格恒居中，播放键固定落在底栏正中，左右内容宽窄不影响它。
-             最左「搜索」、最右「队列」都是纯图标（宽窗专属），左右对称；歌名限宽、只在宽窗显示。 -->
-        <div class="btn-row">
-          <div class="cell cell-left">
-            <button class="search-entry" id="searchEntryBtn" type="button" aria-label="搜索歌曲" title="搜索歌曲">
-              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"></use></svg>
-            </button>
-            <div class="ctl-title" id="ctlTitle"></div>
-            <button class="fav-btn fav-btn-bar" id="favBtn" type="button" aria-pressed="false" aria-label="加入我的喜欢" title="加入我的喜欢">
-              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-heart"></use></svg>
-            </button>
-            <button class="icon-btn" id="modeBtn" type="button"></button>
-          </div>
+        <!-- 搜索入口：控制面最左端，从左侧展开搜索页（仅独立窗显示） -->
+        <button class="search-entry" id="searchEntryBtn" type="button" aria-label="搜索歌曲" title="搜索歌曲">
+          <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+        </button>
 
-          <div class="cell cell-center">
-            <button class="icon-btn" id="prevBtn" type="button" aria-label="上一首" title="上一首">
-              <svg class="icon" aria-hidden="true"><use href="#i-prev"></use></svg>
-            </button>
-            <button class="play-btn" id="playBtn" type="button" aria-label="暂停" title="暂停"></button>
-            <button class="icon-btn" id="nextBtn" type="button" aria-label="下一首" title="下一首">
-              <svg class="icon" aria-hidden="true"><use href="#i-next"></use></svg>
-            </button>
+        <!-- 曲目信息（歌名 13 / 歌手 11 两行）+ 红心：紧邻成组 -->
+        <div class="identity" id="ctlIdentity">
+          <div class="track-copy ctl-title" id="ctlTitle">
+            <strong id="ctlTitleText"></strong>
+            <span id="ctlArtist"></span>
           </div>
+          <button class="heart fav-btn fav-btn-bar" id="favBtn" type="button" aria-pressed="false" aria-label="加入我的喜欢" title="加入我的喜欢">
+            <svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg>
+          </button>
+        </div>
 
-          <div class="cell cell-right">
-            <!-- 音量：一颗按钮。点 = 切静音；悬停（或键盘聚焦）向上弹出竖向滑条，移开即收。
-                 浮层是按钮的绝对定位子元素，三种布局通用（窄卡展平时整组只算一格）。 -->
-            <div class="vol-group">
-              <button class="icon-btn" id="muteBtn" type="button" aria-label="静音" title="静音" aria-haspopup="true" aria-expanded="false"></button>
-              <div class="vol-pop" id="volPop">
-                <input class="range range-vol" id="vol" type="range" min="0" max="100" step="1" value="72" aria-label="音量">
-              </div>
-            </div>
-            <span class="ctl-divider" aria-hidden="true"></span>
-            <button class="queue-btn" id="queueBtn" type="button">
-              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-list"></use></svg>
-              <span class="qb-label"><span class="qb-word">队列</span> <span id="queueBtnCount">12</span><span class="qb-now">正在播放</span></span>
-            </button>
+        <!-- 播放模式：中央三键左侧 -->
+        <button class="mode icon-btn" id="modeBtn" type="button"></button>
+
+        <!-- 中央三键：整张面里唯一恒定的一组（44×44 / 中心距 52 / 整组宽 148） -->
+        <div class="transport">
+          <button class="icon-btn" id="prevBtn" type="button" aria-label="上一首" title="上一首">
+            <svg class="icon" aria-hidden="true"><use href="#i-prev"></use></svg>
+          </button>
+          <button class="play-btn" id="playBtn" type="button" aria-label="暂停" title="暂停">
+            <span class="play-glyph glyph-play" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#i-play"></use></svg></span>
+            <span class="play-glyph glyph-pause" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#i-pause"></use></svg></span>
+          </button>
+          <button class="icon-btn" id="nextBtn" type="button" aria-label="下一首" title="下一首">
+            <svg class="icon" aria-hidden="true"><use href="#i-next"></use></svg>
+          </button>
+        </div>
+
+        <!-- 音量：一颗按钮。点 = 切静音；悬停（或键盘聚焦）向上弹出竖向滑条，移开即收。
+             浮层是按钮的绝对定位子元素，三种布局通用（内部结构/交互/动效沿用最新生产版）。 -->
+        <div class="volume-wrap vol-group" id="volGroup">
+          <button class="icon-btn" id="muteBtn" type="button" aria-label="静音" title="静音" aria-haspopup="true" aria-expanded="false"></button>
+          <div class="vol-pop" id="volPop">
+            <input class="range range-vol" id="vol" type="range" min="0" max="100" step="1" value="72" aria-label="音量">
           </div>
         </div>
+
+        <!-- 队列入口：控制面最右端（独立窗为右侧抽屉） -->
+        <button class="queue-btn" id="queueBtn" type="button">
+          <svg class="icon" aria-hidden="true"><use href="#i-list"></use></svg>
+          <span class="qb-label"><span class="qb-word">队列</span> <span id="queueBtnCount">12</span><span class="qb-now">正在播放</span></span>
+        </button>
       </div>
     </footer>
 
@@ -220,30 +229,31 @@
 </div>
 
 <svg class="svg-defs" aria-hidden="true" focusable="false"><defs>
-  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8.2 5.6 19 12 8.2 18.4Z"/></symbol>
-  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9.3 5.8v12.4M14.7 5.8v12.4"/></symbol>
-  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6.9 6.2v11.6M19.2 6.8 10 12l9.2 5.2Z"/></symbol>
-  <symbol id="i-next" viewBox="0 0 24 24"><path d="M17.1 6.2v11.6M4.8 6.8 14 12l-9.2 5.2Z"/></symbol>
+  <!-- 图标形状来自 Lucide（lucide@1.17.0，实际渲染后导出），许可见 docs/player-ui/refs/quiet-controls/icons/LUCIDE-LICENSE.txt。
+       只取形状搬进 symbol，viewBox 与 symbol id 不变，统一 currentColor；不新增在线请求、不引入运行时。 -->
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z"/><path d="M3 20V4"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M21 4v16"/><path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z"/></symbol>
   <symbol id="i-repeat" viewBox="0 0 24 24">
-    <path d="M7 8.6A5.5 5.5 0 0 1 12.5 5.2H17"/>
-    <path d="M14.9 3 17.1 5.2 14.9 7.4"/>
-    <path d="M17 15.4a5.5 5.5 0 0 1-5.5 3.4H7"/>
-    <path d="M9.1 21 6.9 18.8 9.1 16.6"/>
+    <path d="m17 2 4 4-4 4"/>
+    <path d="M3 11v-1a4 4 0 0 1 4-4h14"/>
+    <path d="m7 22-4-4 4-4"/>
+    <path d="M21 13v1a4 4 0 0 1-4 4H3"/>
   </symbol>
   <symbol id="i-repeat-one" viewBox="0 0 24 24">
-    <path d="M7 8.6A5.5 5.5 0 0 1 12.5 5.2H17"/>
-    <path d="M14.9 3 17.1 5.2 14.9 7.4"/>
-    <path d="M17 15.4a5.5 5.5 0 0 1-5.5 3.4H7"/>
-    <path d="M9.1 21 6.9 18.8 9.1 16.6"/>
-    <path d="M11.3 10.6 12.8 9.5v5"/>
-    <path d="M11.1 14.5h3"/>
+    <path d="m17 2 4 4-4 4"/>
+    <path d="M3 11v-1a4 4 0 0 1 4-4h14"/>
+    <path d="m7 22-4-4 4-4"/>
+    <path d="M21 13v1a4 4 0 0 1-4 4H3"/>
+    <path d="M11 10h1v4"/>
   </symbol>
   <symbol id="i-shuffle" viewBox="0 0 24 24">
-    <path d="M4 6.8h3.3c1.3 0 2.5.7 3.2 1.8l3 4.8c.7 1.1 1.9 1.8 3.2 1.8H20"/>
-    <path d="M4 17.2h3.3c1.3 0 2.5-.7 3.2-1.8l.9-1.4"/>
-    <path d="M14.1 9.4l.9-1.4c.7-1.1 1.9-1.8 3.2-1.8H20"/>
-    <path d="M17.7 4.2 20 6.4l-2.3 2.2"/>
-    <path d="M17.7 15.4 20 17.6l-2.3 2.2"/>
+    <path d="m18 14 4 4-4 4"/>
+    <path d="m18 2 4 4-4 4"/>
+    <path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22"/>
+    <path d="M2 6h1.972a4 4 0 0 1 3.6 2.2"/>
+    <path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/>
   </symbol>
   <symbol id="i-volume" viewBox="0 0 24 24">
     <path d="M4.4 9.4h3.2l4.2-3.4v12l-4.2-3.4H4.4z"/>
@@ -255,10 +265,10 @@
     <path d="M15 9.6 19.6 14.4M19.6 9.6 15 14.4"/>
   </symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.4v13.2M5.4 12h13.2"/></symbol>
-  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.6 6.6 17.4 17.4M17.4 6.6 6.6 17.4"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
   <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M14.4 5.8 8 12l6.4 6.2"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><path d="M6.2 12h.01M12 12h.01M17.8 12h.01"/></symbol>
-  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4.6 7h14.8M4.6 12h14.8M4.6 17h9"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M16 5H3"/><path d="M11 12H3"/><path d="M11 19H3"/><path d="M21 16V5"/><circle cx="18" cy="16" r="3"/></symbol>
   <symbol id="i-lyric" viewBox="0 0 24 24"><path d="M5 6.6h14M5 11h14M5 15.4h9M5 19.8h6"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.8 4.8h6.4l4 4v10.4H6.8zM13.2 4.8v4h4"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4.4 6.6h5.2l2 2.4h8v9.4H4.4z"/></symbol>
@@ -272,12 +282,12 @@
   <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5.6v11.2M7.6 12.6 12 17l4.4-4.4"/></symbol>
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M5 19h3.2L18.6 8.6a2.26 2.26 0 0 0-3.2-3.2L5 15.8z"/><path d="M14.4 6.6l3 3"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><path d="M12 11.4a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4z"/><path d="M5.1 19.4a6.9 6.9 0 0 1 13.8 0"/></symbol>
-  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 19.6 4.9 12.9a4.4 4.4 0 0 1 5.8-6.6l1.3 1 1.3-1a4.4 4.4 0 0 1 5.8 6.6z"/></symbol>
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6"/><path d="M15.3 15.3 20 20"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131610";</script>
+<script>window.__HANA_BUILD = "1003131611";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
