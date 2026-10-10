@@ -1636,6 +1636,37 @@ const motion = {};
     s.radioOpen.rows === 2 && s.radioOpen.first === '电台节目 1',
     JSON.stringify(s.radioOpen));
 
+  /* 控制面断点边界：719/720/721（形态 long↔wide）与 399/400/401（密度 normal↔narrow）。
+     只证几何：三键恒 44×44 / 中心距 52、播放中心贴控制面中心、无横向溢出、data-ctl 正确翻转。
+     连续换位只动周边槽位（模式/音量/红心），中央三键不做 FLIP —— 所以动画中量也不漂。 */
+  const boundary = [];
+  for (const [bw, bh] of [[719, 780], [720, 780], [721, 780], [399, 600], [400, 600], [401, 600]]) {
+    await page.setViewport({ width: bw, height: bh, deviceScaleFactor: 1 });
+    await sleep(360);
+    boundary.push(await page.evaluate((w) => {
+      const pl = document.getElementById('player');
+      const ctl = document.getElementById('controls').getBoundingClientRect();
+      const cx = (el) => el.left + el.width / 2;
+      const prev = document.getElementById('prevBtn').getBoundingClientRect();
+      const play = document.getElementById('playBtn').getBoundingClientRect();
+      const next = document.getElementById('nextBtn').getBoundingClientRect();
+      return {
+        w,
+        form: pl.getAttribute('data-layout'),
+        ctl: pl.getAttribute('data-ctl'),
+        keys: Math.round(prev.width) === 44 && Math.round(play.width) === 44 && Math.round(next.width) === 44 &&
+              Math.round(cx(play) - cx(prev)) === 52 && Math.round(cx(next) - cx(play)) === 52,
+        centered: Math.abs(cx(play) - (ctl.left + ctl.width / 2)) < 1,
+        overflow: pl.scrollWidth <= pl.clientWidth + 1
+      };
+    }, bw));
+  }
+  assert('ctl-boundary-continuity',
+    boundary.every((b) => b.keys && b.centered && b.overflow) &&
+    boundary[0].form === 'long' && boundary[1].form === 'wide' && boundary[2].form === 'wide' &&
+    boundary[3].ctl === 'narrow' && boundary[4].ctl === 'normal' && boundary[5].ctl === 'normal',
+    JSON.stringify(boundary));
+
   report.search = s;
   await page.close();
 }
