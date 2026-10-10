@@ -254,7 +254,7 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
   接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
   断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **89/89** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **101/101** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名 + 切换条溢出/跟随 + 音量浮层）
 - 指针涟漪（2026-10-10，**已部署**，构建号 1003131586）：**旧「频谱」整层替换为 Canvas 2D 指针涟漪**。
   方案与行为约定：`docs/player-ui/RIPPLE-CANVAS-2D.md`（罐头拿提示词请教前端高手后的作品，已落地）。
   层序改为：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)；涟漪落在文字与蒙层下方，
@@ -298,6 +298,52 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ **fav 是「无归属」的额外列表**，会出现在切换条最前；与 `local` 一样不吃 `imp:N` 编号。
   断言 `fav-row-toggles-on` / `fav-list-collects-and-labels` / `fav-state-by-stable-id-cross-list` /
   `fav-unfav-keeps-original-list` / `fav-not-deletable` / `stage-fav-toggles-and-syncs-row`。
+- 音源改造（2026-10-10，罐头拍板「按你说的」，构建号 1003131604）：**删酷我/百度，接 B站**。探活结论见知识库《音乐音源探活与层级》。改动：
+  ① `ui/app.js` 的 `SEARCH_SERVERS` 改为 网易云 / B站 / QQ / 酷狗（删酷我、百度；两处跨源回退列表同步）；`lib/meting.js` 的 `ALLOWED_SERVERS` 删 kuwo/baidu。
+  ② 新增 `lib/bilibili.js`：搜视频抽音轨（search → view → playurl，选最高带宽 dash.audio）；`lib/register-routes.js` 的 `/music/search` 对 `server=bilibili` 走它，`resolveAudioUrl` 加 bilibili 分支（id=bvid，走 go 跳板同源分片代理），go 的 fetch 与 cover 路由对 B站带 Referer。
+  ③ `manifest.json` allowedHosts 加 `api.bilibili.com`、`*.hdslb.com`、`*.bilivideo.cn`、`*.bilivideo.com` —— **属扩权，reload 需重新审批**。
+  验收：verify-backend 10/10、verify-ui 89/89（布局 12/12、窄卡 4/4、wiring/migration/lifecycle 全绿、零运行时错误）。
+  未做：QQ/酷狗仍「搜得到播不了」（公共节点无直链，要救需 cookie）；B站无 LRC 歌词源（退回无词）。
+- 歌单切换条溢出（2026-10-10，**已部署**，构建号 1003131607）：歌单攒多了右端被硬切，看不出「后面还有」。
+  ① **不加滚动条**（罐头拍板）：滚动条继续隐藏（`scrollbar-width:none` + `::-webkit-scrollbar{height:0}`），
+     改在 `.list-tabs` 上**按需两侧渐隐**（`mask-image`，变量 `--tab-fade-l/r`，JS 依 scrollLeft 切
+     `is-scroll-l` / `is-scroll-r`）—— 给的是「后面还有」的提示，不是滚动条。
+  ② **切列表时当前项自动跟进来**：`ensureTabVisible()`（nearest 语义，只在激活项不可见时才滚），
+     且**只在激活 id 真的变了时才滚**（`lastActiveTabId` 比对）—— 点心/移出等重渲染不抢用户手动滚的位置。
+  ③ 鼠标竖滚轮映射为横滚（触控板/触摸本来就能横滑）；`ResizeObserver` 跟宿主改宽重算渐隐。
+  断言：`list-tabs-overflow-fade` / `list-tabs-active-scrolls-into-view`（夹具 playlist 改成按 id 返回不同名，
+  好造多个歌单撑溢）。
+- 底栏左右翼均匀分布（2026-10-10，**已部署**，构建号 1003131608）：宽窗「两端各挤一坨」→
+  左格 `space-between`（🔍·歌名·♡·⟳ 四项等距，歌名固定 160px）、右格 `flex-end` 成组（🔊—☰）；
+  中格仍**只放**「⏮ ▶ ⏭」→ 播放键恒落正中。窄卡（`.cell{display:contents}` +
+  `repeat(7,1fr)` + `justify-items:center`）按钮行展平 7 等分、队列收纯图标，play 也正中。
+  ⚠️ 2026-10-10 起 **`.vol-group` 不再展平**（里面挂了音量浮层），见下方「音量：单按钮」一条。
+  只动 `ui/style.css`（DOM 早就是三段式）；`ctl-play-centered-wide` / `ctl-endpoints-symmetric-wide` 未破。
+  交接：`docs/player-ui/CONTROL-BAR-BRIEF.md`（给前端大师的底栏上下文）。
+- 音量：单按钮 + 悬停向上弹竖条（2026-10-10，**已部署**，构建号 1003131609，罐头拍板）：
+  旧「静音键 + 横滑条」（且滑条只在宽窗显示）→ **一颗按钮**：点 = 切静音，
+  鼠标悬停（或键盘聚焦）**向上弹出竖向滑条**，移开即收。三种布局通用（窄卡/长卡同样弹）。
+  ① 结构：`#vol` 从横条搬进 `.vol-pop`（`.vol-group` 的绝对定位子元素，父级加 `position:relative`）。
+     `.vol-group::before` 是一道 12px 透明「连通悬停区」，补上按钮与浮层之间那 8px 空隙 ——
+     否则指针上行时会 `pointerleave`、浮层中途收起。拖动滑条期间（`volDragging`）也不收。
+  ② 竖条画法：**横向 `<input type=range>` 旋转 -90°**（`rotate(-90deg)`），轨道渐变
+     「左→右 = 小→大」随之变成「下→上」，轨道/滑块样式直接复用 `.range` 那套，不另写。
+     实测拖动映射正确（拖到 22% → `audio.volume` 0.22）。这条没碰音频链，与 `captureStream` 那套无关。
+  ③ 皮跟现有浮层走（`--hk-surface` + `--hk-hairline` + `--hk-pop-shadow`，与 `.pop` 同款），
+     动画：淡入 + 上浮 10px + `scale(.94)`，`cubic-bezier(.22,.61,.36,1)` 0.2s；
+     reduced-motion 退为纯淡入。`z-index:25`（盖搜索页 22，压在队列 30/遮罩 28 之下）。
+  ④ 窄卡 7 等分不受影响：`.vol-group` 仍算**一格**（只含按钮），只是不再 `display:contents`。
+  ⑤ Esc 先收浮层（在搜索页/弹层之前）；`aria-expanded` 随开关同步。
+  ⑥ **静音时滑条归零**、取消静音回原音量（构建号 1003131610，罐头反馈）：`renderVolume()` 里
+     `shown = state.muted ? 0 : v` 只改**显示值**，`state.volume` 始终保留 → 取消静音原样回来，
+     不必另存「上次音量」；拖动滑条仍走 `state.muted = state.volume === 0`。
+  ⑦ **浮层 z-index 25 → 40**（构建号 1003131610，罐头反馈）：呼出歌单抽屉(30)时原会被盖住，
+     现在压过抽屉(30)/遮罩(28)/搜索页(22)。（遮罩与抽屉只铺在 `.stage` 内，控制条在外，按钮一直够得着。）
+  断言：`vol-pop-closed-by-default` / `vol-pop-opens-on-hover` / `vol-pop-above-queue` /
+  `vol-vertical-drag-sets-volume` / `vol-click-mutes`（含滑条归零）/ `vol-unmute-restores-volume` /
+  `vol-pop-closes-on-leave` / `vol-pop-opens-long` / `vol-pop-opens-compact`；
+  自检新增 `vol-pop-hover-slider`（替换原 `control-visible:vol`）。
+  交接：`docs/player-ui/REFINE-DONE-VOLUME.md`。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
 - 待办：独立窗/小卡音频不中断（已加 pagehide/beacon 落盘 + 续播，**需真机拖拽复核**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
   §五-3（底部渐隐）已改（第六轮）：**底部渐隐整个撤掉**（底边硬切，只留歌词那侧往左的淡入）；
