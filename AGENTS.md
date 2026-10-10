@@ -366,7 +366,7 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      （`vol-pop-hit-under-drawer` / `vol-pop-hit-under-search`）。
   验收：`node tools/verify-ui.mjs` **103/103** 断言（新增 `ctl-transport-geometry` / `ctl-flank-slots-wide`）、
   12/12 布局、4/4 窄卡、零运行时错误。交接：`docs/player-ui/QUIET-CONTROLS-DONE.md`。
-- 拖进/拖出「播放不割裂」（2026-10-10，**已部署**，构建号 1003131613）：修罐头报的
+- 拖进/拖出「播放不割裂」（2026-10-10，**已部署**，构建号 1003131613 → **1003131614**）：修罐头报的
   「独立窗播 B站歌 → 贴回卡片后停播/换歌/不进最近播放；网易云歌还在但从头播」。
   机制前提：拆窗/停靠 = **每个窗口文档都是全新 iframe**，只能靠旧文档 `pagehide` 落快照、
   新文档读回续播；旧快照只带 `currentId`，歌还得靠 `playlist.json` 认领，bug 出在认领。
@@ -379,10 +379,22 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      且 seek 重试窗口只有 3s（分片代理常来不及可 seek）。修：`pendingSeek>0` 时 `timeupdate`
      不写 progress；窗口 3s→9s，放弃时清 `pendingSeek`；快照 `playing` 加兜底（卸载时「刚还在播」
      <1.2s 仍算在播，防 `pause` 抢在 `pagehide` 前写回 false）。
+  ③ 第二轮（罐头：「还会中断一会会，但不会从头开始了」——听感是**退回上一句重放**）：
+     a) 快照进度改用**媒体时钟** `audio.currentTime`（`liveProgress()`），不再取滞后的
+        `state.progress`（后者只随 timeupdate/防抖更新）；
+     b) 新增 `maybeResumeAutoplay()`：**seek 落点未到位前不出声**，否则会先从头/错误位置
+        放几百毫秒再跳（等起播窗口 ~3s，暂停恢复 ~9s）；
+     c) boot 提速：`loadPlaylist/loadPlaybackState` 走 HTTP 路由、不等 SDK，与 `waitForHana`
+        并行；`restorePlayback()` 不等 SDK 就起播，`loadAudio` 提到队列渲染之前。
   断言新增 `lifecycle.snapshotTrackOk`（播种「当前曲目不在 playlist 里」的快照，新文档必须
-  恢复成同一首 + 进度≥4.5s）。验收 **106/106** 断言。交接：`docs/player-ui/REFINE-DONE-RESUME.md`。
+  恢复成同一首 + 进度≥4.5s）与 `crossOk` 里的 `firstPlayAt`（起播那一刻的位置必须已是续播点）。
+  验收 **106/106** 断言。交接：`docs/player-ui/REFINE-DONE-RESUME.md`。
 - 原始背景/根因/边界：`docs/REFACTOR-BRIEF.md`、`docs/player-ui/CONTRACT.md`、`docs/player-ui/WIRING.md`
-- 待办：独立窗/小卡音频不中断（pagehide/beacon 落盘 + 续播，2026-10-10 已补「快照自带曲目 + 换曲即落盘 + 进度护栏」，构建号 1003131613，**仍需真机拖拽复核一次**）；本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**（见 REFINE-DONE-AMBIENT.md §五）。
+- 待办：独立窗/小卡音频不中断（pagehide/beacon 落盘 + 续播，2026-10-10 两轮：快照自带曲目 +
+  换曲即落盘 + 进度护栏 + 媒体时钟进度 + seek 落点前不起播 + boot 提速，构建号 1003131614，
+  **仍需真机拖拽复核一次**；剩余「一小段静默」是换文档重连媒体的固有代价，原理上除不掉）；
+  本地文件夹选择需真机点一次确认；环境色纱的厚度/深底字色/封面右缘淡出宽度**需真机看一眼**
+  （见 REFINE-DONE-AMBIENT.md §五）。
   §五-3（底部渐隐）已改（第六轮）：**底部渐隐整个撤掉**（底边硬切，只留歌词那侧往左的淡入）；
   顶部圆角一并补上（14px），均待真机复核。
 

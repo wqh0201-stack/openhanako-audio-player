@@ -207,6 +207,17 @@
     if (v && typeof v === 'object' && !Array.isArray(v) && ('value' in v)) return v.value;
     return v;
   }
+  /* 真实播放位置：优先读媒体时钟（`audio.currentTime`），而不是 state.progress ——
+   * 后者只在 timeupdate（~250ms 一次，后台还会被节流）里更新，落盘时可能已经晚了好几秒。
+   * 续播落点未到位时（pendingSeek>0）以 state.progress 为准（那是要去的目标位置）。 */
+  function liveProgress() {
+    var t = currentTrack();
+    if (t && t.url && !(pendingSeek > 0) && isFinite(audio.currentTime) && audio.currentTime > 0) {
+      if (audio.getAttribute('src') === withSession(t.url)) return audio.currentTime;
+    }
+    return state.progress;
+  }
+
   function snapshot() {
     var ct = currentTrack();
     /* 在播判定：正常看 state.playing；但卸载时若刚还在播（<1.2s），
@@ -215,7 +226,7 @@
     return {
       currentId: state.currentUid,
       activeList: state.activeList,
-      progress: Math.round(state.progress * 10) / 10,
+      progress: Math.round(liveProgress() * 10) / 10,
       volume: state.volume,
       muted: !!state.muted,
       mode: state.mode,
@@ -2137,17 +2148,31 @@
    * currentTime 会被忽略或夹到已缓冲范围。把 seek 挂到多个就绪事件上，并配一个短重试
    * 定时器，可 seek 了再落。落成功后清 pendingSeek。这是续播能接上位置的关键。 */
   var seekRetryTimer = 0;
+  /* 续播起播：落点没到位前先不出声。否则会先从头/错误位置放出来几百毫秒，
+   * 再跳到正确位置 —— 听感就是「退回上一句重放」。落点到位（或放弃）后再 play。 */
+  function maybeResumeAutoplay() {
+    if (!pendingAutoplay || pendingSeek > 0) return;
+    if (audio.paused) {
+      pendingAutoplay = false;
+      audio.play().catch(onAutoplayBlocked);
+    } else {
+      pendingAutoplay = false;
+    }
+  }
   function scheduleSeekRetry() {
     if (seekRetryTimer || !(pendingSeek > 0)) return;
     var tries = 0;
     /* 续播落点可能要等媒体缓冲/可 seek 才能落（分片代理尤甚），窗口给宽一点（约 9s）；
-     * 仍落不下去就放弃并清 pendingSeek，否则 timeupdate 会永远被挡住、进度条冻死。 */
+     * 等起播时不能抱太久（最多 ~3s）—— 宁可接受一次轻微错位，也别让新文档长时间不发声。
+     * 放弃时清 pendingSeek，否则 timeupdate 会永远被挡住、进度条冻死。 */
+    var cap = pendingAutoplay ? 20 : 60;
     seekRetryTimer = setInterval(function () {
       tries++;
       applyPendingSeek();
-      if (pendingSeek <= 0 || tries > 60) {
+      if (pendingSeek <= 0 || tries > cap) {
         clearInterval(seekRetryTimer); seekRetryTimer = 0;
         if (pendingSeek > 0) { pendingSeek = 0; renderProgress(); }
+        maybeResumeAutoplay();
       }
     }, 150);
   }
@@ -2162,6 +2187,7 @@
     try { audio.currentTime = target; } catch (e) { return; }
     pendingSeek = 0;
     renderProgress();
+    maybeResumeAutoplay();
   }
 
   audio.addEventListener('loadedmetadata', function () {
@@ -2172,10 +2198,7 @@
     renderTrack();
     renderQueue();
     renderProgress();
-    if (pendingAutoplay) {
-      pendingAutoplay = false;
-      audio.play().catch(onAutoplayBlocked);
-    }
+    maybeResumeAutoplay();   // 落点已到位/无落点才起播；否则等重试把 seek 落下去
   });
   audio.addEventListener('loadeddata', applyPendingSeek);
   audio.addEventListener('canplay', applyPendingSeek);
@@ -4157,15 +4180,18 @@
     state.progress = pb && Number(pb.progress) > 0 ? Number(pb.progress) : 0;
     var wantPlay = !!(pb && pb.playing);
     state.playing = false;
+    /* 先把音频发出去（发请求、连上游、缓冲都要时间），再做渲染 ——
+     * 队列可能几百行，不该挡在起播前面。 */
+    if (t.url) {
+      loadAudio(t, state.progress, wantPlay);
+    }
     renderTrack();
     renderQueue();
     renderProgress();
     renderPlayState();
     updateLyricIndex(true);
     loadLyrics(t);
-    if (t.url) {
-      loadAudio(t, state.progress, wantPlay);
-    } else if (wantPlay) {
+    if (!t.url && wantPlay) {
       ensurePlayable(t).then(function (ok) {
         if (!ok || state.currentUid !== t.uid) return;
         renderTrack();
@@ -4188,22 +4214,25 @@
     applyLayout();
     rippleHandle = initRipples();   // 指针涟漪（不读音频；reduced-motion/截图内部自处理）
 
+    /* 拖进/拖出 = 新文档从零 boot，"静默"全落在这段。把与宿主 SDK 无关的事先发出去：
+     * 播放列表 / 播放状态都走后端 HTTP 路由（票在 URL query 上），不必等 hana 落地。
+     * SDK 只在读歌单名 / 本地目录 / 主题订阅时等（"改名不持久化"那条纪律不变）。 */
+    var dataReady = Promise.all([
+      loadPlaylist().catch(function (e) {
+        state.loadError = e && e.message ? e.message : String(e);
+        console.warn('[player] playlist 读取失败', e);
+        return null;
+      }),
+      loadPlaybackState()
+    ]);
     /* boot() 跑在 app.js（defer）里，早于 sdk.js（module）——那时 window.hana 还没有，
-     * hanaStorage() 为 null。所以必须先等宿主 SDK 落地再读存储；否则永远读回 null，
+     * hanaStorage() 为 null。所以存储读取必须先等宿主 SDK 落地；否则永远读回 null，
      * 而回写默认名会把用户改过的歌单名覆盖回「歌单 N」（改名不持久化的根因）。 */
-    waitForHana(2000).then(function () {
-      return Promise.all([
-        loadPlaylist().catch(function (e) {
-          state.loadError = e && e.message ? e.message : String(e);
-          console.warn('[player] playlist 读取失败', e);
-          return null;
-        }),
-        loadPlaybackState()
-      ]);
-    }).then(function (results) {
+    var sdkReady = waitForHana(2000);
+
+    dataReady.then(function (results) {
       var tracks = results[0];
       var pb = results[1];
-      applyHostTheme();
       /* 先用派生名把列表立起来：首屏不等存储读取（宿主桥没应答时不至于卡住） */
       if (tracks) {
         var needsAssign = migrateLists(tracks, null);
@@ -4215,12 +4244,15 @@
       // 恢复当前列表
       if (pb && pb.activeList && findList(pb.activeList)) state.activeList = pb.activeList;
       else if (!findList(state.activeList)) state.activeList = 'local';
-      restorePlayback(pb);
+      restorePlayback(pb);                               // ← 不等 SDK，尽早起播
       if (!tracks) toast('列表加载失败，请稍后重试');
       if (params.get('assert') === '1') setTimeout(runSelfCheck, 60);
-      /* 再读存储：读到就套用真名 / 本地目录 / 分隔比例。
-       * 读不到（宿主没应答）绝不回写默认值 —— 那会把盘上的真名覆盖掉。 */
-      return Promise.all([storeRead(LISTS_KEY), storeRead(LOCALDIR_KEY), storeRead(SPLIT_KEY)]);
+      /* 主题与存储仍等 SDK：主题订阅要 hana.theme；存储读不到绝不能回写默认值。
+       * 再读存储：读到就套用真名 / 本地目录 / 分隔比例。 */
+      return sdkReady.then(function () {
+        applyHostTheme();
+        return Promise.all([storeRead(LISTS_KEY), storeRead(LOCALDIR_KEY), storeRead(SPLIT_KEY)]);
+      });
     }).then(function (reads) {
       var listsRead = reads[0], dirRead = reads[1], splitRead = reads[2];
       if (dirRead.value) { state.localDir = String(dirRead.value); syncLocalFolder(false); }

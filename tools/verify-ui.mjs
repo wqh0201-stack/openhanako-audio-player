@@ -2251,7 +2251,15 @@ let lifecycle = {};
     await sleep(100);
   }
 
-  // 新文档：reload（模拟拖出后新 iframe 从零 rehydrate）
+  // 新文档：reload（模拟拖出后新 iframe 从零 rehydrate）。
+  // 起播那一刻的位置必须是续播点 —— 不能先从头/错误位置放出来再跳（听感=「退回上一句」）。
+  await page.evaluateOnNewDocument(() => {
+    window.__firstPlayAt = null;
+    document.addEventListener('play', (e) => {
+      const el = e.target;
+      if (el && el.tagName === 'AUDIO' && window.__firstPlayAt === null) window.__firstPlayAt = el.currentTime;
+    }, true);
+  });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.evaluate((t) => window.__fixtureTheme(t), 'light');
   await sleep(1000);
@@ -2260,7 +2268,8 @@ let lifecycle = {};
     title: document.getElementById('trackTitle').textContent,
     cur: document.getElementById('audio').currentTime,
     activeList: document.querySelector('#listTabs .list-tab.is-active').getAttribute('data-list'),
-    resumeHidden: document.getElementById('resumeBtn').hidden
+    resumeHidden: document.getElementById('resumeBtn').hidden,
+    firstPlayAt: window.__firstPlayAt
   }));
   lifecycle.crossDocument = { before, saved: saved && saved.state, after };
   lifecycle.crossOk =
@@ -2268,7 +2277,8 @@ let lifecycle = {};
     !!saved && !!saved.state && saved.state.playing === true &&
     saved.state.currentId === 'imp:1|netease:900000' && saved.state.progress > 0 &&
     after.playing === '1' && after.title === '在线曲目 1' && after.activeList === 'imp:1' &&
-    after.cur >= saved.state.progress - 0.35;
+    after.cur >= saved.state.progress - 0.35 &&
+    after.firstPlayAt !== null && after.firstPlayAt >= saved.state.progress - 0.5;
 
   // 关掉旧文档（它的 pagehide 会再落一次盘），等它落完再播种一个进度=12s 的快照
   await page.close();
