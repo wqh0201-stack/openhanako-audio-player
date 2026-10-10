@@ -1209,9 +1209,10 @@
      ------------------------------------------------------------
      2026-10-10 采用「流光」：照 docs/player-ui/ripple-lab.html 的 light 模式移植
      双缓冲高度场 → 水面法线化成明暗（低分辨率放大成柔光）+ 压扁圆环。
-     仍然**不读音频**——纯指针驱动，跨源静音雷不复存在。
-     强度两档（由 #player[data-haslyrics] 决定）：无词 0.30（放），有词 0.19（收）；
-     数值对齐 lab 的「波澜」滑杆（0.3 比 lab 最低档 0.6 还轻一半）。
+     音频反应：captureStream() 另拷一路接 Analyser（绝不用 createMediaElementSource），
+     鼓点落波、低频定强度；跨源抛错则退回纯指针，绝不静音。
+     强度两档（由 #player[data-haslyrics] 决定）：无词 0.50（放），有词 0.32（收）；
+     数值对齐 lab 的「波澜」滑杆。
      层序：涟漪在薄纱之上、文字之下 —— 封面区与歌词区都可见，又不压字。
      行为约定：
        · 指针移动累计路程才落波；按下 → 更大的多层环；
@@ -1239,8 +1240,8 @@
     var pointerOptions = { passive: true, capture: true };
     var MAX_WAVES = 22, MAX_TRAIL = 40;
     /* 强度两档：无词更放（水面当主角），有词更收（不扰读词）。
-       数值对齐 docs/player-ui/ripple-lab.html 的「波澜」滑杆 —— 0.3 比 lab 最低档 0.6 还轻一半。 */
-    function strength() { return (player && player.getAttribute('data-haslyrics') === '1') ? 0.19 : 0.30; }
+       数值对齐 docs/player-ui/ripple-lab.html 的「波澜」滑杆（0.5 比 lab 最低档 0.6 略轻）。 */
+    function strength() { return (player && player.getAttribute('data-haslyrics') === '1') ? 0.32 : 0.50; }
 
     function shot() { return document.body.classList.contains('is-shot'); }
     function blocked() {
@@ -1252,6 +1253,95 @@
     function resetPointer() { point = null; travel = 0; sinceInject = 0; }
     function needsFrame() {
       return !!(waves.length || trail.length || fieldEnergy > 0.00002 || drain > 0);
+    }
+
+    /* ============================================================
+       音频反应（真 FFT）：把 <audio> 的音频另拷一路接 AnalyserNode，
+       鼓点落波、低频定强度 —— 水面跟着音乐起伏。
+
+       只走 captureStream()、**绝不** createMediaElementSource：
+         后者把元素输出重定向进 Web Audio 且不可逆；跨源音频（网易 CDN）
+         一旦进去浏览器会输出全零（歌在播、时间在走，但完全没声音），
+         而全曲共用一个 <audio>，一次建链就再也退不回。
+       captureStream() 不碰元素输出：同源（走 music/go 的同源分片代理）拿到
+       MediaStream 能读频域；跨源抛错 → 捕获后退回纯指针，**绝不静音**。
+       ============================================================ */
+    var audioCtx = null, msSrc = null, analyser = null, freqData = null;
+    var audioReady = false, audioBuilding = false, audioRaf = 0;
+    var bass = 0, bassAvg = 0, lastBeat = 0, beatCount = 0, readAt = 0;
+
+    function audioSupported() {
+      return !!(window.AudioContext || window.webkitAudioContext) && !!(audio && audio.captureStream);
+    }
+    function attachAudio() {
+      if (audioCtx.state !== 'running') return false;
+      try {
+        var stream = audio.captureStream();
+        var tracks = stream.getAudioTracks ? stream.getAudioTracks() : [];
+        if (!tracks.length) throw new Error('no audio track');
+        var ms = audioCtx.createMediaStreamSource(stream);
+        var an = audioCtx.createAnalyser();
+        an.fftSize = 4096;                // 44.1k 下 ≈10.8Hz/bin：40~180Hz 低频才有足够分辨率
+        an.smoothingTimeConstant = 0.65;
+        an.minDecibels = -90; an.maxDecibels = -15;
+        var g = audioCtx.createGain();
+        g.gain.value = 0;                 // 副本静音：只取数据，不与元素自身出声叠加
+        ms.connect(an); an.connect(g); g.connect(audioCtx.destination);  // 图要通到 destination，Analyser 才会被拉数据
+        msSrc = ms; analyser = an;
+        freqData = new Float32Array(an.frequencyBinCount);
+        audioReady = true; audioBuilding = false;
+        startAudioLoop();
+        return true;
+      } catch (e) {
+        detachAudio();                     // 跨源 / 不支持：退回纯指针，绝不静音
+        return false;
+      }
+    }
+    function buildAudio() {
+      if (audioBuilding || audioReady || !audioSupported() || !audio.src) return;
+      audioBuilding = true;
+      if (!audioCtx) {
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { audioBuilding = false; return; }
+      }
+      if (audioCtx.state === 'running') { if (attachAudio()) return; }
+      audioCtx.resume().then(function () { if (!attachAudio()) audioBuilding = false; })
+        .catch(function () { audioBuilding = false; });
+    }
+    function detachAudio() {
+      stopAudioLoop();
+      if (msSrc) { try { msSrc.disconnect(); } catch (e) {} msSrc = null; }
+      if (analyser) { try { analyser.disconnect(); } catch (e) {} analyser = null; }
+      freqData = null; audioReady = false; audioBuilding = false;
+      bass = 0; bassAvg = 0;
+    }
+    function startAudioLoop() { if (!audioRaf && audioReady) audioRaf = requestAnimationFrame(audioLoop); }
+    function stopAudioLoop() { if (audioRaf) { cancelAnimationFrame(audioRaf); audioRaf = 0; } }
+    function audioLoop() {
+      audioRaf = 0;
+      if (destroyed || !audioReady) return;
+      if (!blocked() && playing) readSignal(performance.now(), null);
+      audioRaf = requestAnimationFrame(audioLoop);
+    }
+    /* 读频域：40~180Hz 的能量当「低频」；超过滑动均值 1.28 倍且够响 → 落一个波。 */
+    function readSignal(now, forceBass) {
+      if (forceBass == null && (!analyser || !audioReady)) return;
+      if (forceBass == null && now - readAt < 30) return;
+      readAt = now;
+      if (forceBass != null) bass = forceBass;
+      else {
+        try { analyser.getFloatFrequencyData(freqData); } catch (e) { return; }
+        var binHz = audioCtx.sampleRate / analyser.fftSize;
+        var lo = Math.max(1, Math.floor(40 / binHz)), hi = Math.min(freqData.length, Math.ceil(180 / binHz));
+        var energy = 0, count = 0;
+        for (var n = lo; n < hi; n++) { energy += Math.pow(10, freqData[n] / 10); count++; }
+        bass = Math.sqrt(energy / Math.max(1, count));
+      }
+      bassAvg = bassAvg * 0.93 + bass * 0.07;
+      if (bass > 0.014 && bass > bassAvg * 1.28 && now - lastBeat > 300) {
+        lastBeat = now; beatCount++;
+        drop(0.60 + Math.sin(beatCount * 2.4) * 0.19, 0.52 + Math.cos(beatCount * 1.7) * 0.19, Math.min(1.9, 0.7 + bass * 6));
+      }
     }
 
     function size() {
@@ -1470,11 +1560,12 @@
       size();
       if (!blocked()) { draw(); wake(); }
     }
-    function resume() { if (destroyed || playing) return; playing = true; drain = 0; sync(); }
+    function resume() { if (destroyed || playing) return; playing = true; drain = 0; buildAudio(); startAudioLoop(); sync(); }
     function pause(immediate) {
       if (destroyed) return;
       if (!playing && immediate !== true) return;   // audio 的事件对象不视作 immediate
       playing = false;
+      stopAudioLoop();
       drain = immediate === true ? 0 : 0.4;
       if (immediate === true) { waves.length = 0; trail.length = 0; }
       sync();
@@ -1547,7 +1638,7 @@
       audio.addEventListener('play', resume);
       audio.addEventListener('pause', pause);
       audio.addEventListener('ended', pause);
-      audio.addEventListener('emptied', pause);
+      audio.addEventListener('emptied', function () { detachAudio(); pause(); });
     }
     watchDpr();
     // 初始状态跟随当前 audio（可能是恢复的“在播”态，也可能未播）
@@ -1560,9 +1651,12 @@
       /* 测试用：读波数 / 手动喂一圈（与 __playerDebug 同类的探针） */
       stats: function () { return { waves: waves.length, trail: trail.length, field: fieldEnergy, playing: playing, raf: !!raf, w: width, h: height, cols: cols, rows: rows, strength: strength() }; },
       poke: function (x, y, strong) { drop(x, y, strong ? 1.8 : 0.8); return waves.length; },
+      /* 测试用：音频链状态 / 直接喂一个低频（真机走同一条 readSignal） */
+      audioState: function () { return { ready: audioReady, bass: bass, beats: beatCount, waves: waves.length }; },
+      audioPoke: function (level) { lastBeat = 0; readSignal(performance.now(), level == null ? 0.08 : level); return waves.length; },
       destroy: function () {
         if (destroyed) return;
-        destroyed = true; stop(); waves.length = 0; trail.length = 0; clear();
+        destroyed = true; stop(); detachAudio(); waves.length = 0; trail.length = 0; clear();
         if (resize) resize.disconnect();
         if (visibility) visibility.disconnect();
         if (classes) classes.disconnect();
@@ -4115,6 +4209,8 @@
   window.__playerDebug = {
     rippleState: function () { return rippleHandle ? rippleHandle.stats() : { exists: false }; },
     ripplePoke: function (x, y, strong) { return rippleHandle ? rippleHandle.poke(x, y, strong) : 0; },
+    rippleAudio: function () { return rippleHandle ? rippleHandle.audioState() : { exists: false }; },
+    rippleAudioPoke: function (level) { return rippleHandle ? rippleHandle.audioPoke(level) : 0; },
     /* 跨源歌词兜底的匹配判定（测试用）：不依赖网络，直接喂结果集。 */
     pickLyricHit: pickLyricHit,
     lyricIsPlaceholder: lyricIsPlaceholder,

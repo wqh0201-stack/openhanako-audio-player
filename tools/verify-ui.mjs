@@ -765,6 +765,19 @@ const motion = {};
     motion.ripple.afterWaves > (motion.ripple.beforeWaves || 0),
     JSON.stringify(motion.ripple));
 
+  // 音频反应：喂一个强低频 → 走 readSignal 的鼓点分支落一个波（真机接同源音频后同一条路径）
+  motion.audio = await page.evaluate(() => {
+    const dbg = window.__playerDebug;
+    if (!dbg || typeof dbg.rippleAudioPoke !== 'function') return { ok: false, reason: 'no-hook' };
+    const st = dbg.rippleAudio();
+    const before = st.waves;
+    const after = dbg.rippleAudioPoke(0.08);
+    return { ok: true, ready: st.ready, beforeWaves: before, afterWaves: after };
+  });
+  assert('motion-ripple-reactive-to-audio',
+    motion.audio.ok === true && motion.audio.afterWaves > (motion.audio.beforeWaves || 0),
+    JSON.stringify(motion.audio));
+
   // 按钮按压：:active 样式存在（scale）—— 检查样式表里确实写了
   motion.press = await page.evaluate(() => {
     const el = document.getElementById('playBtn');
@@ -1191,14 +1204,13 @@ const motion = {};
     placeholder.real === false && placeholder.real2 === false,
     JSON.stringify(placeholder));
 
-  /* 不再把音频接进 Web Audio（旧 captureStream/Analyser 链已随频谱一起移除）：
-   * 跨源音频接 createMediaElementSource 会输出全零（静音）且不可逆。涟漪不读音频，
-   * 从根上避开了这颗雷。源码级守卫，去掉注释后再查。 */
+  /* 音频反应链**只走 captureStream**（非破坏性副本）：同源拿数据、跨源抛错退回纯指针。
+   * **绝不能**回到 createMediaElementSource —— 跨源会输出全零（静音）且不可逆。源码级守卫，去注释后再查。 */
   const codeNoComments = fs.readFileSync(path.join(uiDir, 'app.js'), 'utf-8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-  assert('no-web-audio-media-chain',
-    !/createMediaElementSource\s*\(/.test(codeNoComments) && !/\.captureStream\s*\(/.test(codeNoComments),
-    JSON.stringify({ callsOldApi: /createMediaElementSource\s*\(/.test(codeNoComments), usesCaptureStream: /\.captureStream\s*\(/.test(codeNoComments) }));
+  assert('reactive-uses-captureStream-not-mediaElementSource',
+    /\.captureStream\s*\(/.test(codeNoComments) && !/createMediaElementSource\s*\(/.test(codeNoComments),
+    JSON.stringify({ usesCaptureStream: /\.captureStream\s*\(/.test(codeNoComments), callsOldApi: /createMediaElementSource\s*\(/.test(codeNoComments) }));
 
   report.four = w2;
   await page.close();

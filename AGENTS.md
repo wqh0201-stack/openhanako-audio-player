@@ -243,18 +243,31 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
   ⚠️ 电台是**播客长音频**（约 50 分钟/期），时长/歌词/频谱按歌设计，真机播放手感需单独验。
   接口实测矩阵（含哪些端点走不通）见知识库 `20-资料/网易云热门榜单与电台接口实测.md`。
   断言：`search-discover-three-blocks` / `search-chart-opens-tracks` / `search-radio-opens-programs`。
-- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **88/88** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名）
+- 无头验收：`node tools/verify-ui.mjs`（12/12 布局自检 + 4/4 窄卡 + **89/89** 断言 + 接线冒烟 + 迁移 + 跨文档生命周期 + 来源/真名/补齐/删除 + 红心/我的喜欢 + 环境色两态/兜底 + 动效五项 + 跨源安全/歌词兜底 + 搜索页/推荐区 + 涟漪 + 控制条对称/歌名）
 - 指针涟漪（2026-10-10，**已部署**，构建号 1003131586）：**旧「频谱」整层替换为 Canvas 2D 指针涟漪**。
   方案与行为约定：`docs/player-ui/RIPPLE-CANVAS-2D.md`（罐头拿提示词请教前端高手后的作品，已落地）。
   层序改为：封面(z1) → 涟漪(z2) → 蒙层(z3) → 歌词/标题(z4)；涟漪落在文字与蒙层下方，
   所以**常驻**，不再跟歌词互斥（无词时画面 = 封面 + 涟漪）。
   行为：指针移动累计距离才落波、按下更大一圈、播放且空闲时低频自起（呼吸波）；
   暂停约 350ms 收敛后停 rAF；截图/ reduced-motion / 隐藏 / 离屏全停调度；DPR 封顶 2。
-  ⚠️ **它不读音频**——`captureStream()` / `AnalyserNode` / `createMediaElementSource` 整条链已删。
-  这顺带根除了「跨源静音雷」：涟漪与音频同源与否无关，不再有 `is-reactive` / `specPulse`。
-  断言：`no-web-audio-media-chain`（源码级守卫）/ `ripple-layer-when-no-lyrics` /
-  `motion-lyric-crossfade` / `motion-ripple-when-no-lyrics` / `motion-ripple-poke-adds-wave`。
+  ⚠️ 当时**不读音频**（`captureStream` / `AnalyserNode` 整条链删掉），从根上避开跨源静音雷；
+  2026-10-10 罐头改拍板**把音频接回来驱动涟漪**，见下方「涟漪接真音频」一条。
+  断言：`ripple-layer-when-no-lyrics` / `motion-lyric-crossfade` /
+  `motion-ripple-when-no-lyrics` / `motion-ripple-poke-adds-wave`。
   真机待验：浅深主题观感、三种布局下涟漪密度、歌词可读性是否受扰。
+- 涟漪接真音频 + 流光（2026-10-10，构建号 1003131601）：
+  ① 画法从「等高线」换「**流光**」：照 `docs/player-ui/ripple-lab.html` 的 light 模式移植——
+    高度场当水面法线化成明暗、低分辨率放大成柔光（`paintField`）+ 压扁圆环。
+    强度两档对齐 lab 的「波澜」滑杆：**无词 0.50 / 有词 0.32**。
+  ② 音频反应：`<audio>.captureStream()` 另拷一路 → `AnalyserNode`（**fftSize 4096**、smoothing 0.65）
+    → 40~180Hz 低频能量；超滑动均值 1.28 倍且够响 → 落一个波，力度由低频定。
+    **只走 captureStream，绝不 `createMediaElementSource`**（跨源输出全零且不可逆）；
+    跨源抛错则退回纯指针，绝不静音。同源靠 `music/go` 的分片代理。
+  ⚠️ fftSize 是坑：沿用旧频谱柱的 128 时每 bin 有 344Hz 宽，40~180Hz 全挤进 bin 0，
+    bass 恒 0、鼓点永不触发（看着「接上了」其实没反应）；4096（10.8Hz/bin）才通。
+    详见知识库 `20-资料/Web Audio 频谱反应-同源媒体与CORS陷阱.md` §五。
+  断言：`reactive-uses-captureStream-not-mediaElementSource`（源码级守卫）/ `motion-ripple-reactive-to-audio`。
+  真机待验：真实网易曲目下的鼓点灵敏度（阈值 0.014 是 lab 的经验值）。
 - 第六轮（舞台底部渐隐 + 顶部圆角，2026-10-09 罐头拍板）：
   ① `.scene::after` 的舞台底部渐隐**已整个撤掉**：先是从「固定 72px 刷主题面色」改成「按舞台高比例
      `clamp(36px, 9%, 72px)`、化进 `--ambient-color`」，真机看过之后罐头拍板**连这道也去掉** ——
