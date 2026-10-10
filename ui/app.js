@@ -1200,8 +1200,10 @@
 
   function renderVolume() {
     var v = Math.round(state.volume * 100);
-    vol.value = String(v);
-    vol.style.setProperty('--fill', v + '%');
+    /* 静音时滑条归零（轨道也空），但 state.volume 原样保留 —— 取消静音直接回来，不用另存“上次音量”。 */
+    var shown = state.muted ? 0 : v;
+    vol.value = String(shown);
+    vol.style.setProperty('--fill', shown + '%');
     var muted = state.muted || v === 0;
     $('muteBtn').innerHTML = icon(muted ? 'i-volume-mute' : 'i-volume');
     $('muteBtn').setAttribute('aria-label', muted ? '取消静音' : '静音');
@@ -2504,6 +2506,51 @@
     persistState();
   });
 
+  /* ---------- 音量浮层：悬停 / 聚焦向上弹出竖条，移开即收 ----------
+   * 点按钮仍是「切静音」（上面那条）。浮层挂在 .vol-group 里，
+   * 鼠标从按钮挪到浮层上不算离开组，所以不会中途收起；拖动滑条期间也不收。 */
+  var volGroup = player.querySelector('.vol-group');
+  var muteBtn = $('muteBtn');
+  var volPopShown = false;
+  var volCloseTimer = 0;
+  var volDragging = false;
+
+  function openVolPop() {
+    if (volCloseTimer) { clearTimeout(volCloseTimer); volCloseTimer = 0; }
+    if (volPopShown) return;
+    volPopShown = true;
+    volGroup.classList.add('is-open');
+    muteBtn.setAttribute('aria-expanded', 'true');
+  }
+  function closeVolPop() {
+    if (volCloseTimer) { clearTimeout(volCloseTimer); volCloseTimer = 0; }
+    if (!volPopShown) return;
+    volPopShown = false;
+    volGroup.classList.remove('is-open');
+    muteBtn.setAttribute('aria-expanded', 'false');
+  }
+  function closeVolPopSoon() {
+    if (volCloseTimer) clearTimeout(volCloseTimer);
+    volCloseTimer = setTimeout(function () { volCloseTimer = 0; closeVolPop(); }, 90);
+  }
+
+  if (volGroup) {
+    volGroup.addEventListener('pointerenter', openVolPop);
+    volGroup.addEventListener('pointerleave', function () {
+      if (!volDragging) closeVolPopSoon();
+    });
+    volGroup.addEventListener('focusin', openVolPop);
+    volGroup.addEventListener('focusout', function (e) {
+      if (!volGroup.contains(e.relatedTarget)) closeVolPop();
+    });
+    vol.addEventListener('pointerdown', function () { volDragging = true; openVolPop(); });
+    document.addEventListener('pointerup', function () {
+      if (!volDragging) return;
+      volDragging = false;
+      if (!volGroup.matches(':hover') && !volGroup.contains(document.activeElement)) closeVolPopSoon();
+    });
+  }
+
   $('favBtn').addEventListener('click', function () {
     var t = currentTrack();
     if (!t) return;
@@ -3738,6 +3785,7 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
+    if (volPopShown) { closeVolPop(); return; }   // 最瞬时的浮层先收
     if (searchPage && !searchPage.hidden) { searchGoBack(); return; }   // 分层退：详情→推荐区→退出
     if (!morePop.hidden || !importPop.hidden) { closePops(); return; }
     if (player.getAttribute('data-layout') === 'wide' && state.drawer) closeDrawer();
@@ -4119,8 +4167,15 @@
       var el = $(id);
       add('control-visible:' + id, shown(el) && inside(el.getBoundingClientRect()), '');
     });
-    // 音量滑杆只在宽窗出现（窄容器放不下，改由静音键承担）；出现时必须完整可见
-    if (shown($('vol'))) add('control-visible:vol', inside($('vol').getBoundingClientRect()), '');
+    // 音量：默认收起（三种布局都是），展开后竖条完整可见且在容器内
+    var volGrp = player.querySelector('.vol-group');
+    var volSlider = $('vol');
+    var volClosed = !shown(volSlider);
+    volGrp.classList.add('is-open');
+    var volOpenOk = shown(volSlider) && inside(volSlider.getBoundingClientRect());
+    volGrp.classList.remove('is-open');
+    add('vol-pop-hover-slider', volClosed && volOpenOk,
+      'closed=' + volClosed + ' open=' + volOpenOk);
 
     /* 6/7. 队列能滚到底，且滚动时顶栏不动 */
     var queueVisible = shown(queueList) && queueList.scrollHeight > queueList.clientHeight;

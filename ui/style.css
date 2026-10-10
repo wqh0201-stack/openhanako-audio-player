@@ -1085,8 +1085,9 @@ button:disabled { cursor: default; }
 .cell-right { justify-content: flex-end; gap: 20px; }
 /* 窄卡：按钮行展平为 7 等分（中心等距、play 落正中）；搜索/歌名本就只在宽窗显示；
    队列也收成纯图标（与宽窗一致，且不带文字才撑得住等分格） */
-.player[data-layout="compact"] .cell,
-.player[data-layout="compact"] .vol-group { display: contents; }
+.player[data-layout="compact"] .cell { display: contents; }
+/* .vol-group **不再**展平：它里面挂着音量浮层，展平会把浮层也变成网格子项。
+   整组当作一格（里面只有静音键），7 等分的格数不变。 */
 .player[data-layout="compact"] .ctl-divider,
 .player[data-layout="compact"] .qb-label { display: none; }
 .player[data-layout="compact"] .queue-btn {
@@ -1100,7 +1101,73 @@ button:disabled { cursor: default; }
   column-gap: 0;
   justify-items: center;
 }
-.vol-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* ---------- 音量：一颗按钮，悬停向上弹出竖向滑条 ----------
+ * 三种布局通用。点按钮 = 切静音；鼠标移上来（或键盘聚焦）向上弹竖条，移开即收。
+ * 浮层是按钮的绝对定位子元素 → 父级 .vol-group 必须相对定位；
+ * 窄卡里整组只占一格（见上面 compact 那条，不再 display:contents）。 */
+.vol-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* 连通悬停区：按钮与浮层之间那道 8px 空隙也算进组内，
+ * 指针从按钮往浮层上行时不会「离开」组、不会误收起（浮层本身是子元素，天然算在内）。 */
+.vol-group::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 44px;
+  height: 12px;
+  transform: translateX(-50%);
+}
+.vol-pop {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 40;               /* 最顶层：呼出歌单抽屉(30)/遮罩(28)/搜索页(22)时也不被盖住（罐头拍板） */
+  width: 42px;
+  height: 136px;
+  border-radius: var(--radius-m);
+  background: var(--hk-surface);
+  border: 1px solid var(--hk-hairline);
+  box-shadow: var(--hk-pop-shadow);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 10px) scale(0.94);
+  transform-origin: 50% 100%;
+  transition: opacity .16s ease,
+              transform .2s cubic-bezier(.22, .61, .36, 1),
+              visibility 0s linear .2s;
+  pointer-events: none;
+}
+.vol-group.is-open .vol-pop {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0) scale(1);
+  transition: opacity .16s ease,
+              transform .2s cubic-bezier(.22, .61, .36, 1),
+              visibility 0s;
+  pointer-events: auto;
+}
+/* 竖条 = 横向 range 旋转 90°：轨道渐变（左→右 = 小→大）随之变成 下→上，
+ * 轨道/滑块的样式直接复用 .range 那一套，不必另写。 */
+.vol-pop .range-vol {
+  display: block;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 108px;
+  height: 20px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+.vol-pop .range-vol::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+}
 
 /* 「歌词」与「队列」同一套文字按钮语言：常态弱化、激活只用强调色 */
 .text-btn {
@@ -1174,8 +1241,7 @@ button:disabled { cursor: default; }
   background: transparent;
   cursor: pointer;
 }
-/* 窄容器放不下音量滑杆：只留静音键（网易云手机版同此）；宽窗才展开滑杆 */
-.range-vol { display: none; }
+/* 音量滑杆默认藏在 .vol-pop 里（见上）；展开/收起由 .vol-group.is-open 控制。 */
 .range::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
@@ -1365,7 +1431,6 @@ button:disabled { cursor: default; }
 .player[data-layout="wide"] .ctl-title { display: block; }
 .player[data-layout="wide"] .search-entry { display: inline-flex; }
 .player[data-layout="wide"] .qb-label { display: none; }
-.player[data-layout="wide"] .range-vol { display: block; width: 96px; }
 
 /* 宽窗：阅读列位置由 --content-x 决定，右边界固定 20px。
  * 抽屉是【浮在上层的独立面板】（.queue 为 absolute + z-index:6），
@@ -1437,6 +1502,11 @@ body.is-shot *::after {
   .player[data-lyrics] .lyric-wrap.is-swap-out { animation: panelFadeOut 0.2s ease both !important; }
   /* 涟漪在 reduced-motion 下直接隐藏（JS 也会关掉调度，双保险） */
   .ripple-canvas { display: none; }
+  /* 音量浮层：去位移/缩放，只留淡入淡出 */
+  .vol-pop,
+  .vol-group.is-open .vol-pop { transform: translate(-50%, 0) !important; }
+  .vol-pop { transition: opacity .16s ease, visibility 0s linear .16s !important; }
+  .vol-group.is-open .vol-pop { transition: opacity .16s ease, visibility 0s !important; }
 }
 @keyframes panelFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes panelFadeOut { from { opacity: 1; } to { opacity: 0; } }

@@ -1307,7 +1307,133 @@ const motion = {};
     JSON.stringify(s.entryVisibleWide));
   assert('ctl-play-centered-wide', s.entryVisibleWide.playCentered === true, JSON.stringify(s.entryVisibleWide));
 
-  // 窄卡（compact 高<560）下入口与歌名都应隐藏
+  /* 音量：一颗按钮 + 悬停弹出的竖向滑条（三种布局通用） */
+  s.volClosed = await page.evaluate(() => {
+    const v = document.getElementById('vol');
+    return { visibility: getComputedStyle(v).visibility, h: Math.round(v.getBoundingClientRect().height) };
+  });
+  assert('vol-pop-closed-by-default', s.volClosed.visibility === 'hidden', JSON.stringify(s.volClosed));
+
+  await page.hover('#muteBtn');
+  await sleep(420);
+  s.volHover = await page.evaluate(() => {
+    const v = document.getElementById('vol');
+    const vr = v.getBoundingClientRect();
+    const mb = document.getElementById('muteBtn');
+    const br = mb.getBoundingClientRect();
+    const fr = document.getElementById('frame').getBoundingClientRect();
+    return {
+      visible: getComputedStyle(v).visibility === 'visible',
+      vertical: vr.height > vr.width * 2,
+      above: vr.bottom <= br.top + 1,
+      inside: vr.left >= fr.left - 1 && vr.right <= fr.right + 1 && vr.top >= fr.top - 1,
+      expanded: mb.getAttribute('aria-expanded') === 'true'
+    };
+  });
+  assert('vol-pop-opens-on-hover',
+    s.volHover.visible === true && s.volHover.vertical === true && s.volHover.above === true &&
+    s.volHover.inside === true && s.volHover.expanded === true,
+    JSON.stringify(s.volHover));
+  await page.screenshot({ path: path.join(outDir, 'vol-pop-wide-light.png') });
+
+  // 浮层必须在最顶层：呼出歌单抽屉时不能被盖住
+  s.volZ = await page.evaluate(() => ({
+    vol: parseInt(getComputedStyle(document.getElementById('volPop')).zIndex, 10),
+    queue: parseInt(getComputedStyle(document.getElementById('queue')).zIndex, 10),
+    scrim: parseInt(getComputedStyle(document.getElementById('drawerScrim')).zIndex, 10)
+  }));
+  assert('vol-pop-above-queue',
+    s.volZ.vol > s.volZ.queue && s.volZ.vol > s.volZ.scrim, JSON.stringify(s.volZ));
+
+  // 竖向拖动：靠近顶部 = 大音量、靠近底部 = 小音量（映射不能反）
+  const vrect = await page.evaluate(() => {
+    const r = document.getElementById('vol').getBoundingClientRect();
+    return { x: r.left + r.width / 2, top: r.top, bottom: r.bottom, h: r.height };
+  });
+  await page.mouse.move(vrect.x, vrect.top + 3);
+  await page.mouse.down();
+  await page.mouse.move(vrect.x, vrect.bottom - vrect.h * 0.25, { steps: 8 });
+  await page.mouse.up();
+  await sleep(200);
+  s.volDrag = await page.evaluate(() => ({
+    value: parseInt(document.getElementById('vol').value, 10),
+    audioVol: Math.round(document.getElementById('audio').volume * 100)
+  }));
+  assert('vol-vertical-drag-sets-volume',
+    s.volDrag.value > 5 && s.volDrag.value < 45 && Math.abs(s.volDrag.audioVol - s.volDrag.value) <= 1,
+    JSON.stringify(s.volDrag));
+
+  // 点按钮 = 切静音：图标换、滑条归零（但 state.volume 留着）
+  await page.click('#muteBtn');
+  await sleep(200);
+  s.volMute = await page.evaluate(() => ({
+    muted: document.getElementById('audio').muted,
+    icon: document.querySelector('#muteBtn use').getAttribute('href'),
+    sliderVal: document.getElementById('vol').value,
+    fill: document.getElementById('vol').style.getPropertyValue('--fill')
+  }));
+  assert('vol-click-mutes',
+    s.volMute.muted === true && s.volMute.icon === '#i-volume-mute' &&
+    s.volMute.sliderVal === '0' && s.volMute.fill === '0%',
+    JSON.stringify(s.volMute));
+
+  // 取消静音 → 回到原来设置的音量（上一步拖到的那个值）
+  await page.click('#muteBtn');
+  await sleep(200);
+  s.volUnmute = await page.evaluate(() => ({
+    muted: document.getElementById('audio').muted,
+    sliderVal: parseInt(document.getElementById('vol').value, 10),
+    audioVol: Math.round(document.getElementById('audio').volume * 100)
+  }));
+  assert('vol-unmute-restores-volume',
+    s.volUnmute.muted === false && s.volUnmute.sliderVal === s.volDrag.value &&
+    s.volUnmute.audioVol === s.volDrag.value,
+    JSON.stringify(s.volUnmute));
+
+  // 移开 → 收起
+  await page.mouse.move(6, 6);
+  await sleep(520);
+  s.volLeave = await page.evaluate(() => ({
+    hidden: getComputedStyle(document.getElementById('vol')).visibility === 'hidden',
+    expanded: document.getElementById('muteBtn').getAttribute('aria-expanded')
+  }));
+  assert('vol-pop-closes-on-leave',
+    s.volLeave.hidden === true && s.volLeave.expanded === 'false', JSON.stringify(s.volLeave));
+
+  // 长卡 / 窄卡：同一颗按钮同样弹竖条，且竖条不越出容器
+  for (const [vw, vh, lay] of [[465, 930, 'long'], [531, 451, 'compact']]) {
+    await page.setViewport({ width: vw, height: vh, deviceScaleFactor: 1 });
+    await sleep(400);
+    await page.hover('#muteBtn');
+    await sleep(420);
+    const r = await page.evaluate(() => {
+      const v = document.getElementById('vol');
+      const vr = v.getBoundingClientRect();
+      const fr = document.getElementById('frame').getBoundingClientRect();
+      return {
+        layout: document.getElementById('player').getAttribute('data-layout'),
+        vertical: getComputedStyle(v).visibility === 'visible' && vr.height > vr.width * 2,
+        inside: vr.top >= fr.top - 1 && vr.bottom <= fr.bottom + 1
+      };
+    });
+    assert(`vol-pop-opens-${lay}`, r.layout === lay && r.vertical === true && r.inside === true, JSON.stringify(r));
+    await page.screenshot({ path: path.join(outDir, `vol-pop-${lay}-light.png`) });
+    await page.mouse.move(4, 4);
+    await sleep(400);
+  }
+  await page.setViewport({ width: 1040, height: 780, deviceScaleFactor: 1 });
+  await sleep(300);
+
+  // 歌单抽屉开着时，浮层仍画在它上面（截图存档）
+  await page.click('#queueBtn');
+  await sleep(450);
+  await page.hover('#muteBtn');
+  await sleep(420);
+  await page.screenshot({ path: path.join(outDir, 'vol-pop-over-drawer-light.png') });
+  await page.mouse.move(6, 6);
+  await sleep(400);
+  await page.click('#queueBtn');
+  await sleep(450);
   await page.setViewport({ width: 465, height: 930, deviceScaleFactor: 1 });
   await sleep(300);
   s.entryHiddenCard = await page.evaluate(() => {

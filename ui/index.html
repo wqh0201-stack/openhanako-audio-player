@@ -191,9 +191,13 @@
           </div>
 
           <div class="cell cell-right">
+            <!-- 音量：一颗按钮。点 = 切静音；悬停（或键盘聚焦）向上弹出竖向滑条，移开即收。
+                 浮层是按钮的绝对定位子元素，三种布局通用（窄卡展平时整组只算一格）。 -->
             <div class="vol-group">
-              <button class="icon-btn" id="muteBtn" type="button" aria-label="静音" title="静音"></button>
-              <input class="range range-vol" id="vol" type="range" min="0" max="100" step="1" value="72" aria-label="音量">
+              <button class="icon-btn" id="muteBtn" type="button" aria-label="静音" title="静音" aria-haspopup="true" aria-expanded="false"></button>
+              <div class="vol-pop" id="volPop">
+                <input class="range range-vol" id="vol" type="range" min="0" max="100" step="1" value="72" aria-label="音量">
+              </div>
             </div>
             <span class="ctl-divider" aria-hidden="true"></span>
             <button class="queue-btn" id="queueBtn" type="button">
@@ -273,7 +277,7 @@
 </defs></svg>
 
 <script src="app.js" defer></script>
-<script>window.__HANA_BUILD = "1003131608";</script>
+<script>window.__HANA_BUILD = "1003131610";</script>
 <script type="module">
   import { hana } from "./sdk.js";
   window.hana = hana;
