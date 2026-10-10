@@ -110,7 +110,12 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
    **或**更省事：把本仓库装成本地来源
    （`extension_manager install`，source `local`），以后能直接 `reload`。
 3. `node tools/bump-build.mjs`。
-4. 重载 app。
+4. **重载 app（必须，别省）**：`extension_manager reload app:hanako-audio-player`。
+   页面**不会**自己刷新 —— `index.html` 里只写了 `window.__HANA_BUILD` 标记，**没有** _build.json
+   轮询块，光同步文件不生效。忘了这步 = 罐头看到的还是旧版。（2026-10-10 踩过：只推了文件没 reload，
+   罐头以为没生效；更早一次还漏同步 CSS → `.cell` 退化成块级、元素竖堆。）
+
+> 一句话：**改完 → 同步 `ui/` 整包（index/standalone/style/_build）→ `reload` app**。三步缺一不可。
 
 ## 5. 当前任务
 
@@ -226,12 +231,18 @@ app-data（`~/.hanako/app-data/hanako-audio-player/`：`playlist.json` /
      最左端，收成**纯图标**；最右的队列也收成**纯图标**（宽窗隐藏 `.qb-label`，数字/「正在播放」
      提示不再占位）。两端同高、左右呼应。
   ② **歌名回到控制条**（罐头拍板）：把 `f2c7269` 那步删掉的歌名加回来 —— 新元素 `#ctlTitle`
-     （在 `renderTrack()` 里跟当前曲同步），落在「搜索」与「随机 ⟳」之间、居中，**限宽**
-     （`max-width: 240px`，超出省略号），不挤右侧播放控件；只显示歌名一行。
+     （在 `renderTrack()` 里跟当前曲同步），**固定宽度**（`flex: 0 0 240px`，长短歌名不影响右侧，
+     超出省略号）；只显示歌名一行。
   ③ **大卡片专属**：搜索图标与歌名都只在 `data-layout="wide"`（独立窗口）显示；窄卡/长条不显示
      （那里本来就没搜索这格）。`.controls-info` / `.ci-title` / `.ci-artist` 旧规则已删。
-  断言：`search-entry-visible-in-window`（改判自身 display + 位置）/ `ctl-endpoints-symmetric-wide`（新）/
-  `search-entry-hidden-in-card` / `ctl-title-hidden-in-card`（新）。
+  ④ **三段式网格 = 播放键钉在底栏正中**（罐头拍板，2026-10-10，**已部署**，构建号 1003131606）：
+     `.btn-row` 改回 `display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)`（`a7fa4ad` 原版写法），
+     三格 `.cell-left/.cell-center/.cell-right`：左格 `[🔍 歌名 ♡ ⟳]` 贴左、中格 `[⏮ ▶ ⏭]`、右格 `[🔊 | ☰]` 贴右。
+     两翼 1fr 等宽 → 中格恒居中，**播放键固定落在底栏正中**，不受左右内容宽窄影响（`ctl-play-centered-wide` 断言 <2px）。
+     踩过的坑：中间曾改扁平 `flex + space-between`，播放键会漂到 ~60%；且**部署只同步了 HTML、漏了 CSS** →
+     `.cell` 无样式退化成块级、元素竖着堆（罐头看到的「左右各挤成一坨」）。**部署必须整包同步 index/standalone/style/_build**。
+  断言：`search-entry-visible-in-window`（改判自身 display + 位置）/ `ctl-endpoints-symmetric-wide` /
+  `ctl-play-centered-wide`（新，播放键居中）/ `search-entry-hidden-in-card` / `ctl-title-hidden-in-card`。
 - 推荐区（2026-10-10，**已部署**，构建号 1003131585）：搜索页空白时开**三个推荐区**
   （罐头要「两种都要」）——
   ① 热门推荐（歌曲，可逐首加入）；② 榜单 · 歌单（点开拉前 30 首）；③ 热门电台（点开拉节目）。

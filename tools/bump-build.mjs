@@ -8,8 +8,8 @@
  *   · ui/standalone.html           → 同上
  *
  * 新号 = 旧号 + 1（单调递增，纯数字字符串，格式与原号一致）。
- * 页面每 5s 拉一次 _build.json，发现号不同就自动重载（见 index.html 里的自更新块），
- * 所以只要号变了，宿主端就会拿到新页面。
+ * ⚠️ 页面**不会**自动重载：index.html 里只有 `window.__HANA_BUILD` 标记，没有 _build.json 轮询块。
+ * 改完文件必须显式 reload：`extension_manager reload app:hanako-audio-player`，否则用户看到的还是旧版。
  *
  * 用法：node tools/bump-build.mjs [--print]
  */
